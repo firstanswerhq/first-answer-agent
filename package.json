@@ -1,0 +1,15 @@
+{
+  "name": "first-answer-agent",
+  "version": "1.0.0",
+  "description": "An AI agent that answers new home-service leads in seconds: qualifies, books, follows up, and hands off to a human when unsure.",
+  "type": "module",
+  "main": "src/index.js",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node src/index.js",
+    "seed": "node scripts/seed.js",
+    "test": "node --test test/*.test.js"
+  },
+  "license": "MIT",
+  "dependencies": { "express": "4.21.2" }
+}
