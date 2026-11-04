@@ -9,6 +9,8 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const PROFILE_DIR = path.join(root, 'config', 'profiles');
 export const DEFAULT_PROFILE = 'dental';
+// The example businesses a visitor may switch between. A fixed list, never a path or a name taken from the request.
+export const SHIPPED_PROFILES = Object.freeze(['dental', 'salon', 'accounting']);
 
 export class ProfileError extends Error {}
 
@@ -92,8 +94,8 @@ export function listProfiles() {
 }
 
 export function loadProfile(name = DEFAULT_PROFILE) {
-  const n = String(name || DEFAULT_PROFILE).trim();
-  if (!/^[a-z0-9_-]+$/i.test(n)) throw new ProfileError(`BUSINESS_PROFILE "${n.slice(0, 40)}" is not a valid profile name. Use a file name from config/profiles without .json (${listProfiles().join(', ')}).`);
+  const n = String(name || DEFAULT_PROFILE).trim().toLowerCase();
+  if (n.length > 40 || !/^[a-z0-9_-]+$/.test(n)) throw new ProfileError(`BUSINESS_PROFILE "${n.slice(0, 40)}" is not a valid profile name. Use a file name from config/profiles without .json (${listProfiles().join(', ')}).`);
   const file = path.join(PROFILE_DIR, `${n}.json`);
   let raw;
   try { raw = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) {

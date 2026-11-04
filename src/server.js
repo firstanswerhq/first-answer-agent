@@ -1,8 +1,8 @@
 import express from 'express';
 import path from 'node:path';
-import { VERSION } from './config.js';
+import { VERSION, withProfile } from './config.js';
 import { Store } from './store.js';
-import { Agent } from './agent.js';
+import { Agent, newSharedBudget } from './agent.js';
 import { LlmClient } from './llm.js';
 import { LeadService, validateLeadInput, summary, detail, InputError, SOURCES } from './service.js';
 import { FollowupScheduler } from './followups.js';
@@ -10,28 +10,64 @@ import { computeMetrics } from './metrics.js';
 import { listSlots, mondayOf, localNow, dateOf, addDays, isValidDate, isOpenNow } from './calendar.js';
 import { rateLimiter } from './ratelimit.js';
 import { seedSample, sampleIsStale } from './seed.js';
+import { loadProfile, SHIPPED_PROFILES } from './profile.js';
 import { safeEqual } from './util.js';
 import crypto from 'node:crypto';
 
 const SCENARIOS_OF = (config) => config.profile.scenarios;
 const LEAD_ID = /^L-[0-9a-f]{8}$/;
 
+/**
+ * One business "tenant": its own profile, state file, agent, lead service and follow-up scheduler. The server runs the
+ * deployment's own profile and, on request, the other shipped example profiles, each fully isolated from the others.
+ * Only the model budget and the visitor-key salt are shared (so switching profiles cannot multiply the model budget).
+ */
 export async function createApp({ config, store = new Store({ file: config.dataFile }), llm, now = Date.now, startTimers = true } = {}) {
   const client = llm ?? new LlmClient({ ...config.inference, fetchImpl: globalThis.fetch });
-  const agent = new Agent({ store, config, llm: client, now });
-  const svc = new LeadService({ store, agent, config, now });
-  const scheduler = new FollowupScheduler({ store, agent, now });
+  const shared = newSharedBudget();
   const startedAt = now();
-  if (config.seedOnEmpty && !store.state.meta.seeded && store.leads.length === 0) await seedSample(store, config, { realNow: now() });
-  // Keep the fictional sample day fresh on a long-running server: its times are relative to when it was loaded.
-  const refreshSample = async () => { if (config.seedOnEmpty && sampleIsStale(store, now())) { await seedSample(store, config, { force: true, realNow: now() }); return true; } return false; };
-  await refreshSample();
-  let sampleTimer = null;
-  if (startTimers) {
-    scheduler.start();
-    sampleTimer = setInterval(() => { refreshSample().catch(() => {}); }, 15 * 60_000);
-    sampleTimer.unref?.();
+  const tenants = new Map();
+  const timers = [];
+
+  async function buildTenant(cfg, st) {
+    const agent = new Agent({ store: st, config: cfg, llm: client, now, shared });
+    const svc = new LeadService({ store: st, agent, config: cfg, now });
+    const scheduler = new FollowupScheduler({ store: st, agent, now });
+    if (cfg.seedOnEmpty && !st.state.meta.seeded && st.leads.length === 0) await seedSample(st, cfg, { realNow: now() });
+    // Keep the fictional sample day fresh on a long-running server: its times are relative to when it was loaded.
+    const refreshSample = async () => { if (cfg.seedOnEmpty && sampleIsStale(st, now())) { await seedSample(st, cfg, { force: true, realNow: now() }); return true; } return false; };
+    await refreshSample();
+    if (startTimers) {
+      scheduler.start();
+      const t = setInterval(() => { refreshSample().catch(() => {}); }, 15 * 60_000);
+      t.unref?.();
+      timers.push(t);
+    }
+    return { id: cfg.profile.id, config: cfg, store: st, agent, svc, scheduler, refreshSample, lastReset: 0 };
   }
+
+  const main = await buildTenant(config, store);
+  tenants.set(config.profile.id, Promise.resolve(main));
+
+  // Which profiles a visitor may switch to: the shipped examples plus this deployment's own profile. Never a name or path
+  // taken from the request: the id is looked up in this fixed list.
+  const allowed = config.profileSwitcher === false ? [config.profile.id] : [...new Set([config.profile.id, ...SHIPPED_PROFILES])];
+  const profileInfo = new Map();
+  const infoFor = (id) => {
+    if (!profileInfo.has(id)) {
+      const p = id === config.profile.id ? config.profile : loadProfile(id);
+      profileInfo.set(id, { id, name: id === config.profile.id ? config.business.name : p.business.name, tagline: p.business.tagline, accent: p.business.accent, customerWord: p.business.customerWord });
+    }
+    return profileInfo.get(id);
+  };
+  const getTenant = (id) => {
+    if (!tenants.has(id)) {
+      const p = loadProfile(id);
+      const cfg = withProfile(config, p);
+      tenants.set(id, buildTenant(cfg, new Store({ file: cfg.dataFile })));
+    }
+    return tenants.get(id);
+  };
 
   const app = express();
   app.disable('x-powered-by');
@@ -56,7 +92,25 @@ export async function createApp({ config, store = new Store({ file: config.dataF
   const replyHourLimit = rateLimiter(config.limits.replyRateHour, 'reply-hour', now);
   const resetLimit = rateLimiter(config.limits.resetRate, 'reset', now);
 
-  app.get('/api/health', (_req, res) => {
+  // Which business this request is for: the x-profile header or ?profile= query, looked up in a fixed list. No header means
+  // the deployment's own profile. Anything else is rejected, so no path or file name ever comes from a request.
+  app.use('/api', async (req, res, next) => {
+    try {
+      const raw = req.get('x-profile') ?? req.query.profile;
+      if (raw === undefined || raw === '') { req.t = main; return next(); }
+      const id = typeof raw === 'string' ? raw.trim().toLowerCase() : '';
+      if (!allowed.includes(id)) return res.status(400).json({ error: 'Unknown business profile.' });
+      req.t = await getTenant(id);
+      return next();
+    } catch (e) { return next(e); }
+  });
+
+  app.get('/api/profiles', readLimit, (_req, res) => {
+    res.json({ default: config.profile.id, switcher: allowed.length > 1, profiles: allowed.map(infoFor) });
+  });
+
+  app.get('/api/health', (req, res) => {
+    const { config, store, agent } = req.t;
     const st = agent.status();
     res.json({
       ok: true, version: VERSION, mode: st.mode, modeLabel: st.label, model: st.model,
@@ -66,7 +120,8 @@ export async function createApp({ config, store = new Store({ file: config.dataF
     });
   });
 
-  app.get('/api/config', readLimit, (_req, res) => {
+  app.get('/api/config', readLimit, (req, res) => {
+    const { config, agent } = req.t;
     const p = config.profile;
     res.json({
       profile: p.id,
@@ -78,13 +133,15 @@ export async function createApp({ config, store = new Store({ file: config.dataF
     });
   });
 
-  app.get('/api/scenarios', readLimit, (_req, res) => res.json(SCENARIOS_OF(config).map(({ id, title, blurb }) => ({ id, title, blurb }))));
+  app.get('/api/scenarios', readLimit, (req, res) => res.json(SCENARIOS_OF(req.t.config).map(({ id, title, blurb }) => ({ id, title, blurb }))));
 
-  app.get('/api/leads', readLimit, (_req, res) => {
+  app.get('/api/leads', readLimit, (req, res) => {
+    const { config, store, agent } = req.t;
     res.json({ leads: [...store.leads].sort((a, b) => b.createdAt - a.createdAt).map((l) => summary(l, store)), agent: agent.status(), officeOpen: isOpenNow(localNow(now(), config.business.tz), config.hours), today: dateOf(localNow(now(), config.business.tz)) });
   });
 
   app.get('/api/leads/:id', readLimit, (req, res) => {
+    const { config, store, agent } = req.t;
     const lead = LEAD_ID.test(req.params.id) ? store.getLead(req.params.id) : null;
     if (!lead) return res.status(404).json({ error: 'Lead not found.' });
     return res.json({ lead: detail(lead, store), agent: agent.status(), followupSpeedup: config.followupSpeedup });
@@ -93,6 +150,7 @@ export async function createApp({ config, store = new Store({ file: config.dataF
   // Public intake: the customer-facing form and any website can post here.
   app.post('/api/leads', leadLimit, leadHourLimit, (req, res, next) => {
     try {
+      const { config, svc } = req.t;
       const input = validateLeadInput(req.body, config.limits);
       const { lead } = svc.createLead(input, { ipKey: ipKey(req) });
       res.status(202).json({ id: lead.id, token: lead.token, status: lead.status, receivedAt: lead.createdAt });
@@ -101,6 +159,7 @@ export async function createApp({ config, store = new Store({ file: config.dataF
 
   app.post('/api/simulate', leadLimit, leadHourLimit, (req, res, next) => {
     try {
+      const { config, svc } = req.t;
       const sc = SCENARIOS_OF(config).find((s) => s.id === req.body?.scenario);
       if (!sc) throw new InputError('Unknown scenario.');
       const { lead } = svc.createLead(sc.lead, { simulated: true, ipKey: ipKey(req) });
@@ -112,6 +171,7 @@ export async function createApp({ config, store = new Store({ file: config.dataF
   // Simulated leads hand their token to the browser that created them; sample leads expose a demo token in their detail.
   app.post('/api/leads/:id/customer-reply', replyLimit, replyHourLimit, (req, res, next) => {
     try {
+      const { store, svc } = req.t;
       const target = LEAD_ID.test(req.params.id) ? store.getLead(req.params.id) : null;
       const tok = String(req.get('x-lead-token') || req.body?.token || '');
       if (!target || !tok || !safeEqual(tok, target.token)) throw new InputError('Lead not found.', 404);
@@ -122,6 +182,7 @@ export async function createApp({ config, store = new Store({ file: config.dataF
 
   // Customer-facing thread: needs the secret token returned at intake; exposes messages only.
   const publicLead = (req) => {
+    const { store } = req.t;
     const lead = LEAD_ID.test(req.params.id) ? store.getLead(req.params.id) : null;
     const tok = String(req.query.token || req.body?.token || '');
     if (!lead || !tok || !safeEqual(tok, lead.token)) throw new InputError('Lead not found.', 404);
@@ -129,12 +190,14 @@ export async function createApp({ config, store = new Store({ file: config.dataF
   };
   app.get('/api/public/leads/:id', readLimit, (req, res, next) => {
     try {
+      const { store, agent } = req.t;
       const lead = publicLead(req);
       res.json({ id: lead.id, name: lead.name, replyTimeSec: lead.replyTimeSec ?? null, messages: lead.messages.map((m) => ({ from: m.from, text: m.text, ts: m.ts })), handedToHuman: lead.status === 'human', booked: !!store.bookingForLead(lead.id), mode: agent.status().label });
     } catch (e) { next(e); }
   });
   app.post('/api/public/leads/:id/messages', replyLimit, replyHourLimit, (req, res, next) => {
     try {
+      const { svc } = req.t;
       const lead = publicLead(req);
       svc.addCustomerMessage(lead.id, req.body?.text, { ipKey: ipKey(req) });
       res.status(202).json({ id: lead.id });
@@ -144,20 +207,21 @@ export async function createApp({ config, store = new Store({ file: config.dataF
   // Reset the demo: reloads the fictional sample day only. Visitors' own conversations and bookings are never touched,
   // so one visitor cannot erase another's work. The sample day is produced by the offline rules engine on a separate
   // agent, so this never spends or touches the live model budget.
-  let lastReset = 0;
-  app.post('/api/demo/reset', resetLimit, async (_req, res, next) => {
+  app.post('/api/demo/reset', resetLimit, async (req, res, next) => {
     try {
-      if (now() - lastReset < config.limits.resetCooldownMs) {
+      const { config, store } = req.t;
+      if (now() - req.t.lastReset < config.limits.resetCooldownMs) {
         res.set('Retry-After', String(Math.ceil(config.limits.resetCooldownMs / 1000)));
         return res.status(429).json({ error: 'The demo was reset a moment ago. Try again shortly.' });
       }
-      lastReset = now();
+      req.t.lastReset = now();
       await seedSample(store, config, { force: true, realNow: now() });
       return res.json({ ok: true, leads: store.leads.length, bookings: store.bookings.length });
     } catch (e) { return next(e); }
   });
 
   app.get('/api/calendar', readLimit, (req, res) => {
+    const { config, store } = req.t;
     const today = dateOf(localNow(now(), config.business.tz));
     let start = typeof req.query.start === 'string' && isValidDate(req.query.start) && req.query.start >= '2000-01-01' && req.query.start <= '2100-12-31' ? req.query.start : today;
     start = mondayOf(start);
@@ -167,6 +231,7 @@ export async function createApp({ config, store = new Store({ file: config.dataF
   });
 
   app.get('/api/metrics', readLimit, (req, res) => {
+    const { config, store } = req.t;
     res.json(computeMetrics(store, config, now(), req.query.scope === 'all' ? 'all' : 'live'));
   });
 
@@ -183,5 +248,12 @@ export async function createApp({ config, store = new Store({ file: config.dataF
     return res.status(500).json({ error: 'Something went wrong.' });
   });
 
-  return { app, store, agent, svc, scheduler, llm: client, refreshSample, close: async () => { scheduler.stop(); clearInterval(sampleTimer); await store.flush(); } };
+  return {
+    app, store, agent: main.agent, svc: main.svc, scheduler: main.scheduler, llm: client, refreshSample: main.refreshSample, shared,
+    tenant: async (id) => getTenant(id),
+    close: async () => {
+      timers.forEach((t) => clearInterval(t));
+      for (const p of tenants.values()) { const t = await p; t.scheduler.stop(); await t.store.flush(); }
+    },
+  };
 }

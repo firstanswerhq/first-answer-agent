@@ -174,3 +174,9 @@ html{background:#070b18}
  .search{display:flex;flex:1 1 100%;min-width:0;order:2}
  .search[hidden]{display:none}
 }
+
+/* "Switch business" */
+.switch{display:inline-flex;align-items:center;gap:8px;font-size:12px;color:#d9c9ff;border:1px solid color-mix(in srgb,var(--accent,#a95aff) 60%,transparent);background:color-mix(in srgb,var(--accent,#a95aff) 14%,transparent);border-radius:99px;padding:5px 6px 5px 12px;white-space:nowrap}
+.switch[hidden]{display:none}
+.switch select{appearance:auto;background:#10152b;color:#fff;border:1px solid #ffffff2b;border-radius:99px;padding:5px 8px;font:inherit;font-size:12px;max-width:230px}
+@media(max-width:900px){.switch{flex:1 1 100%;justify-content:space-between;order:1}.switch select{flex:1;max-width:none}}

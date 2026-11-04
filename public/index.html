@@ -22,7 +22,7 @@
     <div class="side-label" style="margin-top:22px">Manage</div>
     <nav class="nav" aria-label="Manage">
       <a href="#/guardrails" data-nav="guardrails"><svg viewBox="0 0 24 24"><path d="M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6z"/></svg>Guardrails</a>
-      <a href="/lead" target="_blank" rel="noopener"><svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5H5V6h5"/></svg>Customer contact form</a>
+      <a href="/lead" id="leadLink" target="_blank" rel="noopener"><svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5H5V6h5"/></svg>Customer contact form</a>
     </nav>
     <div class="sidebar-foot">
       <strong><i class="live-dot" id="footDot"></i><span id="footTitle">Checking status</span></strong>
@@ -33,6 +33,7 @@
     <div class="topbar">
       <div class="crumb"><span id="bizName">Your business</span> <span style="color:#65708e">/</span> <span id="crumb">Live Inbox</span></div>
       <div class="top-actions">
+        <label class="switch" id="switchBox" hidden><span>Switch business</span><select id="bizSwitch" aria-label="Switch business"></select></label>
         <label class="search" aria-label="Search inquiries"><span aria-hidden="true">&#8981;</span><input id="search" type="search" placeholder="Search inquiries" autocomplete="off"></label>
         <span class="badge" id="modeBadge" role="status"><i class="live-dot"></i><span>Loading</span></span>
       </div>

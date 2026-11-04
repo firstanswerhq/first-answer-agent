@@ -24,6 +24,17 @@ export function parseTrustProxy(v) {
   return Number.isFinite(n) && n > 0 && String(n) === t ? n : false;
 }
 
+/**
+ * The same server settings with a different business profile: used by the "Switch business" control. Only the
+ * business-specific parts change; the secrets, limits and model settings stay shared. Each profile keeps its own state file.
+ */
+export function withProfile(cfg, profile) {
+  return {
+    ...cfg, profile, business: { ...profile.business }, hours: profile.hours, serviceArea: profile.serviceArea, services: profile.services, wording: profile.wording,
+    dataFile: cfg.dataFile ? path.join(path.dirname(cfg.dataFile), `state-${profile.id}.json`) : null,
+  };
+}
+
 export function loadConfig(env = process.env, over = {}) {
   // The business profile (config/profiles/<name>.json) carries everything specific to one kind of business.
   const { profile: profileOver, ...rest } = over;
@@ -77,6 +88,8 @@ export function loadConfig(env = process.env, over = {}) {
       emergencyHolds: env.EMERGENCY_HOLDS === '1',
     },
     seedOnEmpty: env.SEED_ON_EMPTY !== '0',
+    // Let visitors switch between the shipped example businesses (PROFILE_SWITCHER=0 turns the control off).
+    profileSwitcher: env.PROFILE_SWITCHER !== '0',
     ...rest,
   };
   return cfg;

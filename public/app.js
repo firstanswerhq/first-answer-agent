@@ -7,10 +7,17 @@ const raw = (s) => new Raw(s);
 const html = (strings, ...vals) => strings.reduce((out, s, i) => out + s + (i < vals.length ? (vals[i] instanceof Raw ? vals[i].s : Array.isArray(vals[i]) ? vals[i].map((x) => (x instanceof Raw ? x.s : esc(x))).join('') : esc(vals[i])) : ''), '');
 const R = (s) => raw(s);
 
+// Which example business this tab shows: ?profile= in the address, remembered for the tab. Empty = the server's default.
+let PROFILE = new URLSearchParams(location.search).get('profile') || '';
+try { if (PROFILE) sessionStorage.setItem('fa-profile', PROFILE); else PROFILE = sessionStorage.getItem('fa-profile') || ''; } catch { /* storage unavailable */ }
+PROFILE = PROFILE.toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 40);
+const leadHref = () => (PROFILE ? `/lead?profile=${encodeURIComponent(PROFILE)}` : '/lead');
+
 const state = { calStart: '', calSig: '', failures: 0, cfg: null, leads: [], agent: null, today: '', filter: 'all', query: '', timer: null, tz: 'UTC', view: '' };
 
 async function api(path, opts) {
-  const res = await fetch(path, opts && opts.body ? { ...opts, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(opts.body) } : opts);
+  const prof = PROFILE ? { 'x-profile': PROFILE } : {};
+  const res = await fetch(path, opts && opts.body ? { ...opts, headers: { 'Content-Type': 'application/json', ...prof }, body: JSON.stringify(opts.body) } : { ...(opts || {}), headers: { ...prof, ...((opts && opts.headers) || {}) } });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
   return data;
@@ -43,6 +50,25 @@ function toast(msg) {
   setTimeout(() => t.remove(), 4000);
 }
 
+// ---------- "Switch business": the same app, a different example business ----------
+async function paintSwitcher() {
+  const box = $('#switchBox');
+  try {
+    const p = await api('/api/profiles');
+    state.profiles = p;
+    if (!p.switcher) { box.hidden = true; return; }
+    const sel = $('#bizSwitch');
+    sel.innerHTML = p.profiles.map((x) => html`<option value="${x.id}">${x.name}</option>`).join('');
+    sel.value = state.cfg.profile;
+    box.hidden = false;
+    sel.onchange = () => {
+      const id = sel.value;
+      try { sessionStorage.setItem('fa-profile', id); } catch { /* ignore */ }
+      location.href = `/?profile=${encodeURIComponent(id)}#/inbox`; // a full reload, so the name, colors, services and sample leads all change together
+    };
+  } catch { box.hidden = true; }
+}
+
 // ---------- shell ----------
 function paintShell() {
   const a = state.agent;
@@ -60,6 +86,7 @@ function paintShell() {
   $('#navCount').textContent = needs;
   if (state.cfg) {
     $('#bizName').textContent = state.cfg.business.name;
+    $('#leadLink').href = leadHref();
     document.documentElement.style.setProperty('--accent', state.cfg.business.accent);
     document.title = `${state.cfg.business.name} - AI front desk`;
   }
@@ -103,7 +130,7 @@ async function renderInbox(first) {
         <div class="actions">
           <div class="menu"><button class="btn" id="simBtn" aria-haspopup="true" aria-expanded="false">+ Simulate a new inquiry</button>
             <div class="menu-list" id="simMenu" hidden role="menu">${sc.map((s) => R(html`<button role="menuitem" data-sc="${s.id}"><strong>${s.title}</strong><span>${s.blurb}</span></button>`))}</div></div>
-          <a class="btn ghost" href="/lead" target="_blank" rel="noopener">Open lead form</a>
+          <a class="btn ghost" href="${leadHref()}" target="_blank" rel="noopener">Open contact form</a>
           <button class="btn ghost" id="resetBtn" title="Reload the fictional sample data. Your own conversations are kept.">Reset demo</button>
         </div></div>
       <div class="inbox-grid">
@@ -167,7 +194,7 @@ async function renderDetail(id, first) {
           <div class="conversation" id="conv" tabindex="0" aria-label="Conversation"></div>
           <form class="composer" id="composer">
             <p class="hint">Try it as the customer: type a reply and the assistant will answer. Messages are simulated.</p>
-            <div class="quick"><button type="button" data-q="The first one works for me.">The first one works</button><button type="button" data-q="None of those times work, anything next week?">Another day?</button><button type="button" data-q="Can I speak to a manager?">Ask for a human</button></div>
+            <div class="quick"><button type="button" data-q="The first one works for me.">The first one works</button><button type="button" data-q="None of those times work, anything next week?">Another day?</button><button type="button" data-q="Can I speak to a manager?">Ask for a person</button></div>
             <div class="row"><textarea id="replyText" maxlength="1000" rows="2" placeholder="Reply as ${esc(l.name.split(' ')[0])}..." aria-label="Customer reply"></textarea><button class="btn" id="sendBtn" type="submit">Send</button></div>
           </form></div>
         <div style="display:grid;gap:18px;align-content:start">
@@ -225,7 +252,7 @@ function timelineItem(t) {
 function factsHtml(l, speedup) {
   const q = l.qualification; const rows = [];
   const add = (k, v) => rows.push(html`<dt>${k}</dt><dd>${v}</dd>`);
-  add('First reply', l.replyTimeSec == null ? 'Not yet' : `${replyText(l.replyTimeSec, l.lastRunMode)}${l.seed ? ' (simulated)' : ' (measured)'}`);
+  add('First reply', l.replyTimeSec == null ? 'Not yet' : l.seed ? `${replyText(l.replyTimeSec, l.lastRunMode)} (simulated)` : l.replyTimeSec < 1 && l.lastRunMode !== 'model' ? 'instant (rules)' : `${secs(l.replyTimeSec)} (measured)`);
   add('Answered by', l.lastRunMode === 'model' ? 'AI model' : l.lastRunMode === 'offline' ? 'Built-in rules' : 'Pending');
   if (q) {
     add('Service', q.serviceLabel);
@@ -303,7 +330,7 @@ async function renderResults(scope = 'live') {
     <div class="heading"><div><div class="eyebrow">${withSample ? 'Live replies plus the fictional sample day' : 'Live replies only'}</div><h1>Results</h1><p class="sub">Numbers come from the inquiries stored in this app. The dashboard shows how long each reply actually took. The sample day is fictional and labeled as such.</p></div>
       <select class="btn ghost" id="scope" aria-label="Data scope"><option value="live">Live replies only (measured)</option><option value="all">Include simulated sample data</option></select></div>
     <div class="stat-grid">
-      <div class="card stat"><label>Typical reply time${ms.answered ? ` (median of ${ms.answered} live repl${ms.answered === 1 ? 'y' : 'ies'})` : ''}</label><strong>${ms.medianSec == null ? '—' : replyText(ms.medianSec, ms.model.answered && !ms.rules.answered ? 'model' : 'rules')}</strong><small class="dim">${ms.answered ? `AI model ${ms.model.answered ? secs(ms.model.medianSec) + ' (' + ms.model.answered + ')' : 'none yet'} · built-in rules ${ms.rules.answered ? replyText(ms.rules.medianSec, 'rules') + ' (' + ms.rules.answered + ')' : 'none yet'}` : 'No live replies yet'}</small></div>
+      <div class="card stat"><label>Typical reply time${ms.answered ? ` (median of ${ms.answered} live repl${ms.answered === 1 ? 'y' : 'ies'})` : ''}</label><strong>${ms.medianSec == null ? '—' : replyText(ms.medianSec, ms.model.answered && !ms.rules.answered ? 'model' : 'rules')}</strong><small class="dim">${ms.answered ? `AI model: ${ms.model.answered ? secs(ms.model.medianSec) + ' (' + ms.model.answered + ')' : 'none yet'} · Built-in rules: ${ms.rules.answered ? (ms.rules.medianSec < 1 ? 'instant' : secs(ms.rules.medianSec)) + ' (' + ms.rules.answered + ')' : 'none yet'}` : 'No live replies yet'}</small></div>
       <div class="card stat"><label>Inquiries answered</label><strong>${m.answered}</strong><small class="dim">of ${m.totalLeads} received${withSample ? ' (includes the fictional sample)' : ''}</small></div>
       <div class="card stat"><label>Appointments booked</label><strong>${m.booked}</strong><small>${m.bookedRate == null ? 'No data yet' : m.bookedRate + '% of answered inquiries' + (withSample ? ' (sample is fictional)' : '')}</small></div>
       <div class="card stat"><label>Needs a person</label><strong>${m.human}</strong><small class="dim">${m.humanRate == null ? 'No data yet' : m.humanRate + '% need judgment or a follow-up call'}</small></div>
@@ -323,7 +350,7 @@ function chartSvg(data) {
   const W = 760; const H = 280; const L = 44; const T = 22; const B = 36; const iw = W - L - 10; const ih = H - T - B;
   const top = Math.max(...d.map((x) => x.sec));
   const inMs = top < 1; // all replies under a second: scale the axis in milliseconds so the bars are visible
-  const max = inMs ? Math.max(0.005, Math.ceil(top * 1000 / 5) * 5 / 1000) : Math.max(5, Math.ceil(top / 5) * 5);
+  const max = inMs ? Math.max(0.02, Math.ceil(top * 1000 / 20) * 20 / 1000) : Math.max(5, Math.ceil(top / 5) * 5);
   const bw = Math.min(34, (iw / d.length) * 0.55);
   const y = (v) => T + ih - (v / max) * ih;
   let out = `<svg class="chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Bar chart of reply time for the latest ${d.length} inquiries. ">`;
@@ -346,7 +373,7 @@ function renderGuardrails() {
   $('#view').innerHTML = html`
     <div class="heading"><div><div class="eyebrow">Safety</div><h1>Guardrails</h1><p class="sub">These checks run in software for ${c.business.name}, so they still apply if the AI model gets something wrong. Customer text is treated as data, never as instructions.</p></div></div>
     <div class="grid2">
-      <div class="card"><div class="card-head"><h2>What the agent is blocked from doing</h2></div><div class="card-body"><ul class="rules">
+      <div class="card"><div class="card-head"><h2>What the assistant is blocked from doing</h2></div><div class="card-body"><ul class="rules">
         <li><b>Book outside business hours.</b> ${c.hoursText}. Times come only from the business's calendar.</li>
         <li><b>Double book.</b> A taken time is refused at write time.</li>
         <li><b>Quote a price outside the approved range.</b> Any dollar amount outside the range set for the service is blocked; otherwise the assistant gives the range or says the cost is confirmed in person.</li>
@@ -361,7 +388,7 @@ function renderGuardrails() {
         <li><b>Out of scope${c.serviceArea ? ' or out of area' : ''}</b> requests, and unclear requests after two questions.</li>
         <li><b>If the AI repeatedly tries something not allowed.</b></li></ul></div></div>
       ${c.serviceArea ? R(html`<div class="card"><div class="card-head"><h2>Service area</h2></div><div class="card-body"><div class="pillbox">${c.serviceArea.cities.map((x) => R(html`<span>${x}</span>`))}</div></div></div>`) : ''}
-      <div class="card"><div class="card-head"><h2>Approved price ranges</h2></div><div class="card-body" style="padding:0"><table class="table"><thead><tr><th>Service</th><th>Price range</th></tr></thead><tbody>${priced.map((p) => R(html`<tr><td>${p.label}</td><td>$${p.price.low.toLocaleString()}–$${p.price.high.toLocaleString()}</td></tr>`))}</tbody></table><p class="sub" style="padding:12px 16px">${quote.length ? `No quote from the agent: ${quote.join(', ')}. ${c.wording.noQuote}` : 'Every service has a configured range.'}</p></div></div>
+      <div class="card"><div class="card-head"><h2>Approved price ranges</h2></div><div class="card-body" style="padding:0"><table class="table"><thead><tr><th>Service</th><th>Price range</th></tr></thead><tbody>${priced.map((p) => R(html`<tr><td>${p.label}</td><td>$${p.price.low.toLocaleString()}–$${p.price.high.toLocaleString()}</td></tr>`))}</tbody></table><p class="sub" style="padding:12px 16px">${quote.length ? `No price quoted by the assistant for: ${quote.join(', ')}. ${c.wording.noQuote}` : 'Every service has a configured range.'}</p></div></div>
     </div>
     <p class="foot">Demo data is fictional; messages are simulated. Follow-ups normally wait 30 minutes; the demo shortens that to ${Math.max(1, Math.round(1800 / c.followupSpeedup))} seconds so you can watch one. All of this comes from the business profile "${c.profile}".</p>`;
 }
@@ -377,7 +404,7 @@ async function route() {
   $('.search').hidden = name !== 'inbox';
   let again = 3000;
   try {
-    if (!state.cfg) { state.cfg = await api('/api/config'); state.tz = state.cfg.business.tz; }
+    if (!state.cfg) { state.cfg = await api('/api/config'); state.tz = state.cfg.business.tz; await paintSwitcher(); }
     // The detail page polls only its own lead; the inbox list is fetched when you are on a page that shows it.
     if (!(name === 'lead' && arg) && name !== 'calendar') await refreshLeads();
     else if (first || !state.agent) await refreshLeads();
@@ -388,6 +415,7 @@ async function route() {
     else { await renderInbox(first); again = 2500; }
     state.failures = 0;
   } catch (err) {
+    if (/Unknown business profile/.test(err.message)) { try { sessionStorage.removeItem('fa-profile'); } catch { /* ignore */ } location.replace('/'); return; }
     if (name === 'lead') { $('#view').innerHTML = html`<a class="back" href="#/inbox">&larr; Back to Live Inbox</a><div class="card empty">${err.message}</div>`; again = 0; }
     else toast(err.message);
     state.failures += 1;

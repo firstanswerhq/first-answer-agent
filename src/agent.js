@@ -12,6 +12,8 @@ import { localNow, isOpenNow } from './calendar.js';
 const comma = (n) => { const f = firstName(n); return f === 'there' ? '' : `, ${f}`; };
 const nameLead = (n) => { const f = firstName(n); return f === 'there' ? '' : `${f}, `; };
 
+export const newSharedBudget = () => ({ modelRunStamps: [], ipRunStamps: new Map(), stats: { modelRuns: 0, offlineRuns: 0, lastModelOk: null, lastError: '', lastModel: '', lastRunMode: null } });
+
 export const MODE_MODEL = 'model';
 export const MODE_OFFLINE = 'offline';
 
@@ -63,7 +65,11 @@ function buildContext(ctx) {
 }
 
 export class Agent {
-  constructor({ store, config, llm, now = Date.now }) {
+  /**
+   * shared: model-call counters and status that every business profile on this server uses together, so switching
+   * profiles can never multiply the model budget. A single-profile server just gets its own.
+   */
+  constructor({ store, config, llm, now = Date.now, shared = null }) {
     this.store = store;
     this.config = config;
     this.llm = llm;
@@ -71,10 +77,13 @@ export class Agent {
     this.chains = new Map(); // per-lead serialization
     this.active = 0;
     this.waiting = [];
-    this.modelRunStamps = [];
-    this.ipRunStamps = new Map();
-    this.stats = { modelRuns: 0, offlineRuns: 0, lastModelOk: null, lastError: '', lastModel: '', lastRunMode: null };
+    this.shared = shared || newSharedBudget();
   }
+
+  get modelRunStamps() { return this.shared.modelRunStamps; }
+  set modelRunStamps(v) { this.shared.modelRunStamps = v; }
+  get ipRunStamps() { return this.shared.ipRunStamps; }
+  get stats() { return this.shared.stats; }
 
   /** Honest description of the current mode for the header badge and /api/health. */
   status() {

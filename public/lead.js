@@ -1,10 +1,16 @@
 const $ = (s) => document.querySelector(s);
+// ?profile= picks which example business this form is for (the server only accepts its own short list).
+let profile = new URLSearchParams(location.search).get('profile') || '';
+try { if (profile) sessionStorage.setItem('fa-profile', profile); else profile = sessionStorage.getItem('fa-profile') || ''; } catch { /* ignore */ }
+profile = profile.toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 40);
+const PH = profile ? { 'x-profile': profile } : {};
+const KEY = `fa-lead-${profile || 'default'}`;
 let agentName = 'Booking assistant'; let bizName = 'our team'; let leadId = null; let token = null; let timer = null;
-try { const saved = JSON.parse(sessionStorage.getItem('fa-lead') || 'null'); if (saved) { leadId = saved.id; token = saved.token; } } catch { /* storage unavailable */ }
+try { const saved = JSON.parse(sessionStorage.getItem(KEY) || 'null'); if (saved) { leadId = saved.id; token = saved.token; } } catch { /* storage unavailable */ }
 
 const fmt = (ts) => new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit' }).format(new Date(ts));
 async function post(path, body) {
-  const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json', ...PH }, body: JSON.stringify(body) });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Something went wrong. Please try again.');
   return data;
@@ -17,7 +23,7 @@ $('#leadForm').addEventListener('submit', async (e) => {
   try {
     const r = await post('/api/leads', Object.fromEntries(f));
     leadId = r.id; token = r.token;
-    try { sessionStorage.setItem('fa-lead', JSON.stringify({ id: leadId, token })); } catch { /* ignore */ }
+    try { sessionStorage.setItem(KEY, JSON.stringify({ id: leadId, token })); } catch { /* ignore */ }
     show();
   } catch (err) {
     $('#err').textContent = err.message;
@@ -38,10 +44,10 @@ function show() { $('#formView').hidden = true; $('#threadView').hidden = false;
 async function poll(now) {
   clearTimeout(timer);
   try {
-    const res = await fetch(`/api/public/leads/${leadId}?token=${encodeURIComponent(token)}`);
+    const res = await fetch(`/api/public/leads/${leadId}?token=${encodeURIComponent(token)}`, { headers: PH });
     if (res.status === 404) {
       // The conversation is gone (for example the demo data was reloaded). Say so instead of silently showing a blank form.
-      sessionStorage.removeItem('fa-lead');
+      sessionStorage.removeItem(KEY);
       leadId = null; token = null;
       $('#threadView').hidden = true; $('#formView').hidden = false;
       $('#err').textContent = 'That conversation is no longer available. The demo data may have been reloaded. You can start a new one below.';
@@ -63,7 +69,7 @@ async function poll(now) {
   } catch { timer = setTimeout(poll, 4000); }
   void now;
 }
-fetch('/api/config').then((r) => r.json()).then((c) => {
+fetch('/api/config', { headers: PH }).then((r) => r.json()).then((c) => {
   agentName = c.business.agentName; bizName = c.business.name;
   document.documentElement.style.setProperty('--accent', c.business.accent);
   document.title = `${c.business.name} - Contact us`;
