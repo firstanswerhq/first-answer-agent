@@ -273,6 +273,7 @@ export class Agent {
   /** Called by the scheduler when a follow-up timer is due. Posts the message only if the customer stayed quiet. */
   async fireFollowup(fu) {
     const { store } = this;
+    if (fu.status !== 'pending') return; // already fired, cancelled or replaced while this call waited in the lead's queue
     const lead = store.getLead(fu.leadId);
     const runInfo = { id: rid('T'), startMs: this.now(), mode: 'timer' };
     if (!lead) { fu.status = 'cancelled'; fu.reason = 'lead removed'; return; }

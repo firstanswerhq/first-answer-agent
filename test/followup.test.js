@@ -56,3 +56,32 @@ test('scheduler start/stop is safe to call repeatedly', () => {
   s.start(); s.start(); s.stop(); s.stop();
   assert.equal(s.timer, null);
 });
+
+test('a follow-up fires exactly once even when ticks overlap while the lead queue is busy', async () => {
+  const env = makeEnv();
+  const l = await newLead(env);
+  env.clock.advance(31_000);
+  const s = sched(env);
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  env.agent.chains.set(l.id, gate); // the lead's queue is busy (e.g. a slow model run)
+  const t1 = s.tick();
+  const t2 = s.tick();
+  const t3 = s.tick();
+  assert.equal(await Promise.race([t2, t3]), 0, 'later ticks see the follow-up as already queued');
+  release();
+  await Promise.all([t1, t2, t3]);
+  assert.equal(agentTexts(l).filter((t) => /still want me to hold/.test(t)).length, 1);
+  assert.equal(env.store.followups[0].status, 'fired');
+});
+
+test('fireFollowup ignores a follow-up that is no longer pending', async () => {
+  const env = makeEnv();
+  const l = await newLead(env);
+  const fu = env.store.followups[0];
+  await env.agent.fireFollowup(fu);
+  const count = agentTexts(l).length;
+  await env.agent.fireFollowup(fu);
+  await env.agent.fireFollowup(fu);
+  assert.equal(agentTexts(l).length, count);
+});
