@@ -80,8 +80,9 @@ export function loadConfig(env = process.env, over = {}) {
       url: (env.VULTR_INFERENCE_URL || 'https://api.vultrinference.com/v1').replace(/\/+$/, ''),
       model: env.VULTR_INFERENCE_MODEL || 'glm-5.3-flash',
       timeoutMs: int(env.INFERENCE_TIMEOUT_MS, 20000),
-      retries: int(env.INFERENCE_RETRIES, 2),
+      retries: int(env.INFERENCE_RETRIES, 1),
       maxRunsPerHour: int(env.INFERENCE_MAX_RUNS_PER_HOUR, 120),
+      maxRunsPerIpPerHour: int(env.INFERENCE_MAX_RUNS_PER_IP_PER_HOUR, 15),
     },
     forceOffline: env.FORCE_OFFLINE === '1',
     business: {

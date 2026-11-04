@@ -62,6 +62,7 @@ export class Agent {
     this.active = 0;
     this.waiting = [];
     this.modelRunStamps = [];
+    this.ipRunStamps = new Map();
     this.stats = { modelRuns: 0, offlineRuns: 0, lastModelOk: null, lastError: '', lastModel: '', lastRunMode: null };
   }
 
@@ -72,11 +73,15 @@ export class Agent {
     let label;
     if (this.config.forceOffline) label = 'Offline rules mode (forced)';
     else if (!this.llm?.configured) label = 'Offline rules mode';
+    else if (!this.underHourlyCap()) { mode = MODE_OFFLINE; label = 'Offline rules mode (hourly model quota reached)'; }
     else if (this.stats.lastModelOk === false) { mode = MODE_OFFLINE; label = 'Offline rules mode (model unreachable)'; }
     else label = 'Live model';
     return {
       mode, label,
-      model: configured && this.stats.lastModelOk !== false ? (this.stats.lastModel || this.llm.model) : null,
+      model: mode === MODE_MODEL ? (this.stats.lastModel || this.llm.model) : null,
+      quotaReached: configured && !this.underHourlyCap(),
+      modelRunsLastHour: this.modelRunStamps.filter((t) => t > this.now() - 3_600_000).length,
+      modelRunCap: this.config.inference.maxRunsPerHour,
       configuredModel: this.llm?.configured ? this.llm.model : null,
       inferenceConfigured: !!this.llm?.configured,
       lastError: this.stats.lastError || null,
@@ -88,6 +93,21 @@ export class Agent {
     const cutoff = this.now() - 3_600_000;
     this.modelRunStamps = this.modelRunStamps.filter((t) => t > cutoff);
     return this.modelRunStamps.length < this.config.inference.maxRunsPerHour;
+  }
+
+  underIpCap(ipKey) {
+    if (!ipKey) return true;
+    const cutoff = this.now() - 3_600_000;
+    const stamps = (this.ipRunStamps.get(ipKey) || []).filter((t) => t > cutoff);
+    if (stamps.length) this.ipRunStamps.set(ipKey, stamps); else this.ipRunStamps.delete(ipKey);
+    return stamps.length < this.config.inference.maxRunsPerIpPerHour;
+  }
+
+  /** Reserve one model run (global and per visitor) BEFORE it starts, so concurrent runs cannot overshoot the caps. */
+  reserveModelRun(ipKey) {
+    const t = this.now();
+    this.modelRunStamps.push(t);
+    if (ipKey) this.ipRunStamps.set(ipKey, [...(this.ipRunStamps.get(ipKey) || []), t]);
   }
 
   /** Queue a run for a lead. Runs for the same lead never overlap; total concurrency is capped. */
@@ -152,7 +172,11 @@ export class Agent {
     let usedModel = false;
     let modelNote = '';
 
-    if (!config.forceOffline && this.llm?.configured && this.underHourlyCap()) {
+    const ipKey = opts.ipKey ?? lead.ipHash ?? null;
+    const globalOk = this.underHourlyCap();
+    const ipOk = this.underIpCap(ipKey);
+    if (!config.forceOffline && this.llm?.configured && globalOk && ipOk) {
+      this.reserveModelRun(ipKey);
       runInfo.mode = MODE_MODEL;
       step({ kind: 'mode', title: `Reasoning with model ${this.llm.model} on Vultr Serverless Inference` });
       try {
@@ -161,7 +185,6 @@ export class Agent {
         this.stats.modelRuns += 1;
         this.stats.lastModelOk = true;
         this.stats.lastError = '';
-        this.modelRunStamps.push(this.now());
       } catch (err) {
         this.stats.lastModelOk = false;
         this.stats.lastError = String(err.message || err).slice(0, 160);
@@ -170,7 +193,7 @@ export class Agent {
         step({ kind: 'mode', ok: false, title: 'Model call failed; finishing in offline rules mode', detail: modelNote });
       }
     } else {
-      const why = config.forceOffline ? 'forced by FORCE_OFFLINE' : !this.llm?.configured ? 'no inference key configured' : 'hourly model-call cap reached';
+      const why = config.forceOffline ? 'forced by FORCE_OFFLINE' : !this.llm?.configured ? 'no inference key configured' : !globalOk ? 'hourly model-call cap reached' : 'per-visitor hourly model-call cap reached';
       step({ kind: 'mode', title: `Offline rules mode (${why})`, detail: 'Deterministic rules follow the same path and call the same guarded functions' });
     }
 
