@@ -6,7 +6,7 @@ import { Notifier } from '../src/notify.js';
 import { Agent } from '../src/agent.js';
 import { LeadService } from '../src/service.js';
 import { Store } from '../src/store.js';
-import { makeEnv, makeClock, newLead, fakeLlm, call, reply, agentTexts, PROFILE_NAMES, cfgFor, lead as leadInput } from './helpers.js';
+import { makeEnv, makeClock, newLead, fakeLlm, call, reply, agentTexts, PROFILE_NAMES, cfgFor, profileCfg, lead as leadInput } from './helpers.js';
 
 const holdCfg = (name) => loadConfig({ DATA_FILE: '', EMERGENCY_HOLDS: '1' }, { profile: name, seedOnEmpty: false, followupSpeedup: 60 });
 const BAD = reply(call('send_reply', { text: 'Great, you are booked for Thursday at 9 AM. See you then!' }));
@@ -83,4 +83,44 @@ test('off-topic messages get the polite reply and a dashboard flag, never an own
   // control: a real reason to bring in a person still alerts
   const c = await run('Please look at my contract and tell me if the fee is fair.');
   assert.equal(c.calls.length, 1);
+});
+
+test('rules fallback: a vague "exam" with a day and time still answers the time and lists the nearest open ones', async () => {
+  const env = makeEnv({ config: profileCfg('dental') });
+  const l1 = await newLead(env, { message: 'I need a cleaning Thursday at 9am' });
+  const { done } = env.svc.addCustomerMessage(l1.id, '1'); await done;
+  assert.equal(l1.status, 'booked');
+  const l = await newLead(env, { name: 'Hank Test', phone: '(615) 555-0177', message: 'I need an exam. Can I come Thursday at 9am?' });
+  const t = agentTexts(l).join(' | ');
+  assert.match(t, /Thursday at 9:00 AM is already taken/);
+  assert.match(t, /Open times: 1\).*2\).*3\)/);
+  assert.doesNotMatch(t, /what would you like to book/);
+});
+
+test('rules fallback: ASAP says when we are open today and lists the next three open times', async () => {
+  const env = makeEnv({ config: profileCfg('dental') });
+  const l = await newLead(env, { message: 'I need an appointment as soon as possible, anything open today or tomorrow?' });
+  const t = agentTexts(l).join(' | ');
+  assert.match(t, /open right now, until 5:00 PM today/);
+  assert.match(t, /Open times: 1\).*2\).*3\)/);
+});
+
+test('price check: approved ranges in any common spelling are accepted, others are not', async () => {
+  const { checkOutboundRule } = await import('../src/guard.js');
+  const lead = { qualification: { priceRange: { low: 110, high: 190 } } };
+  const o = { model: true, booked: false };
+  for (const t of ['A cleaning runs $110-$190.', 'A cleaning runs $110 to $190.', 'It is about $150.', 'Usually $110-190 depending on the visit.', 'Between 110 and 190 dollars.']) assert.equal(checkOutboundRule(t, lead, o), null, t);
+  for (const t of ['A cleaning runs $250.', 'It is about $90.']) assert.equal(checkOutboundRule(t, lead, o)?.id, 'price', t);
+});
+
+test('health fallbackReasons counts one per fallback reply, the same unit as the lead details', async () => {
+  const empty = { status: 200, json: { choices: [{ finish_reason: 'length', message: { content: '', reasoning_content: 'hmm' } }] } };
+  const env = makeEnv({ llm: fakeLlm([empty]) });
+  let detailCount = 0;
+  for (let i = 0; i < 4; i += 1) {
+    const l = await newLead(env, { name: `Person ${i}`, phone: `(615) 555-01${10 + i}`, message: 'I need a cleaning' });
+    detailCount += l.messages.filter((m) => m.from === 'agent' && m.fallbackReason === 'empty_end:length').length;
+  }
+  assert.equal(env.agent.fallbackReasons()['empty_end:length'], detailCount);
+  assert.ok(detailCount >= 4);
 });

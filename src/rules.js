@@ -60,6 +60,16 @@ export async function runRules(ctx, fx, trigger) {
   let loc = detectLocation(customerText, config);
   if (!loc.known && lead.qualification?.location) loc = { text: lead.qualification.location, known: true, inArea: lead.qualification.serviceAreaOk, needed: true };
   if (flags.emergency && service === 'other' && urgency.defaultService) service = urgency.defaultService;
+  // A vague service word with a day, a time or "as soon as possible" ("an exam Thursday at 9", "an appointment ASAP") is still a request for times:
+  // pick the service that word names (or the first priced one) instead of asking what to book.
+  if (service === 'other' && !flags.emergency && !flags.handoff && !flags.topic) {
+    const generic = latest.match(/\b(exam|check-?up|cleaning|consultation|appointment|visit|session|booking)\b/i);
+    const asksTimes = requestedDay(latest, dateOf(localNow(ctx.now(), config.business.tz))) || /\b(asap|as soon as possible|soonest|earliest|right away|openings?|availab\w*|anything open|open (?:today|tomorrow))\b/i.test(latest);
+    if (generic && asksTimes) {
+      const word = generic[1].toLowerCase().replace('-', '');
+      service = config.services.find((x) => new RegExp(`\\b${word}`, 'i').test(String(x.label).replace('-', '')))?.id || config.services.find((x) => x.price)?.id || config.services[0]?.id || 'other';
+    }
+  }
   const level = flags.emergency ? 'emergency' : urgency.urgentRe?.test(customerText) ? 'urgent' : 'routine';
 
   // Booked leads: only acknowledge; changes go to a person.

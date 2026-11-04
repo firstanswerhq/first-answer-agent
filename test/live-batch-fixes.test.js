@@ -23,7 +23,7 @@ test('dental: office hours, Saturday, parking, walk-ins and exam length get real
   assert.match(r.text, /book/i, 'still offers to book');
   assert.equal(r.l.status, 'replied');
   r = await ask('dental', 'Can I get an appointment this Saturday morning?');
-  assert.match(r.text, /closed on Saturdays/);
+  assert.match(r.text, /closed on Saturdays|do not have an opening on Saturday/);
   r = await ask('dental', 'Where do I park when I come to the office? Is there a lot?');
   assert.match(r.text, /free parking in the lot/);
   r = await ask('dental', 'Do you do walk-ins? Also how long does an exam take?');
@@ -37,7 +37,7 @@ test('salon and accounting answer the same questions from their own profile (sal
   r = await ask('salon', 'What are your hours?');
   assert.match(r.text, /Tue-Fri 9 AM-6 PM, Sat 9 AM-3 PM/);
   r = await ask('accounting', 'Do you have a Saturday appointment?');
-  assert.match(r.text, /closed on Saturdays/);
+  assert.match(r.text, /closed on Saturdays|do not have an opening on Saturday/);
   r = await ask('accounting', 'How long does the first meeting take? And is there parking?');
   assert.match(r.text, /30 to 45 minutes/);
   assert.match(r.text, /parking behind the office/);

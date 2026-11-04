@@ -386,7 +386,8 @@ export class Agent {
     lead.lastRunMode = runInfo.mode;
     { const last = [...lead.messages].reverse().find((m) => m.from === 'agent'); lead.lastReplyBy = last?.by || (runInfo.mode === MODE_MODEL ? 'model' : 'rules'); }
     lead.lastFallbackReason = [...lead.messages].reverse().find((m) => m.from === 'agent')?.fallbackReason || null;
-    if (lead.lastFallbackReason && !lead.seed) this.noteFallback(lead.lastFallbackReason);
+    // /api/health counts one entry per reply the rules wrote after a model attempt (the same unit the lead detail shows).
+    if (!lead.seed) for (const m of lead.messages) if (m.from === 'agent' && m.ts >= runInfo.startMs && m.fallbackReason) this.noteFallback(m.fallbackReason);
     lead.lastRunAt = this.now();
     lead.runCount = (lead.runCount || 0) + 1;
     step({
