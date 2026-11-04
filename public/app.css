@@ -147,7 +147,9 @@ details.raw pre{margin:6px 0 0;padding:9px;border-radius:8px;background:#0a0e1f;
 .badge{display:inline-flex;align-items:center;gap:8px;border:1px solid #cb91ff3b;background:#bb66ff12;color:#dfbdff;padding:7px 12px;border-radius:99px}
 .table td.src,.table td:nth-child(3),.table td:nth-child(5){white-space:nowrap}
 .legend .l3{background:none;border-top:2px dashed #69e2bd;border-radius:0;height:0;width:14px;vertical-align:middle}
+.legend .l4{background:linear-gradient(#8791b2,#5a6486)}
 
 html{background:#070b18}
 .brand{display:flex;align-items:center;gap:12px;font-weight:750;letter-spacing:.01em}
 .brand small{display:block;color:var(--muted);font-size:11px;font-weight:500;letter-spacing:.14em;text-transform:uppercase;margin-top:2px}
+.live-dot.off{background:var(--amber);box-shadow:0 0 10px var(--amber)}

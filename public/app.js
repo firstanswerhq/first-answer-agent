@@ -43,8 +43,9 @@ function paintShell() {
   const down = a.inferenceConfigured && !online;
   badge.className = `badge ${online ? '' : down ? 'down' : 'offline'}`;
   badge.innerHTML = html`<i class="live-dot"></i><span>${a.label}${a.model ? ` · ${a.model}` : ''}</span>`;
-  $('#footTitle').textContent = online ? 'Agent is live' : 'Agent is live (offline rules)';
-  $('#footText').innerHTML = html`${a.model ? `Model: ${a.model}` : 'No inference key, deterministic rules'}<br>Nashville, TN`;
+  $('#footTitle').textContent = online ? `Live model: ${a.model}` : a.inferenceConfigured ? a.label : 'Offline rules mode (no inference key)';
+  $('#footDot').className = `live-dot ${online ? '' : 'off'}`;
+  $('#footText').innerHTML = html`${online ? 'Reasoning on Vultr Serverless Inference' : a.inferenceConfigured ? 'Deterministic rules are answering until the model is available' : 'Deterministic rules, no model is running'}`;
   const needs = state.leads.filter((l) => l.status === 'human' || l.status === 'new').length;
   $('#navCount').hidden = !needs;
   $('#navCount').textContent = needs;
@@ -71,7 +72,7 @@ function rowHtml(l) {
   return html`<tr data-id="${l.id}" tabindex="0" role="link" aria-label="Open ${l.name}">
     <td><div class="person"><span class="initials">${initials(l.name)}</span><div><strong>${l.name}${l.priority === 'urgent' ? R('<span class="chip urgent">Urgent</span>') : ''}</strong><small>${l.jobLabel ? `${l.jobLabel}${l.location ? ' · ' + l.location : ''}` : l.snippet}${l.seed ? ' · sample' : ''}</small></div></div></td>
     <td class="src">${l.source}</td>
-    <td>${l.replyTimeSec == null ? 'Waiting' : secs(l.replyTimeSec)}</td>
+    <td>${l.replyTimeSec == null ? 'Waiting' : secs(l.replyTimeSec)}${l.seed && l.replyTimeSec != null ? R(' <small class="dim">(simulated)</small>') : ''}</td>
     <td>${R(chip(l.status))}</td>
     <td>${fmtTime(l.createdAt)}</td></tr>`;
 }
@@ -111,7 +112,7 @@ async function renderInbox(first) {
     $('#rows').addEventListener('click', (e) => { const tr = e.target.closest('tr[data-id]'); if (tr) location.hash = `#/lead/${tr.dataset.id}`; });
     $('#rows').addEventListener('keydown', (e) => { if (e.key === 'Enter') { const tr = e.target.closest('tr[data-id]'); if (tr) location.hash = `#/lead/${tr.dataset.id}`; } });
   }
-  const m = await api('/api/metrics?scope=all');
+  const m = await api('/api/metrics?scope=live');
   paintInbox(m);
 }
 
@@ -122,17 +123,14 @@ function paintInbox(m) {
   $('#rows').innerHTML = list.length ? list.map(rowHtml).join('') : '<tr><td colspan="5" class="empty">No leads match.</td></tr>';
   const waiting = state.leads.filter((l) => l.status === 'new' || l.status === 'human').length;
   $('#inboxSub').textContent = `${state.leads.length} leads · ${waiting} need attention`;
-  const a = state.agent; const t = m.today;
-  const goal = 15;
-  const pct = t.avgReplySec == null ? 0 : Math.min(100, Math.round((t.avgReplySec / goal) * 100));
+  const a = state.agent; const t = m.today; const ms = m.measured;
   $('#sideCard').innerHTML = html`<h3>Agent activity</h3>
-    <div class="agent-card"><span class="agent-orb"></span><div><strong style="font-size:14px">Answer Agent</strong><small style="display:block">${a.label}${a.model ? ' · ' + a.model : ''}</small></div></div>
-    <div class="activity"><span>Leads answered today</span><strong>${t.answered}</strong></div>
-    <div class="activity"><span>Average reply</span><strong>${t.avgReplySec == null ? '—' : secs(t.avgReplySec)}</strong></div>
+    <div class="agent-card"><span class="agent-orb"></span><div><strong style="font-size:14px">${state.cfg?.agent?.name || 'Answer Agent'}</strong><small style="display:block">${a.label}${a.model ? ' · ' + a.model : ''}</small></div></div>
+    <div class="activity"><span>Live leads answered today</span><strong>${t.answered}</strong></div>
+    <div class="activity"><span>Median reply, live runs</span><strong>${ms.medianSec == null ? '—' : secs(ms.medianSec)}</strong></div>
     <div class="activity"><span>Booked today</span><strong>${t.booked}</strong></div>
     <div class="activity"><span>Handed to team</span><strong>${t.human}</strong></div>
-    <div style="margin-top:18px;color:#c3c9de;font-size:12px">Reply-time goal <strong style="float:right;color:#fff">Under ${goal} sec</strong><div class="barline"><i style="width:${pct}%"></i></div></div>
-    <div class="note">Demo data is fictional; messages are simulated.${a.mode !== 'model' ? ' Running in offline rules mode: same path, deterministic rules instead of a model.' : ''}</div>`;
+    <div class="note">${ms.answered ? `Measured over ${ms.answered} live run${ms.answered === 1 ? '' : 's'} (${ms.model.answered} model, ${ms.rules.answered} rules). ` : 'No live runs yet: simulate a lead or send one from the lead form. '}Sample-day leads are simulated and not counted. Messages are simulated; nothing is really sent.${a.mode !== 'model' ? ' Offline rules mode: same path, deterministic rules instead of a model.' : ''}</div>`;
 }
 
 // ---------- Lead Detail ----------
@@ -273,23 +271,24 @@ async function renderCalendar(start, { quiet = false } = {}) {
 }
 
 // ---------- Results ----------
-async function renderResults(scope = 'all') {
+async function renderResults(scope = 'live') {
   const m = await api(`/api/metrics?scope=${scope}`);
-  const sk = m.sampleLeads;
+  const sk = m.sampleLeads; const ms = m.measured;
   const bars = chartSvg(m.chart);
+  const withSample = m.scope === 'all';
   $('#view').innerHTML = html`
-    <div class="heading"><div><div class="eyebrow">${m.scope === 'live' ? 'Live agent runs only' : 'All leads in this workspace'}</div><h1>Results</h1><p class="sub">See how quickly new opportunities turn into booked work. Every number below is computed from the leads stored in this app.</p></div>
-      <select class="btn ghost" id="scope" aria-label="Data scope"><option value="all">All data (sample + live)</option><option value="live">Live agent runs only</option></select></div>
+    <div class="heading"><div><div class="eyebrow">${withSample ? 'Live runs plus the simulated sample day' : 'Live agent runs only'}</div><h1>Results</h1><p class="sub">Numbers are computed from the leads stored in this app. Reply times are measured on the server clock for live runs. The sample day is simulated and labeled as such.</p></div>
+      <select class="btn ghost" id="scope" aria-label="Data scope"><option value="live">Live runs only (measured)</option><option value="all">Include simulated sample data</option></select></div>
     <div class="stat-grid">
-      <div class="card stat"><label>Average reply time</label><strong>${m.avgReplySec == null ? '—' : secs(m.avgReplySec)}</strong><small class="dim">${m.fastestSec == null ? 'No replies yet' : `fastest ${secs(m.fastestSec)} · slowest ${secs(m.slowestSec)}`}</small></div>
-      <div class="card stat"><label>Leads answered</label><strong>${m.answered}</strong><small class="dim">of ${m.totalLeads} received</small></div>
-      <div class="card stat"><label>Jobs booked</label><strong>${m.booked}</strong><small>${m.bookedRate == null ? 'No data yet' : m.bookedRate + '% of answered leads'}</small></div>
+      <div class="card stat"><label>Measured median reply time (live runs)</label><strong>${ms.medianSec == null ? '—' : secs(ms.medianSec)}</strong><small class="dim">${ms.answered ? `n = ${ms.answered} live run${ms.answered === 1 ? '' : 's'} · model ${ms.model.answered ? secs(ms.model.medianSec) + ' (n=' + ms.model.answered + ')' : 'none yet'} · rules ${ms.rules.answered ? secs(ms.rules.medianSec) + ' (n=' + ms.rules.answered + ')' : 'none yet'}` : 'No live runs yet'}</small></div>
+      <div class="card stat"><label>Leads answered</label><strong>${m.answered}</strong><small class="dim">of ${m.totalLeads} received${withSample ? ' (includes simulated sample)' : ''}</small></div>
+      <div class="card stat"><label>Appointments booked</label><strong>${m.booked}</strong><small>${m.bookedRate == null ? 'No data yet' : m.bookedRate + '% of answered leads' + (withSample ? ' (sample is simulated)' : '')}</small></div>
       <div class="card stat"><label>Handed to a human</label><strong>${m.human}</strong><small class="dim">${m.humanRate == null ? 'No data yet' : m.humanRate + '% for judgment or follow-up'}</small></div>
     </div>
     <div class="card chart"><div class="chart-head"><div><h2>Reply time per lead</h2><p class="sub" style="margin-top:4px">Seconds from the lead arriving to the agent's first reply · latest ${m.chart.length} answered leads</p></div>
-      <div class="legend"><span><i></i>Offline rules</span><span><i class="l2"></i>Live model</span><span><i class="l3"></i>Average</span></div></div>
+      <div class="legend"><span><i></i>Offline rules (live run)</span><span><i class="l2"></i>Live model</span>${withSample ? R('<span><i class="l4"></i>Simulated sample</span>') : ''}</div></div>
       ${R(bars)}</div>
-    <p class="foot">${m.liveLeads} live lead${m.liveLeads === 1 ? '' : 's'} and ${sk} sample lead${sk === 1 ? '' : 's'} in this workspace. Sample leads were generated by the offline rules engine on a simulated clock; live leads are timed by the server clock. Demo data is fictional; messages are simulated.</p>`;
+    <p class="foot">${m.liveLeads} live lead${m.liveLeads === 1 ? '' : 's'} and ${sk} simulated sample lead${sk === 1 ? '' : 's'} in this workspace. Sample leads were generated by the offline rules engine on a simulated clock, so their times are not measurements. Messages are simulated; nothing is really sent.</p>`;
   $('#scope').value = scope;
   $('#scope').addEventListener('change', (e) => renderResults(e.target.value));
 }
@@ -300,18 +299,17 @@ function chartSvg(data) {
   const d = narrow ? data.slice(-7) : data;
   const W = 760; const H = 280; const L = 44; const T = 22; const B = 36; const iw = W - L - 10; const ih = H - T - B;
   const max = Math.max(5, Math.ceil(Math.max(...d.map((x) => x.sec)) / 5) * 5);
-  const avg = d.reduce((a, b) => a + b.sec, 0) / d.length;
   const bw = Math.min(34, (iw / d.length) * 0.55);
   const y = (v) => T + ih - (v / max) * ih;
-  let out = `<svg class="chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Bar chart of reply time in seconds for the latest ${d.length} leads. Average ${avg.toFixed(1)} seconds.">`;
+  let out = `<svg class="chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Bar chart of reply time in seconds for the latest ${d.length} leads. ">`;
   for (let i = 0; i <= 4; i += 1) { const v = (max / 4) * i; out += `<line x1="${L}" x2="${W - 10}" y1="${y(v)}" y2="${y(v)}" stroke="#ffffff14"/><text x="${L - 8}" y="${y(v) + 4}" text-anchor="end">${Number.isInteger(v) ? v : v.toFixed(1)}</text>`; }
   d.forEach((x, i) => {
-    const cx = L + (iw / d.length) * (i + 0.5); const live = x.mode === 'model';
-    out += `<defs><linearGradient id="g${i}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${live ? '#77cfff' : '#d575ff'}"/><stop offset="1" stop-color="${live ? '#4778df' : '#7652e9'}"/></linearGradient></defs>`;
-    out += `<rect x="${cx - bw / 2}" y="${y(x.sec)}" width="${bw}" height="${T + ih - y(x.sec)}" rx="5" fill="url(#g${i})"><title>${esc(x.name)}: ${x.sec} s</title></rect>`;
+    const cx = L + (iw / d.length) * (i + 0.5); const live = x.mode === 'model'; const sim = x.seed;
+    out += `<defs><linearGradient id="g${i}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${sim ? '#8791b2' : live ? '#77cfff' : '#d575ff'}"/><stop offset="1" stop-color="${sim ? '#5a6486' : live ? '#4778df' : '#7652e9'}"/></linearGradient></defs>`;
+    out += `<rect x="${cx - bw / 2}" y="${y(x.sec)}" width="${bw}" height="${T + ih - y(x.sec)}" rx="5" fill="url(#g${i})"><title>${esc(x.name)}: ${x.sec} s${sim ? ' (simulated sample)' : ''}</title></rect>`;
     out += `<text class="val" x="${cx}" y="${y(x.sec) - 6}" text-anchor="middle">${x.sec < 1 ? Math.round(x.sec * 1000) + ' ms' : x.sec.toFixed(1)}</text><text x="${cx}" y="${H - 14}" text-anchor="middle">${esc(x.name.slice(0, 9))}</text>`;
   });
-  out += `<line x1="${L}" x2="${W - 10}" y1="${y(avg)}" y2="${y(avg)}" stroke="#69e2bd" stroke-dasharray="5 5"/></svg>`;
+  out += '</svg>';
   return out;
 }
 

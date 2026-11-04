@@ -2,17 +2,21 @@ import { round2 as round1 } from './util.js';
 import { localNow, dateOf } from './calendar.js';
 
 // Everything on the Results screen and the inbox side card is computed from stored leads.
-export function computeMetrics(store, config, nowMs, scope = 'all') {
+export function computeMetrics(store, config, nowMs, scope = 'live') {
   const leads = store.leads.filter((l) => (scope === 'live' ? !l.seed : true));
   const answered = leads.filter((l) => l.firstReplyAt);
   const times = answered.map((l) => l.replyTimeSec);
   const avg = times.length ? round1(times.reduce((a, b) => a + b, 0) / times.length) : null;
   const sorted = [...times].sort((a, b) => a - b);
-  const median = sorted.length ? sorted[Math.floor(sorted.length / 2)] : null;
+  const med = (arr) => { const a = [...arr].sort((x, y) => x - y); if (!a.length) return null; const m = Math.floor(a.length / 2); return a.length % 2 ? a[m] : round1((a[m - 1] + a[m]) / 2); };
+  const median = med(times);
+  // Measured numbers always come from real runs on the server clock; the sample day is simulated and reported separately.
+  const measured = store.leads.filter((l) => !l.seed && l.firstReplyAt);
+  const byMode = (mode) => measured.filter((l) => l.lastRunMode === mode).map((l) => l.replyTimeSec);
   const booked = leads.filter((l) => store.bookingForLead(l.id)).length;
   const human = leads.filter((l) => l.status === 'human').length;
   const today = dateOf(localNow(nowMs, config.business.tz));
-  const todays = leads.filter((l) => dateOf(localNow(l.createdAt, config.business.tz)) === today);
+  const todays = store.leads.filter((l) => !l.seed).filter((l) => dateOf(localNow(l.createdAt, config.business.tz)) === today);
   const chartLeads = [...answered].sort((a, b) => a.createdAt - b.createdAt).slice(-14).map((l) => ({
     id: l.id, name: l.name.split(' ')[0], sec: l.replyTimeSec, mode: l.lastRunMode || 'offline', seed: !!l.seed,
   }));
@@ -22,6 +26,11 @@ export function computeMetrics(store, config, nowMs, scope = 'all') {
     answered: answered.length,
     avgReplySec: avg,
     medianReplySec: median,
+    measured: {
+      answered: measured.length, medianSec: med(measured.map((l) => l.replyTimeSec)),
+      model: { answered: byMode('model').length, medianSec: med(byMode('model')) },
+      rules: { answered: byMode('offline').length, medianSec: med(byMode('offline')) },
+    },
     fastestSec: sorted[0] ?? null,
     slowestSec: sorted.at(-1) ?? null,
     booked,

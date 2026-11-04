@@ -157,7 +157,7 @@ export async function createApp({ config, store = new Store({ file: config.dataF
   });
 
   app.get('/api/metrics', readLimit, (req, res) => {
-    res.json(computeMetrics(store, config, now(), req.query.scope === 'live' ? 'live' : 'all'));
+    res.json(computeMetrics(store, config, now(), req.query.scope === 'all' ? 'all' : 'live'));
   });
 
   app.use(express.static(path.join(config.root, 'public'), { extensions: ['html'], maxAge: 0 }));

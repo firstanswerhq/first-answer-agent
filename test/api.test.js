@@ -333,3 +333,28 @@ test('read rate limit default leaves room for normal dashboard polling behind a 
   const { loadConfig } = await import('../src/config.js');
   assert.ok(loadConfig({}).limits.readRate.max >= 1200);
 });
+
+test('metrics: default scope excludes simulated sample leads; measured median reports live runs only', async () => {
+  const config = cfgFor({ seedOnEmpty: true });
+  const s = await startServer({ config });
+  try {
+    const empty = (await j(await fetch(s.base + '/api/metrics'))).body;
+    assert.equal(empty.scope, 'live');
+    assert.equal(empty.totalLeads, 0);
+    assert.equal(empty.medianReplySec, null);
+    assert.equal(empty.measured.answered, 0);
+    assert.equal(empty.measured.medianSec, null);
+    assert.equal(empty.today.answered, 0, 'sample leads never count toward today');
+    assert.ok(empty.sampleLeads >= 6, 'sample leads exist but are reported separately');
+    await post(s.base, '/api/leads', lead());
+    await settle(s);
+    const m = (await j(await fetch(s.base + '/api/metrics'))).body;
+    assert.equal(m.measured.answered, 1);
+    assert.equal(m.measured.rules.answered, 1);
+    assert.equal(m.measured.model.answered, 0);
+    assert.equal(typeof m.measured.medianSec, 'number');
+    const all = (await j(await fetch(s.base + '/api/metrics?scope=all'))).body;
+    assert.ok(all.answered > m.answered);
+    assert.equal(all.measured.answered, 1, 'measured stats never include the sample day');
+  } finally { await s.stop(); }
+});
