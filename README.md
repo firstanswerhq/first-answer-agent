@@ -1,6 +1,6 @@
 # First Answer Agent
 
-**A virtual front desk for a small business. It answers every new inquiry, finds out what the customer needs, offers open times from its calendar, books the visit, follows up if the customer goes quiet, and hands anything sensitive to a person.**
+**An AI front desk for any small business: answers web inquiries, checks a demo calendar, books appointments and hands tricky cases to a person. Runs on Vultr.**
 
 Built for **Vultr Agent Rush (lablab.ai), Challenge 2: Powering the Future of Work** (sales operations and customer support). Everything specific to one kind of business lives in one **business profile** file. Three example businesses ship (a dental office, a hair salon and a tax and bookkeeping office), and you add your own with one file. A dental office is the default demo, and a **Switch business** control in the dashboard header shows the other two in one click.
 
@@ -21,18 +21,20 @@ Demo data is fictional and no text or email is ever sent. Please use made-up det
 | Vultr Cloud Compute VM (`vc2-1c-2gb`, Atlanta, Ubuntu 24.04) running the app | **Real.** Live at <https://155-138-206-164.sslip.io> (HTTPS through Caddy and Let's Encrypt). |
 | Vultr Serverless Inference model calls with tool calling (model `glm-5.3-flash`) | **Real.** The live app's `/api/health` shows `modelVerified: true`, which is set only after a real test call to the model succeeds. The test suite itself uses mocked and local OpenAI-compatible servers. |
 | Safety checks in code (input validation, approved prices, business hours, double booking, handoff rules, instruction-in-message screening) | **Real**, run on every message |
-| Booking rules (business hours, 2 hours notice, no double booking) | **Real rules** on the app's built-in calendar |
+| Booking rules (business hours, 2 hours notice, no double booking) | **Real rules** on the app's demo calendar |
 | Saved state (inquiries, bookings, follow-up timers, one JSON file with safe writes) | **Real** |
 | Follow-up timers | **Real** timers (shortened for the demo: 30 minutes becomes 30 seconds) |
-| Texts and emails | **Simulated.** Nothing leaves the app. |
+| Texts and emails to customers | **Simulated.** Nothing is texted or emailed to a customer; replies appear on the web page only. |
+| Handoff to a person | **Real phone alert plus dashboard status.** When an inquiry is handed to a person, the app sends a push notification to the owner's phone through [ntfy](https://ntfy.sh) (only if `NTFY_TOPIC` is set; see the environment table) and marks the inquiry "Needs a Human" in the dashboard. The alert carries the business name, the customer's first name and a one-line reason, never a phone number. |
+| Intake channels | The **website form is the only real intake channel.** Inquiries shown as "Text message" or "Phone call" are simulated examples and carry a "simulated source" tag in the dashboard. |
 | Customers and sample inquiries | **Simulated** (fictional names, 555 numbers) |
-| The calendar being a business's actual calendar | **Simulated.** It is the app's own calendar; there is no Google or Outlook sync yet. |
+| The calendar | **Demo calendar.** It is the app's own calendar, not a connection to any business's Google or Outlook calendar (no sync yet). |
 
 If the AI model is not connected, cannot be reached or has reached its hourly limit, the app switches to **backup mode**: built-in rules that follow the same steps and use the same safety checks. The header badge and `/api/health` say which mode is active. The badge shows a model name only while the AI model is really answering, and `/api/health` reports `modelVerified: true` only after a real test call to the model succeeded.
 
 ## Why it matters
 
-For a small business, the first one to answer usually gets the booking. Owners and front-desk staff are with a customer, on the phone or closed for the night. First Answer Agent gives every new inquiry a useful, honest first reply, asks the one question it needs, offers open times from its calendar, and sends anything risky straight to a person. The dashboard shows how long each reply actually took and whether the AI model or the built-in rules wrote it.
+For a small business, the first one to answer usually gets the booking. Owners and front-desk staff are with a customer, on the phone or closed for the night. First Answer Agent gives every new inquiry a useful, honest first reply, asks the one question it needs, offers open times from the demo calendar, and sends anything risky straight to a person. The dashboard shows how long each reply actually took and whether the AI model or the built-in rules wrote it.
 
 ## What you can see in the app
 
@@ -105,7 +107,7 @@ Frozen snapshot from the Results screen of the live app: **Nov 4, 2026, about 10
 * 9 of 9 inquiries answered; 2 booked (22%); 3 needed a person (33%).
 * This is a small sample. The live dashboard keeps changing as visitors try it, so the numbers you see there will differ. Reply time is measured from the inquiry arriving to the first reply.
 
-What the agent did on the live model for a price question (screenshot 2): the customer asked how much a cleaning and checkup costs for an adult who pays out of pocket. The AI model called `qualify_lead`, then `check_calendar` (4 open windows found), and wrote a reply that quoted the approved range ($110-$190 for a cleaning and checkup) and offered real open times from the calendar (Wed Nov 4 at 2:00 PM, Thu Nov 5 at 9:00, 10:00 or 11:00 AM). The reply was a simulated send.
+What the agent did on the live model for a price question (screenshot 2): the customer asked how much a cleaning and checkup costs for an adult who pays out of pocket. The AI model called `qualify_lead`, then `check_calendar` (4 open windows found), and wrote a reply that quoted the approved range ($110-$190 for a cleaning and checkup) and offered open times from the demo calendar (Wed Nov 4 at 2:00 PM, Thu Nov 5 at 9:00, 10:00 or 11:00 AM). The reply was a simulated send.
 
 ## Make it yours
 
@@ -166,9 +168,13 @@ Every inquiry is handled by a tool-calling loop. The model never touches saved d
 | `qualify_lead` | Records which of the business's services the customer wants, how urgent it is (and where, if the business has a service area). **Code** decides service-area status and returns the only price range the assistant may quote, taken from the profile. |
 | `check_calendar` | Returns open appointment times from the calendar (business hours only, 2 hours notice, no taken times). |
 | `book_appointment` | Writes a booking. Refuses double booking (a synchronous check and write), times outside business hours or in the past, out-of-scope or out-of-area requests, and inquiries already flagged for a person. |
-| `send_reply` | Writes the outgoing message into the conversation. **Simulated send**: no text or email leaves the app. Passes the outgoing-message check first. |
+| `send_reply` | Writes the outgoing message into the conversation. **Simulated send**: no text or email is sent to the customer; the reply shows on the web page. Passes the outgoing-message check first. |
 | `schedule_followup` | A real timer in the app. If the customer has not replied when it is due, the follow-up is posted; if they replied, booked or were handed to a person, it is cancelled. |
-| `escalate_to_human` | Flags the inquiry as needing a person with a reason and priority, and cancels timers. |
+| `escalate_to_human` | Flags the inquiry as needing a person with a reason and priority, cancels timers, and sends the owner a phone alert (one per inquiry, at most 20 an hour, only when `NTFY_TOPIC` is set). The timeline records "Alert sent to the owner's phone" only when the alert really went out. |
+
+Fast path: an angry customer, an urgent non-medical situation (for example a knocked-out tooth or a burst pipe, as the profile defines it) or a message that tries to give the assistant instructions never waits for the AI model. Code sends a safe holding reply at once, hands the inquiry to a person and sends the phone alert; the timeline says "Checked in code, no AI call needed". Possible medical emergencies keep their fixed 911 (or 988) reply, also sent by code. Normal inquiries use the model.
+
+Cost: each inquiry typically uses about 12,000 to 15,000 input tokens, because the system prompt and the action definitions are sent again on every model call (several calls per inquiry). That is still roughly a cent or two per inquiry at the model's listed price.
 
 Reliability and cost control: runs for the same inquiry never overlap, a cap on concurrent runs, a step cap per inquiry (default 8), a per-call timeout (default 20 s), one retry with backoff on 429 and 5xx, an hourly cap on AI model runs plus a per-visitor hourly cap (reserved when a run starts), and strict argument validation (types, allowed values, lengths, unknown keys dropped, control characters stripped). If the model answers in plain text or makes no actions, the built-in rules finish the inquiry through the same checked functions instead of escalating a normal request. At start-up the app makes one tiny test call to the model (no customer data, `PROBE_MODEL=0` turns it off) so `/api/health` can say honestly whether the model works.
 
@@ -205,13 +211,22 @@ export VULTR_INFERENCE_MODEL=glm-5.3-flash   # optional, this is the default
 npm start
 ```
 
-Useful environment variables are listed in [`.env.example`](.env.example). `npm run seed` resets the data file and reloads the sample day. Follow-up delays run on a demo clock (`FOLLOWUP_SPEEDUP`, default 60, so 30 minutes fires in 30 seconds); set it to `1` for real time. Set `TRUST_PROXY=1` only when the app sits behind one reverse proxy (Caddy, nginx); it is off by default so rate limits key on the real socket address.
+Useful environment variables are listed in [`.env.example`](.env.example). The owner phone alert uses two of them:
+
+| Variable | Meaning |
+| --- | --- |
+| `NTFY_TOPIC` | ntfy topic that receives the owner alert. Pick a long random name and subscribe to it in the ntfy phone app. Unset means no alerts. Never shown by the app or `/api/health`. |
+| `DASHBOARD_URL` | Optional. Link added to the alert so the owner can open the dashboard. |
+
+`/api/health` shows `notify: { configured, alertsLastHour }` without the topic. Alerts are off in tests and when `FORCE_OFFLINE=1`.
+
+ `npm run seed` resets the data file and reloads the sample day. Follow-up delays run on a demo clock (`FOLLOWUP_SPEEDUP`, default 60, so 30 minutes fires in 30 seconds); set it to `1` for real time. Set `TRUST_PROXY=1` only when the app sits behind one reverse proxy (Caddy, nginx); it is off by default so rate limits key on the real socket address.
 
 Public intake: open `/lead`, or `POST /api/leads` with JSON `{ "name", "phone", "message", "source" }`.
 
 ## Deploy on Vultr
 
-1. Create a Startup Script from [`deploy/cloud-init.sh`](deploy/cloud-init.sh) (Products > Startup Scripts). Set `VULTR_INFERENCE_KEY` (and optionally `BUSINESS_PROFILE`, `REPO_URL`, `VULTR_INFERENCE_MODEL`, `AUTO_UPDATE`, `REPO_PIN`) at the top of the script. Secrets are written to `/etc/first-answer-agent.env` (root-only, mode 600) at install time and are never in the repo.
+1. Create a Startup Script from [`deploy/cloud-init.sh`](deploy/cloud-init.sh) (Products > Startup Scripts). Set `VULTR_INFERENCE_KEY` (and optionally `NTFY_TOPIC`, `DASHBOARD_URL`, `BUSINESS_PROFILE`, `REPO_URL`, `VULTR_INFERENCE_MODEL`, `AUTO_UPDATE`, `REPO_PIN`) at the top of the script. Secrets are written to `/etc/first-answer-agent.env` (root-only, mode 600) at install time and are never in the repo.
 2. Deploy a Cloud Compute VM, Ubuntu 24.04, with that startup script.
 3. The script installs Node 22, clones the repo as the app user, creates a `systemd` service on **port 80**, opens only ports 22 (rate limited) and 80 in `ufw`, and installs a `systemd` timer that runs `git pull` and restarts the service **every 2 minutes**; a failed install or health check rolls back and shows up in `journalctl -u first-answer-agent-update`. To redeploy, push to the repo.
 4. The script ends by waiting for the app and, if a key was given, checking that the model really answers (it prints `MODEL VERIFIED` or a warning with the last error). Check `http://<vm-ip>/api/health` for `mode`, `modelVerified`, `lastError`, the hourly model limit, version and uptime.
@@ -240,15 +255,15 @@ Leave `DOMAIN` empty and nothing changes: the app listens on port 80 over plain 
 ## Tests
 
 ```bash
-npm test      # node --test: 212 tests, all passing at the time of writing
+npm test      # node --test: all tests pass at the time of writing
 ```
 
 The same flows (price question and booking, urgent situation, angry customer, prompt injection, after-hours, vague message, always-human topics, medical emergencies, sample day, the assistant's instructions and action definitions) run against all three profiles, plus function validation, approved-price and outgoing-message checks, booking conflicts and demo limits, the safety screening, the built-in rules, follow-up timers, the tool-calling loop against mocked and real local OpenAI-compatible servers, API validation, rate limiting, demo protection, the business switcher and its isolation, wording checks, persistence, and the deploy and update scripts.
 
 ## Honest limitations
 
-* **Messages are simulated.** No real text or email is sent, and there is no real phone number behind the form. Demo data is fictional.
-* **The calendar is the app's own.** There is no Google Calendar or Outlook sync yet.
+* **Messages to customers are simulated.** No text or email is sent to a customer, and there is no real phone number behind the form. The one real outside action is the owner phone alert (ntfy) when an inquiry is handed to a person. Demo data is fictional, and "Text message" and "Phone call" sources are simulated examples.
+* **The calendar is a demo calendar.** It is the app's own; there is no Google Calendar or Outlook sync yet.
 * **Sign-in:** the demo dashboard is open (phone numbers are masked, writes need a per-inquiry token). A real deployment needs sign-in and separate accounts per business.
 * Storage is a single JSON file per business, which is fine for a demo and one VM, not for scale.
 * The screening for instructions hidden in messages is deliberately conservative: it may hand off an ordinary message that sounds like an instruction. That is the safe direction.
