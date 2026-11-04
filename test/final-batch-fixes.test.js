@@ -2,7 +2,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadConfig } from '../src/config.js';
-import { makeEnv, makeClock, newLead, fakeLlm, call, reply, agentTexts, PROFILE_NAMES } from './helpers.js';
+import { Notifier } from '../src/notify.js';
+import { Agent } from '../src/agent.js';
+import { LeadService } from '../src/service.js';
+import { Store } from '../src/store.js';
+import { makeEnv, makeClock, newLead, fakeLlm, call, reply, agentTexts, PROFILE_NAMES, cfgFor, lead as leadInput } from './helpers.js';
 
 const holdCfg = (name) => loadConfig({ DATA_FILE: '', EMERGENCY_HOLDS: '1' }, { profile: name, seedOnEmpty: false, followupSpeedup: 60 });
 const BAD = reply(call('send_reply', { text: 'Great, you are booked for Thursday at 9 AM. See you then!' }));
@@ -53,4 +57,30 @@ test('billing disputes, refunds and double charges are handled in code, never by
   const env = makeEnv({ llm: fakeLlm([txt('Sure!')]) });
   const l = await newLead(env, { message: 'when will I get my tax refund' });
   assert.notEqual(l.lastReplyBy, 'safety');
+});
+
+test('off-topic messages get the polite reply and a dashboard flag, never an owner phone alert', async () => {
+  const run = async (message) => {
+    const calls = [];
+    const transport = async (url, opts) => { calls.push(url); return { ok: true, status: 200 }; };
+    const clock = makeClock();
+    const store = new Store();
+    const config = cfgFor();
+    const notifier = new Notifier({ now: clock.now, log: () => {}, topic: 'test-topic', transport });
+    const llm = fakeLlm([reply(call('escalate_to_human', { reason: 'not something we do' })), txt('That is outside what I can help with. I can book a dental visit if you need one.')]);
+    const agent = new Agent({ store, config, llm, now: clock.now, notifier });
+    const svc = new LeadService({ store, agent, config, now: clock.now });
+    const { lead, done } = svc.createLead(leadInput({ message }));
+    await done; await agent.settled();
+    return { lead, calls };
+  };
+  for (const m of ['Can you recommend a good plumber near Nashville?', 'Do you have a banana bread recipe?', 'Who won the football game last night?']) {
+    const { lead, calls } = await run(m);
+    assert.equal(calls.length, 0, m);
+    assert.equal(lead.offTopic, true, m);
+    assert.ok(lead.messages.some((x) => x.from === 'agent'), m);
+  }
+  // control: a real reason to bring in a person still alerts
+  const c = await run('Please look at my contract and tell me if the fee is fair.');
+  assert.equal(c.calls.length, 1);
 });

@@ -3,11 +3,10 @@
 // guarded functions. Deterministic, no network.
 import { requestedClock, partOfDay, pastDay, detectService, detectServices, detectLocation, wantsOutsideHours, pickSlot, slotCandidates, declinesSlots, requestedDay, slotOnDay } from './extract.js';
 import { firstName, money } from './util.js';
-import { CHANGE_REQUEST } from './safety.js';
+import { CHANGE_REQUEST, OFF_TOPIC } from './safety.js';
 import { slotLabel, addDays, dateOf, localNow, isOpenNow, dateLabel, listSlots, slotsForDate, fmtClock } from './calendar.js';
 import { factAnswers, missingFactText, holidayName } from './facts.js';
 
-const OFF_TOPIC = /\b(recipes?|cooking|baking|banana bread|football|basketball|baseball|soccer|hockey|score|who won|game last night|weather|forecast|pizza|restaurants?|movies?|jokes?|poems?|songs?|lyrics|cover letter|r[eé]sum[eé]|essay|homework|math problem|python|javascript|crypto|bitcoin|horoscope|trivia|translate|write me|write a|tell me a story)\b/i;
 const SIGN = (config) => ` - ${config.business.agentName} (AI)`;
 const lc = (label) => (/^[A-Z][A-Z]/.test(label) ? label : label.charAt(0).toLowerCase() + label.slice(1));
 const aOrAn = (w) => (/^[aeiou]/i.test(w) ? 'an' : 'a');

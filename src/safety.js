@@ -23,6 +23,9 @@ const HANDOFF = [
 // A dispute about money already paid is a person's job, whatever the tone: handled in code, never left to the model.
 const BILLING_DISPUTE = /\b(?:charged|billed) (?:me|us|my card|my account) (?:twice|two times|double|too much|extra|wrong|incorrectly|again)\b|\bovercharg\w*|\bdouble[- ]?(?:charged|billed)\b|\bdispute\b.{0,25}\b(?:charge|charges|bill|invoice|payment)\b|\b(?:charge|bill|invoice)\b.{0,25}\b(?:is|was|looks|seems) (?:wrong|incorrect|a mistake)\b|(?<!tax\s)\brefunds?\b(?!\s+policy)/i;
 
+// Plainly unrelated to any business here (recipes, sports, trades). The reply says it is outside what the assistant helps with; no owner phone alert.
+export const OFF_TOPIC = /\b(?:(?:recommend|suggest|know of)\b.{0,25}\b(?:good|best|reliable|decent)\b.{0,30}\bnear\b)|\b(recipes?|cooking|baking|banana bread|football|basketball|baseball|soccer|hockey|score|who won|game last night|weather|forecast|pizza|restaurants?|movies?|jokes?|poems?|songs?|lyrics|cover letter|r[eé]sum[eé]|essay|homework|math problem|python|javascript|crypto|bitcoin|horoscope|trivia|translate|write me|write a|tell me a story)\b/i;
+
 const INJECTION = [
   /\bignore\b.{0,30}\b(previous|prior|above|earlier|all|your|the)\b.{0,20}\b(instructions?|prompts?|rules?|messages?)\b/i,
   /\b(disregard|forget|override|bypass)\b.{0,30}\b(instructions?|rules?|guardrails?|policy|policies|price|pricing)\b/i,
@@ -96,6 +99,7 @@ export function classify(text, profile = null) {
     medical: MEDICAL_911.test(t) || SELF_HARM.test(t),
     selfHarm: SELF_HARM.test(t),
     topic: topic?.id || null,
+    offTopic: OFF_TOPIC.test(t),
   };
   const reasons = [];
   if (flags.medical) reasons.push('Possible medical or personal-safety emergency (the customer is told to call 911)');
