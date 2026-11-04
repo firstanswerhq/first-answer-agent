@@ -27,6 +27,8 @@ TRUST_PROXY="${TRUST_PROXY:-}"                              # set to 1 only if y
 DOMAIN="${DOMAIN:-}"                                        # optional host name for automatic HTTPS via Caddy, e.g. 155-138-206-164.sslip.io (see README)
 NTFY_TOPIC="${NTFY_TOPIC:-}"                                # optional ntfy topic for owner phone alerts (empty = no alerts)
 DASHBOARD_URL="${DASHBOARD_URL:-}"                          # optional link included in the owner alert
+CALENDAR_ICAL_URL="${CALENDAR_ICAL_URL:-}"                  # optional SECRET Google Calendar iCal address (read-only); empty = demo calendar. Never commit a real one
+CALENDAR_PROFILE="${CALENDAR_PROFILE:-dental}"              # which business profile uses that calendar (the others keep their demo calendars)
 FOLLOWUP_SPEEDUP="${FOLLOWUP_SPEEDUP:-60}"                 # demo clock for follow-up timers (1 = real time)
 AUTO_UPDATE="${AUTO_UPDATE:-1}"                             # 0 = install the update timer but leave it switched off
 REPO_PIN="${REPO_PIN:-}"                                    # optional tag or commit to stay on; the update timer then never moves off it
@@ -101,6 +103,8 @@ BUSINESS_PROFILE="$(q "$BUSINESS_PROFILE")"
 BUSINESS_NAME="$(q "$BUSINESS_NAME")"
 NTFY_TOPIC="$(q "$NTFY_TOPIC")"
 DASHBOARD_URL="$(q "$DASHBOARD_URL")"
+CALENDAR_ICAL_URL="$(q "$CALENDAR_ICAL_URL")"
+CALENDAR_PROFILE="$(q "$CALENDAR_PROFILE")"
 FOLLOWUP_SPEEDUP=$FOLLOWUP_SPEEDUP
 TRUST_PROXY=$TRUST_PROXY
 ENV

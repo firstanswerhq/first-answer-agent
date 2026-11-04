@@ -38,6 +38,7 @@
   <div id="threadView" hidden>
     <div class="card"><div class="card-head"><div><h2>Your conversation</h2><p class="sub" id="status">Waiting for the first reply&hellip;</p></div><span class="badge" id="mode"></span></div>
       <div class="conversation" id="conv" aria-live="polite"></div>
+      <div id="apptBox" class="note" hidden><strong id="apptLabel"></strong><div style="display:flex;margin-top:8px;gap:8px;flex-wrap:wrap"><a class="btn" id="icsLink" download="appointment.ics">Add to my calendar</a><a class="btn ghost" id="gcalLink" target="_blank" rel="noopener noreferrer">Google Calendar</a></div><p class="foot" style="margin:8px 0 0">Demo booking: this adds a sample event to your own calendar. Nothing real is scheduled.</p></div>
       <form class="composer" id="replyForm"><div class="row"><textarea id="replyText" maxlength="1000" rows="2" placeholder="Reply&hellip;" aria-label="Your reply"></textarea><button class="btn" type="submit">Send</button></div><p class="err" id="err2" role="alert"></p></form></div>
     <p class="foot">Demo: messages are simulated. A teammate would see this conversation in the business dashboard.</p>
   </div>

@@ -13,6 +13,8 @@ import { rateLimiter, acceptCounter, gate } from './ratelimit.js';
 import { seedSample, sampleIsStale } from './seed.js';
 import { loadProfile, SHIPPED_PROFILES } from './profile.js';
 import { safeEqual } from './util.js';
+import { buildIcs, googleCalendarUrl } from './ics.js';
+import { slotLabel } from './calendar.js';
 import crypto from 'node:crypto';
 
 // Calendar status for /api/health and the Calendar page: only flags and short codes, never the feed address.
@@ -220,11 +222,27 @@ export async function createApp({ config, store = new Store({ file: config.dataF
     if (!lead || !tok || !safeEqual(tok, lead.token)) throw new InputError('Lead not found.', 404);
     return lead;
   };
+  // The customer's own booked appointment, for the "Add to my calendar" buttons. Public facts only.
+  const appointmentOf = (req, lead) => {
+    const { store, config } = req.t;
+    const b = store.bookingForLead(lead.id);
+    return b ? { label: slotLabel(b.slot_id, config.hours.windowHours), googleUrl: googleCalendarUrl(b, config) } : null;
+  };
+  app.get('/api/public/leads/:id/appointment.ics', readLimit, (req, res, next) => {
+    try {
+      const { store, config } = req.t;
+      const lead = publicLead(req);
+      const b = store.bookingForLead(lead.id);
+      if (!b) throw new InputError('No booked appointment for this conversation.', 404);
+      res.set({ 'Content-Type': 'text/calendar; charset=utf-8', 'Content-Disposition': 'attachment; filename="appointment.ics"', 'Cache-Control': 'no-store' });
+      res.send(buildIcs(b, config, now()));
+    } catch (e) { next(e); }
+  });
   app.get('/api/public/leads/:id', readLimit, (req, res, next) => {
     try {
       const { store, agent } = req.t;
       const lead = publicLead(req);
-      res.json({ id: lead.id, name: lead.name, replyTimeSec: lead.replyTimeSec ?? null, messages: lead.messages.map((m) => ({ from: m.from, text: m.text, ts: m.ts })), handedToHuman: lead.status === 'human', booked: !!store.bookingForLead(lead.id), mode: agent.status().label });
+      res.json({ id: lead.id, name: lead.name, replyTimeSec: lead.replyTimeSec ?? null, messages: lead.messages.map((m) => ({ from: m.from, text: m.text, ts: m.ts })), handedToHuman: lead.status === 'human', booked: !!store.bookingForLead(lead.id), mode: agent.status().label, appointment: appointmentOf(req, lead) });
     } catch (e) { next(e); }
   });
   app.post('/api/public/leads/:id/messages', replyGate, (req, res, next) => {

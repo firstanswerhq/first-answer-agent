@@ -72,6 +72,13 @@ async function poll(now) {
     $('#status').textContent = d.replyTimeSec == null ? 'Waiting for the first reply...' : d.handedToHuman ? `We got your message. A person from ${bizName} will follow up.` : d.booked ? 'Your appointment is booked.' : 'You have a reply below.';
     $('#mode').textContent = 'Demo';
     conv.scrollTop = conv.scrollHeight;
+    const a = d.appointment; const box = $('#apptBox');
+    if (a) {
+      $('#apptLabel').textContent = `Your appointment: ${a.label}`;
+      $('#icsLink').href = `/api/public/leads/${encodeURIComponent(leadId)}/appointment.ics?token=${encodeURIComponent(token)}${profile ? `&profile=${encodeURIComponent(profile)}` : ''}`;
+      if (typeof a.googleUrl === 'string' && a.googleUrl.startsWith('https://calendar.google.com/calendar/render?')) $('#gcalLink').href = a.googleUrl;
+      box.hidden = false;
+    } else box.hidden = true;
     timer = setTimeout(poll, d.replyTimeSec == null ? 800 : 3000);
   } catch { timer = setTimeout(poll, 4000); }
   void now;

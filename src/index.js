@@ -2,7 +2,8 @@ import { loadConfig } from './config.js';
 import { createApp } from './server.js';
 import { LlmClient, pickModel } from './llm.js';
 
-const config = loadConfig();
+let config;
+try { config = loadConfig(); } catch (e) { console.error(`Configuration error: ${e.message}`); process.exit(1); } // messages never contain the calendar address
 const llm = new LlmClient({ ...config.inference });
 
 // If a key is set but no model was named, ask the endpoint what it serves. Never invent a name.
@@ -14,6 +15,11 @@ if (llm.key && !llm.model) {
 }
 
 const { app, store, scheduler, agent } = await createApp({ config, llm });
+if (config.calendarFeed) {
+  // Names the profile only; the address is never logged.
+  console.log(`Calendar: read-only Google Calendar configured for the "${config.calendarFeed.profile}" profile (other profiles use demo calendars).`);
+  config.calendarFeed.ensureFresh(Date.now()).then((s) => console.log(s.connected ? `Calendar: connected, ${s.eventsLoaded} events loaded.` : `Calendar: not connected (${s.lastError}); using the demo calendar.`));
+}
 const server = app.listen(config.port, config.host, () => {
   const st = agent.status();
   console.log(`First Answer Agent listening on ${config.host}:${config.port} | ${st.label}${st.model ? ` | ${st.model}` : ''}`);

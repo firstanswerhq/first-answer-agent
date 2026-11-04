@@ -196,3 +196,5 @@ html{background:#070b18}
  .person small{max-width:none}
  .eyebrow,.table th,.chip,.msg .time,.timeline-item time,.timeline-item small,details.raw summary,.stat label,.stat small,.activity,.activity strong,.legend,.srctag,.dayhead small,.hour,.hlabel,.side-label,.nav .count,.brand small,.sidebar-foot p,.mobile-nav a,.chart-svg text,.person small,.barset small,.closed,.open,.event small,.badge{font-size:12px}
 }
+
+.event.busyfeed{background:#8791b21f;border:1px dashed #8791b266;color:#c3c8dc;pointer-events:none}.event.busyfeed small{color:#9aa1bb}

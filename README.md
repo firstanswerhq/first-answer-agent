@@ -28,7 +28,7 @@ Demo data is fictional and no text or email is ever sent. Please use made-up det
 | Handoff to a person | **Real phone alert plus dashboard status.** When an inquiry is handed to a person, the app sends a push notification to the owner's phone through [ntfy](https://ntfy.sh) (only if `NTFY_TOPIC` is set; see the environment table) and marks the inquiry "Needs a Human" in the dashboard. The alert carries the business name, the customer's first name and a fixed category such as "Angry customer" built in code, never a phone number or any message text. |
 | Intake channels | The **website form is the only real intake channel.** Inquiries shown as "Text message" or "Phone call" are simulated examples and carry a "simulated source" tag in the dashboard. |
 | Customers and sample inquiries | **Simulated** (fictional names, 555 numbers) |
-| The calendar | **Demo calendar.** It is the app's own calendar, not a connection to any business's Google or Outlook calendar (no sync yet). |
+| The calendar | **Demo calendar by default.** Unless you connect one (see "Connect a real calendar"), it is the app's own calendar. An optional **read-only** Google Calendar feed can make one business's real busy times block slots; the app never writes to it. The Calendar page, the agent's timeline and `/api/health` always say which calendar was used. Customers can download a calendar file or open a Google Calendar link for a booked demo appointment; that is a sample event in their own calendar, not a booking in any system. |
 
 If the AI model is not connected, cannot be reached or has reached its hourly limit, the app switches to **backup mode**: built-in rules that follow the same steps and use the same safety checks. The header badge and `/api/health` say which mode is active. The badge shows a model name only while the AI model is really answering, and `/api/health` reports `modelVerified: true` only after a real test call to the model succeeded.
 
@@ -45,7 +45,7 @@ New inquiries (leads) come in from the contact form, a text or a call; the dashb
 | **Switch business** (header) | Reloads the whole app as the dental office, the hair salon or the tax office: name, colors, services, hours, example inquiries and sample data all change. |
 | **Live Inbox** | Every inquiry with service, source, reply time and status (New, Replied, Booked, Needs a person). "Simulate a new inquiry" runs one of the business's fictional scenarios from start to finish; "Reset demo" reloads the sample data. |
 | **Inquiry detail** | The conversation, a box to type as the customer, and **"What the assistant did"**: a step-by-step list of every action with its details and timing. |
-| **Calendar** | A week view of bookings and open appointment times from the app's own calendar. |
+| **Calendar** | A week view of bookings and open appointment times from the app's own calendar, or, when a Google Calendar is connected (read-only), with its busy blocks shown as "Busy (Google Calendar)" without titles. |
 | **Results** | Typical reply time (median) of live replies, how many came from the AI model and how many from built-in rules, inquiries answered, appointments booked, and inquiries that need a person. The fictional sample day is excluded by default and labeled when shown. |
 | **Guardrails** | The rules the software enforces for the active business: hours, approved prices, topics that always go to a person, urgent handling. |
 | **Contact form** (`/lead`) | A public customer form. The customer watches the assistant reply on the page. `/lead?profile=salon` opens it for another example business. |
@@ -111,7 +111,7 @@ What the agent did on the live model for a price question (screenshot 2): the cu
 
 ## Make it yours
 
-Everything that depends on the kind of business is in `config/profiles/<name>.json`: business name, the assistant's signature name, phone, time zone, accent color, hours and appointment length, an optional service area, the list of services with price ranges (or "quote required"), urgent-situation phrases, topics that always go to a person, out-of-scope services, form wording, and the example scenarios and sample inquiries.
+Everything that depends on the kind of business is in `config/profiles/<name>.json`: business name, the assistant's signature name, phone, time zone, accent color, hours and appointment length, an optional service area, the list of services with price ranges (or "quote required"), urgent-situation phrases, topics that always go to a person, out-of-scope services, form wording, an optional street `address` (used as the location in the customer's calendar file), and the example scenarios and sample inquiries.
 
 1. Copy a profile: `cp config/profiles/dental.json config/profiles/myshop.json`
 2. Edit it (the file is checked at startup, and a mistake gets a clear error message).
@@ -219,14 +219,32 @@ The owner phone alert uses two more:
 | --- | --- |
 | `NTFY_TOPIC` | ntfy topic that receives the owner alert. Pick a long random name and subscribe to it in the ntfy phone app. Unset means no alerts. Never shown by the app or `/api/health`. |
 | `DASHBOARD_URL` | Optional, https only. Link added to the alert so the owner can open the dashboard. |
+| `CALENDAR_ICAL_URL` | Optional. The **secret** "Secret address in iCal format" of a Google Calendar (`https://calendar.google.com/calendar/ical/.../basic.ics`). Unset means the demo calendar. Only https on exactly `calendar.google.com` is accepted (checked at startup, the app refuses to start otherwise). Never shown by the app, `/api/*` or logs. |
+| `CALENDAR_PROFILE` | Which business profile uses that calendar (default `dental`). Other profiles keep their demo calendars. |
 
 `/api/health` shows `notify: { configured, alertsLastHour }` without the topic. Alerts are off in tests and when `FORCE_OFFLINE=1`.
 
 Public intake: open `/lead`, or `POST /api/leads` with JSON `{ "name", "phone", "message", "source" }`.
 
+## Connect a real calendar
+
+Optional and **read-only**: the app reads a Google Calendar to learn when you are busy, and never writes to it.
+
+1. In Google Calendar, open the calendar's **Settings and sharing** and copy **Secret address in iCal format**. Anyone with this address can read the calendar, so treat it like a password and never commit it.
+2. Set `CALENDAR_ICAL_URL` to that address (on the VM, in the variables at the top of `deploy/cloud-init.sh` or in `/etc/first-answer-agent.env`) and, if it is not the dental office, set `CALENDAR_PROFILE`.
+3. Restart. `/api/health` shows `calendar: { connected, lastOk, lastError, eventsLoaded }` and the Calendar page shows a "Connected: Google Calendar (read-only)" badge.
+
+How it behaves:
+
+* The feed is fetched at most once a minute (5 second timeout, 2 MB limit, redirects only within `calendar.google.com`). Events become busy blocks (UTC, time zone, floating and all-day times, durations, simple `DAILY`/`WEEKLY` repeats with `INTERVAL`, `COUNT`, `UNTIL`, `BYDAY` and `EXDATE`; changed single occurrences are honored). Cancelled and "free" (transparent) events are not busy. Repeat rules the app does not understand (monthly, yearly) block only the first occurrence, so avoid them on the calendar you connect (this limit is not reported in the app).
+* Busy blocks apply to **one profile only**; the other example businesses keep their demo calendars. Booked demo appointments still block slots as before.
+* Event titles are private: they are never stored, returned by the API or shown. The Calendar page shows only "Busy (Google Calendar)".
+* If the feed cannot be fetched or understood, the app **falls back to the demo calendar** and says so: a notice on the Calendar page, `connected: false` and a short `lastError` code (`timeout`, `network`, `http_error`, `bad_redirect`, `too_large`, `parse_error`) in `/api/health`, and "Demo calendar" in the agent's "Checked the calendar" step. It never claims a connection it does not have.
+* After a booking, the customer page offers **Add to my calendar** (`GET /api/public/leads/:id/appointment.ics?token=...`, a one-event file that needs the per-conversation token and a real booking) and a Google Calendar link. The event says "Demo booking" and contains no customer details.
+
 ## Deploy on Vultr
 
-1. Create a Startup Script from [`deploy/cloud-init.sh`](deploy/cloud-init.sh) (Products > Startup Scripts). Set `VULTR_INFERENCE_KEY` (and optionally `NTFY_TOPIC`, `DASHBOARD_URL`, `BUSINESS_PROFILE`, `REPO_URL`, `VULTR_INFERENCE_MODEL`, `AUTO_UPDATE`, `REPO_PIN`) at the top of the script. Secrets are written to `/etc/first-answer-agent.env` (root-only, mode 600) at install time and are never in the repo.
+1. Create a Startup Script from [`deploy/cloud-init.sh`](deploy/cloud-init.sh) (Products > Startup Scripts). Set `VULTR_INFERENCE_KEY` (and optionally `NTFY_TOPIC`, `DASHBOARD_URL`, `CALENDAR_ICAL_URL`, `CALENDAR_PROFILE`, `BUSINESS_PROFILE`, `REPO_URL`, `VULTR_INFERENCE_MODEL`, `AUTO_UPDATE`, `REPO_PIN`) at the top of the script. Secrets are written to `/etc/first-answer-agent.env` (root-only, mode 600) at install time and are never in the repo.
 2. Deploy a Cloud Compute VM, Ubuntu 24.04, with that startup script.
 3. The script installs Node 22, clones the repo as the app user, creates a `systemd` service on **port 80**, opens only ports 22 (rate limited) and 80 in `ufw`, and installs a `systemd` timer that runs `git pull` and restarts the service **every 2 minutes**; a failed install or health check rolls back and shows up in `journalctl -u first-answer-agent-update`. To redeploy, push to the repo.
 4. The script ends by waiting for the app and, if a key was given, checking that the model really answers (it prints `MODEL VERIFIED` or a warning with the last error). Check `http://<vm-ip>/api/health` for `mode`, `modelVerified`, `lastError`, the hourly model limit, version and uptime.
@@ -263,7 +281,7 @@ The same flows (price question and booking, urgent situation, angry customer, pr
 ## Honest limitations
 
 * **Messages to customers are simulated.** No text or email is sent to a customer, and there is no real phone number behind the form. The one real outside action is the owner phone alert (ntfy) when an inquiry is handed to a person. Demo data is fictional, and "Text message" and "Phone call" sources are simulated examples.
-* **The calendar is a demo calendar.** It is the app's own; there is no Google Calendar or Outlook sync yet.
+* **The calendar is a demo calendar unless you connect one.** The optional Google Calendar connection is read-only (the app never creates or changes events there) and covers one business profile. There is no Outlook support and no two-way sync.
 * **Sign-in:** the demo dashboard is open (phone numbers are masked, writes need a per-inquiry token). A real deployment needs sign-in and separate accounts per business.
 * Storage is a single JSON file per business, which is fine for a demo and one VM, not for scale.
 * The screening for instructions hidden in messages is deliberately conservative: it may hand off an ordinary message that sounds like an instruction. That is the safe direction.

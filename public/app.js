@@ -275,7 +275,8 @@ const ROW = 54;
 async function renderCalendar(start, { quiet = false } = {}) {
   const c = await api(`/api/calendar${start ? '?start=' + start : ''}`);
   state.calStart = c.start;
-  const calSig = JSON.stringify(c.days);
+  const calSig = JSON.stringify([c.days, c.calendar]);
+  const gcal = c.calendar?.connected === true;
   if (quiet && state.calSig === calSig) return; // nothing changed: leave the page (and scroll position) alone
   state.calSig = calSig;
   const cols = c.days;
@@ -296,26 +297,33 @@ async function renderCalendar(start, { quiet = false } = {}) {
         const end = b.leadId ? '</button>' : '</div>';
         return `${tag}<strong>${esc(b.serviceLabel)}${b.kind === 'emergency_hold' ? ' (priority hold)' : ''}</strong><small>${esc(b.name)} · ${clock(s.start)}</small>${end}`;
       }
+      if (s.status === 'busy') return ''; // drawn from the day's busy blocks below
       return `<div class="open ${s.status === 'past' ? 'past' : ''}" style="top:${top}px;height:${h}px">${s.status === 'past' ? (s.date < c.today ? 'Past' : 'Too soon') : 'Open'} · ${clock(s.start)}</div>`;
+    }).join('');
+    const mins = (t) => (Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5))) / 60;
+    const busy = (day.busy || []).map((b) => {
+      const s0 = Math.max(mins(b.start), H0); const e0 = Math.min(mins(b.end), H1);
+      if (e0 <= s0) return '';
+      return `<div class="event busyfeed" style="top:${(s0 - H0) * ROW + 2}px;height:${Math.max((e0 - s0) * ROW - 4, 14)}px" title="Busy (Google Calendar)"><strong>Busy</strong><small>Google Calendar</small></div>`;
     }).join('');
     const starts = day.slots.map((x) => Number(x.start.slice(0, 2)));
     let closed = '';
     for (let h = H0; h < H1; h += 1) {
       if (!starts.some((st) => h >= st && h < st + WH)) closed += `<div class="closed" style="top:${(h - H0) * ROW}px;height:${ROW}px">${day.slots.length === 0 ? (h === H0 ? 'Closed' : '') : 'Not bookable'}</div>`;
     }
-    return `<div class="daycol" style="height:${(H1 - H0) * ROW}px">${closed}${blocks}</div>`;
+    return `<div class="daycol" style="height:${(H1 - H0) * ROW}px">${closed}${busy}${blocks}</div>`;
   };
   const hours = Array.from({ length: H1 - H0 }, (_, i) => `<div class="hlabel">${clock(String(H0 + i).padStart(2, '0'))}</div>`).join('');
-  const agenda = cols.map((day) => `<h3>${esc(dname(day.date))} ${esc(label(day.date))}${day.today ? ' (today)' : ''}</h3>` + (day.slots.length ? '' : '<div class="row past"><span>Closed</span><span></span></div>') + day.slots.map((s) => `<div class="row ${s.status === 'open' ? 'free' : s.status === 'past' ? 'past' : ''}"><span>${esc(clock(s.start))}–${esc(clock(s.end))}</span><span>${s.status === 'booked' ? esc(s.booking.serviceLabel + ' · ' + s.booking.name) : s.status === 'open' ? 'Open' : s.date < c.today ? 'Past' : 'Too soon'}</span></div>`).join('')).join('');
+  const agenda = cols.map((day) => `<h3>${esc(dname(day.date))} ${esc(label(day.date))}${day.today ? ' (today)' : ''}</h3>` + (day.slots.length ? '' : '<div class="row past"><span>Closed</span><span></span></div>') + day.slots.map((s) => `<div class="row ${s.status === 'open' ? 'free' : s.status === 'past' ? 'past' : ''}"><span>${esc(clock(s.start))}–${esc(clock(s.end))}</span><span>${s.status === 'booked' ? esc(s.booking.serviceLabel + ' · ' + s.booking.name) : s.status === 'busy' ? 'Busy (Google Calendar)' : s.status === 'open' ? 'Open' : s.date < c.today ? 'Past' : 'Too soon'}</span></div>`).join('')).join('');
   $('#view').innerHTML = html`
-    <div class="heading"><div><div class="eyebrow">Your week at a glance</div><h1>Calendar</h1><p class="sub">Booked and open appointment times from the demo calendar. The assistant books only the open times shown here.</p></div>
+    <div class="heading"><div><div class="eyebrow">Your week at a glance</div><h1>Calendar</h1><p class="sub">Booked and open appointment times from ${gcal ? 'your connected Google Calendar and the demo bookings' : 'the demo calendar'}. The assistant books only the open times shown here.</p>${gcal ? '<span class="badge" id="calBadge">Connected: Google Calendar (read-only)</span>' : ''}${c.calendar?.notice ? `<div class="note" id="calNotice" role="status"><strong>Demo calendar in use.</strong> ${esc(c.calendar.notice)}</div>` : ''}</div>
       <div class="actions"><button class="btn ghost small" data-week="${c.prev}" aria-label="Previous week">‹ Prev</button><span class="btn ghost small" style="pointer-events:none">${label(cols[0].date)} – ${label(cols[5].date)}, ${cols[0].date.slice(0, 4)}</span><button class="btn ghost small" data-week="${c.next}" aria-label="Next week">Next ›</button></div></div>
     <div class="card" style="padding:15px">
       <div class="week-wrap"><div class="week"><div></div>${R(cols.map((d) => html`<div class="dayhead ${d.today ? 'today' : ''}">${dname(d.date)}<small>${label(d.date)}</small></div>`).join(''))}
         <div class="hourcol">${R(hours)}</div>${R(cols.map(colHtml).join(''))}</div></div>
       <div class="agenda">${R(agenda)}</div>
     </div>
-    <div class="legend-row"><span>● Booked by the assistant</span><span style="color:#8791b2">● Existing ${state.cfg.business.customerWord}s (sample)</span><span style="margin-left:auto">All times ${tzName(state.cfg.business.tz)} · Appointments are ${WH} hour${WH === 1 ? '' : 's'} · ${state.cfg.hoursText}</span></div>
+    <div class="legend-row"><span>● Booked by the assistant</span><span style="color:#8791b2">● Existing ${state.cfg.business.customerWord}s (sample)</span>${gcal ? '<span style="color:#b3b8cc">● Busy (Google Calendar, titles hidden)</span>' : ''}<span style="margin-left:auto">All times ${tzName(state.cfg.business.tz)} · Appointments are ${WH} hour${WH === 1 ? '' : 's'} · ${state.cfg.hoursText}</span></div>
     <p class="foot">Demo data is fictional; messages are simulated.</p>`;
   $('#view').onclick = (e) => {
     const w = e.target.closest('[data-week]'); if (w) { renderCalendar(w.dataset.week); return; }
