@@ -5,7 +5,7 @@ import { requestedClock, partOfDay, pastDay, detectService, detectServices, dete
 import { firstName, money } from './util.js';
 import { CHANGE_REQUEST } from './safety.js';
 import { slotLabel, addDays, dateOf, localNow, isOpenNow, dateLabel, listSlots, slotsForDate, fmtClock } from './calendar.js';
-import { factAnswers, missingFactText } from './facts.js';
+import { factAnswers, missingFactText, holidayName } from './facts.js';
 
 const SIGN = (config) => ` - ${config.business.agentName} (AI)`;
 const lc = (label) => (/^[A-Z][A-Z]/.test(label) ? label : label.charAt(0).toLowerCase() + label.slice(1));
@@ -276,6 +276,11 @@ export async function runRules(ctx, fx, trigger) {
     const on = reqDay.rel ? '' : 'on ';
     const onThatDay = cal.slots.some((sl) => sl.slot_id.slice(0, 10) === reqDay.date);
     dayNote = timeNote ? (onThatDay ? `${timeNote}${noteDone ? '' : `Here is what is open ${on}${dayName} instead. `}` : `${timeNote}I do not have another opening ${on}${dayName}, so here are the nearest times. `) : onThatDay ? `Here is what is open ${on}${dayName}. ` : `I do not have an opening ${on}${reqDay.rel || (reqDay.weekday ? dayName : dateLabel(reqDay.date))}. We are open ${config.hours.text}, so here are the nearest times. `;
+    const hol = holidayName(reqDay.date);
+    if (hol) {
+      dayNote = `${reqDay.rel ? upper1(reqDay.rel) : dateLabel(reqDay.date)} is ${hol}, and I do not know our holiday hours, so a teammate will confirm holiday hours. These times follow our regular schedule and are not confirmed. `;
+      lead.confirmNeeded = lead.confirmNeeded || `Customer asked about ${hol} (${reqDay.date}); a teammate should confirm holiday hours.`;
+    }
   } else if (pastWhen) dayNote = `${dateLabel(pastWhen)} has already passed, so here are the next open times. `;
   else if (wantsNextWeek && cal.slots.every((sl) => sl.slot_id.slice(0, 10) >= nextMonday)) dayNote = 'Here is what is open next week. ';
   const inLoc = loc.needed && loc.text ? ` in ${loc.text}` : '';

@@ -20,11 +20,11 @@ const WEEKEND_CONTEXT = /\b(open|closed|appointments?|come in|see (?:someone|you
 const UNKNOWN = [
   [/\b(?:your|the office'?s?|clinic'?s?|salon'?s?|shop'?s?) address\b|\bwhat(?:'s| is) the address\b|\bwhere (?:are you|is (?:the |your )?(?:office|clinic|salon|shop)) (?:located|at)\b|\bwhere are you (?:located|at)\b|\bhow do i get (?:there|to you)\b|\bdirections\b/i, 'our address'],
   [/\b(?:thanksgiving|christmas|easter|new year'?s?|memorial day|labor day|independence day|july (?:4|4th|fourth)|holidays?)\b(?=[\s\S]*\b(?:open|closed|hours)\b)|\b(?:open|closed|hours)\b[\s\S]*\b(?:thanksgiving|christmas|easter|new year'?s?|memorial day|labor day|independence day|july (?:4|4th|fourth)|holidays?)\b/i, 'holiday hours'],
-  [/\b(?:credit|debit) cards?\b|\bpayment (?:methods?|options)\b|\bdo you (?:take|accept) (?:cash|checks?|visa|mastercard|amex|apple pay|venmo|zelle|cards?)\b|\bfinancing\b|\bcarecredit\b|\b(?:hsa|fsa)\b/i, 'which payment methods we accept'],
+  [/\b(?:credit|debit) cards?\b|\bpayment (?:methods?|options)\b|\bdo you (?:take|accept) (?:cash|checks?|visa|mastercard|amex|apple pay|venmo|zelle|cards?)\b|\bfinancing\b|\bcarecredit\b|\b(?:hsa|fsa)\b/i, 'our accepted payment methods'],
   [/\bpharmac(?:y|ies)\b/i, 'nearby pharmacies'],
   [/\bwheelchair\b|\baccessib(?:le|ility)\b|\belevator\b/i, 'accessibility details'],
 ];
-const TOPIC_WORDS = { hours: 'our hours', weekend: 'our weekend hours', parking: 'parking', walkIns: 'our walk-in policy', duration: 'how long a visit takes' };
+const TOPIC_WORDS = { hours: 'our hours', weekend: 'our weekend hours', parking: 'parking', walkIns: 'our walk-in policy', duration: 'the length of a visit' };
 
 const range = (open) => `${fmtClock(open[0])} to ${fmtClock(open[1])}`;
 
@@ -68,7 +68,7 @@ export function factAnswers(text, config, { skipWeekend = false, nowMs = Date.no
   else if (ASKS.hours.test(t)) answers.push(`We are open ${config.hours.text}.`);
   for (const k of ['parking', 'walkIns', 'duration']) {
     if (!ASKS[k].test(t)) continue;
-    if (k === 'duration' && OTHER_JOB.test(t)) { missing.push('how long that takes'); continue; }
+    if (k === 'duration' && OTHER_JOB.test(t)) { missing.push('the length of that service'); continue; }
     if (facts[k]) answers.push(facts[k]); else missing.push(TOPIC_WORDS[k]);
   }
   for (const [re, label] of UNKNOWN) if (re.test(t)) missing.push(label);
@@ -76,3 +76,25 @@ export function factAnswers(text, config, { skipWeekend = false, nowMs = Date.no
 }
 
 export const missingFactText = (missing) => `I do not have ${missing.join(' or ')} on file, so a teammate will confirm that for you.`;
+
+// US federal holidays plus Christmas Eve. The business calendar has no holiday concept, so a request for one of these
+// days is never confirmed as "open": a teammate confirms holiday hours.
+export function holidayName(date) {
+  const [y, m, d] = date.split('-').map(Number);
+  const w = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+  const nth = (n) => Math.ceil(d / 7) === n && true;
+  const last = d + 7 > new Date(Date.UTC(y, m, 0)).getUTCDate();
+  if (m === 1 && d === 1) return "New Year's Day";
+  if (m === 1 && w === 1 && nth(3)) return 'Martin Luther King Jr. Day';
+  if (m === 2 && w === 1 && nth(3)) return "Presidents' Day";
+  if (m === 5 && w === 1 && last) return 'Memorial Day';
+  if (m === 6 && d === 19) return 'Juneteenth';
+  if (m === 7 && d === 4) return 'Independence Day';
+  if (m === 9 && w === 1 && nth(1)) return 'Labor Day';
+  if (m === 10 && w === 1 && nth(2)) return 'Columbus Day';
+  if (m === 11 && d === 11) return 'Veterans Day';
+  if (m === 11 && w === 4 && nth(4)) return 'Thanksgiving';
+  if (m === 12 && d === 24) return 'Christmas Eve';
+  if (m === 12 && d === 25) return 'Christmas Day';
+  return null;
+}

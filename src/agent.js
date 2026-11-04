@@ -25,7 +25,7 @@ const nameLead = (n) => { const f = firstName(n); return f === 'there' ? '' : `$
 export const newSharedBudget = () => ({ modelRunStamps: [], ipRunStamps: new Map(), stats: { modelRuns: 0, offlineRuns: 0, lastModelOk: null, lastError: '', lastModel: '', lastRunMode: null } });
 
 // The alert category comes from the code's safety flags, never from model-written text.
-const TOPIC_CATEGORY = { clinical: 'Medication or clinical question', diagnosis: 'Medication or clinical question', health: 'Allergy or health question', advice: 'Tax or legal advice question', insurance: 'Insurance or billing question', contract: 'Contract or fee question', correction: 'Color correction request' };
+const TOPIC_CATEGORY = { clinical: 'Medication or clinical question', diagnosis: 'Medication or clinical question', allergy: 'Allergy or health question', health: 'Allergy or health question', advice: 'Tax or legal advice question', insurance: 'Insurance or billing question', contract: 'Contract or fee question', correction: 'Color correction request' };
 export function alertCategory(f = {}) {
   if (f.medical) return 'Possible medical emergency';
   if (f.emergency) return 'Urgent request (emergency wording)';
