@@ -27,8 +27,24 @@ const INJECTION = [
   /\b(reveal|show|print|repeat)\b.{0,25}\b(prompt|instructions|api key|secret|password)\b/i,
   /\bnew instructions?\b|\bjailbreak\b|\bDAN mode\b/i,
   /<\/?(system|assistant|tool|function)[^>]*>/i,
-  /\bcall (the )?(function|tool)\b|\bescalate_to_human\b|\bbook_(job|appointment)\b|\bsend_reply\b/i,
+  /\bcall (the )?(function|tool)\b|\bescalate_to_human\b|\bbook_appointment\b|\bsend_reply\b/i,
+  /\b(important |urgent |attention )?(note|message|instruction)s? (to|for) (the )?(ai|assistant|agent|bot|model|llm)\b/i,
+  /\b(pre-?approved|pre-?authorized|already approved)\b.{0,40}\$\s?\d|\bapproved by (the )?(owner|manager|admin)\b/i,
+  /\b(as|being) (an? )?(ai|assistant|bot)\b.{0,40}\byou (must|should|will|are required)\b/i,
 ];
+
+// Medical or personal-safety emergencies. Same in every business: the customer is told to call 911 (or 988) and a person
+// is brought in at once. This is a safety net, not a diagnosis.
+const MEDICAL_911 = /\b(chest (pain|pressure|tightness)|heart attack|stroke|can'?t breathe|cannot breathe|trouble breathing|difficulty breathing|struggling to breathe|not breathing|unresponsive|unconscious|passed out|seizure|overdos(e|ed|ing)|severe(ly)? bleeding|bleeding (heavily|badly|a lot)|anaphyla\w*|allergic reaction.{0,30}(throat|swelling|breath))\b/i;
+const SELF_HARM = /\b(suicid\w*|kill (myself|my ?self)|end my life|want to die|hurt myself|harm myself)\b/i;
+
+// Make the text comparable before matching: fold look-alike characters, drop zero-width characters, and join letters
+// that were spaced or dotted out ("i g n o r e", "i.g.n.o.r.e"). Used for the classifier only, never for what is stored.
+export function normalizeForSafety(text) {
+  let t = String(text || '').normalize('NFKC').replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u2064\uFEFF\u00AD]/g, '');
+  t = t.replace(/\b(?:[A-Za-z][ .\-_*]){3,}[A-Za-z]\b/g, (m) => m.replace(/[ .\-_*]/g, ''));
+  return t;
+}
 
 const test = (list, text) => list.some((re) => re.test(text));
 
@@ -44,7 +60,7 @@ function shouting(text) {
  * @param profile the compiled business profile (urgency phrases, always-human topics, out-of-scope services)
  */
 export function classify(text, profile = null) {
-  const t = String(text || '');
+  const t = normalizeForSafety(text);
   const topic = profile?.alwaysHuman?.find((x) => x.re?.test(t));
   const flags = {
     emergency: !!profile?.urgency?.emergencyRe?.test(t),
@@ -52,9 +68,12 @@ export function classify(text, profile = null) {
     handoff: test(HANDOFF, t) || !!topic,
     outOfScope: !!profile?.outOfScopeRe?.test(t),
     injection: test(INJECTION, t),
+    medical: MEDICAL_911.test(t) || SELF_HARM.test(t),
+    selfHarm: SELF_HARM.test(t),
     topic: topic?.id || null,
   };
   const reasons = [];
+  if (flags.medical) reasons.push('Possible medical or personal-safety emergency (the customer is told to call 911)');
   if (flags.emergency) reasons.push(`${profile.urgency.label} wording (urgent situation that needs a person now)`);
   if (flags.complaint) reasons.push('Complaint or angry customer');
   if (flags.handoff) reasons.push(topic ? `Customer raised ${topic.label}, which always goes to a person` : 'Customer needs a person (schedule change or asked for a human)');
@@ -65,5 +84,5 @@ export function classify(text, profile = null) {
 
 // Which flags force a human, regardless of what a model decides.
 export function mustEscalate(f) {
-  return f.complaint || f.handoff || f.outOfScope || f.injection || f.emergency;
+  return f.complaint || f.handoff || f.outOfScope || f.injection || f.emergency || f.medical;
 }

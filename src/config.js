@@ -70,9 +70,9 @@ export function loadConfig(env = process.env, over = {}) {
       resetRate: { windowMs: 3_600_000, max: int(env.RATE_RESETS_PER_HOUR, 3) },
       resetCooldownMs: 30_000,
       // Public-demo protection: bookings made by visitors are temporary and capped, so one visitor cannot fill the calendar.
-      liveBookingTtlMs: int(env.LIVE_BOOKING_TTL_MINUTES, 120) * 60_000,
-      maxLiveBookings: int(env.MAX_LIVE_BOOKINGS, 8),
-      maxBookingsPerVisitor: int(env.MAX_BOOKINGS_PER_VISITOR, 1),
+      liveBookingTtlMs: int(env.LIVE_BOOKING_TTL_MINUTES, 30) * 60_000,
+      maxLiveBookings: int(env.MAX_LIVE_BOOKINGS, 24),
+      maxBookingsPerVisitor: int(env.MAX_BOOKINGS_PER_VISITOR, 3),
       // Emergency leads from the public form are flagged and handed off, not given a calendar hold, unless this is on.
       emergencyHolds: env.EMERGENCY_HOLDS === '1',
     },

@@ -7,6 +7,17 @@ export function detectService(text, config) {
   return 'other';
 }
 
+/** Every service the text mentions, in the order the customer mentioned them. */
+export function detectServices(text, config) {
+  const t = String(text || '');
+  const found = [];
+  for (const svc of config.services) {
+    const m = svc.re ? t.search(svc.re) : -1;
+    if (m >= 0) found.push({ id: svc.id, at: m });
+  }
+  return found.sort((a, b) => a.at - b.at).map((x) => x.id);
+}
+
 /**
  * Find a ZIP code only where it plausibly is one: a 5-digit number that is not part of a longer
  * number, a price ("$30000", "30000 dollars") or a measurement ("35000 sq ft"). Returns the 5 digits or null.
@@ -53,6 +64,35 @@ const ORD = [
   [/\b(third|3rd|option 3|#3|number 3|three)\b/i, 2],
 ];
 const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+const MONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+
+const namesWeekday = (t, i) => t.includes(WEEKDAYS[i]) || new RegExp(`\\b${WEEKDAYS[i].slice(0, 3)}\\b`).test(t);
+const dowOf = (date) => { const [y, m, d] = date.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d)).getUTCDay(); };
+const addDay = (date, n) => { const [y, m, d] = date.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10); };
+
+/**
+ * A day the customer asked for: a weekday name (the next one on or after today) or an explicit date ("Nov 7", "11/7").
+ * Returns { date, dow, weekday: bool } or null. Only the first day mentioned counts.
+ */
+export function requestedDay(text, today) {
+  const t = String(text || '').toLowerCase();
+  const year = Number(today.slice(0, 4));
+  const iso = (m, d) => { const date = `${year}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`; return Number.isNaN(Date.parse(date)) || new Date(`${date}T00:00:00Z`).getUTCMonth() !== m - 1 ? null : date; };
+  const mon = t.match(new RegExp(`\\b(${MONTHS.map((x) => x.slice(0, 3)).join('|')})[a-z]*\\.? (\\d{1,2})(?:st|nd|rd|th)?\\b`));
+  const num = t.match(/\b(\d{1,2})\/(\d{1,2})\b/);
+  const explicit = mon ? iso(MONTHS.findIndex((x) => x.startsWith(mon[1])) + 1, Number(mon[2])) : num ? iso(Number(num[1]), Number(num[2])) : null;
+  if (explicit && explicit >= today) return { date: explicit, dow: dowOf(explicit), weekday: false };
+  for (let i = 0; i < 7; i += 1) {
+    const date = addDay(today, i);
+    if (namesWeekday(t, dowOf(date))) return { date, dow: dowOf(date), weekday: true };
+  }
+  return null;
+}
+
+/** Does this offered slot fall on the day the customer named? */
+export function slotOnDay(slotId, day) {
+  return day.weekday ? dowOf(slotId.slice(0, 10)) === day.dow : slotId.slice(0, 10) === day.date;
+}
 
 // Indices of the offered slots that a customer's day or time words point at (empty if no day or time was mentioned).
 export function slotCandidates(text, slots) {
@@ -60,11 +100,16 @@ export function slotCandidates(text, slots) {
   if (!slots?.length) return [];
   const byDay = new Set();
   const byTime = new Set();
+  let namedAnyDay = false;
   WEEKDAYS.forEach((w, i) => {
-    if (t.includes(w) || new RegExp(`\\b${w.slice(0, 3)}\\b`).test(t)) {
+    if (namesWeekday(t, i)) {
+      namedAnyDay = true;
       slots.forEach((s, idx) => { if (slotDow(s) === i) byDay.add(idx); });
     }
   });
+  // The customer named a day and none of the offered windows is on it: never fall back to the time alone,
+  // because that would book a different day than the one they asked for.
+  if (namedAnyDay && !byDay.size) return [];
   const tm = t.match(/\b(\d{1,2})(?::(\d{2}))?\s?(am|pm)\b/);
   if (tm) {
     let h = Number(tm[1]) % 12;
@@ -87,6 +132,7 @@ export function pickSlot(text, slots) {
   const candidates = slotCandidates(text, slots);
   if (candidates.length === 1) return slots[candidates[0]];
   if (candidates.length > 1) return null; // ambiguous: the caller asks which one
+  if (WEEKDAYS.some((_, i) => namesWeekday(t, i))) return null; // a day that was not offered: never guess a different one
   for (const [re, idx] of ORD) if (re.test(t) && slots[idx]) return slots[idx];
   if (yes) return slots[0];
   return null;

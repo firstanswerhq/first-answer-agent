@@ -11,9 +11,14 @@ export function cleanText(v, max = 1000) {
 
 export const money = (n) => '$' + Number(n).toLocaleString('en-US');
 
+// The customer's name is text we did not write, and the agent repeats it in its own voice. Greet only with a plain
+// first name (letters, apostrophes, hyphens). Anything else, or a word the outbound guard or the injection filter would
+// react to, becomes "there", so a crafted name cannot smuggle a link, a price or an instruction into a reply.
+const NAME_OK = /^\p{L}[\p{L}'\u2019-]{0,29}$/u;
+const NAME_RISKY = /discount|refund|guarantee|price|warranty|coupon|waive|promo|free|charge|system|ignore|admin|assistant|instruction|prompt|developer|override|disregard|note|http|www/i;
 export function firstName(name) {
-  const f = String(name || '').trim().split(/\s+/)[0] || 'there';
-  return f.slice(0, 30);
+  const f = String(name || '').trim().split(/\s+/)[0] || '';
+  return NAME_OK.test(f) && !NAME_RISKY.test(f) ? f : 'there';
 }
 
 export function rid(prefix) {

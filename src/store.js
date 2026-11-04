@@ -86,7 +86,11 @@ export class Store {
         b.status = 'released'; b.releasedAt = nowMs; n += 1;
         const lead = b.leadId ? this.getLead(b.leadId) : null;
         if (lead && lead.status === 'booked') lead.status = 'replied';
-        if (lead) lead.bookingReleasedAt = nowMs;
+        if (lead) {
+          lead.bookingReleasedAt = nowMs;
+          // Say so in the conversation, so a booking never disappears silently.
+          lead.messages.push({ id: `M-rel${b.id}`, ts: nowMs, from: 'agent', note: true, simulated: true, text: 'Demo note: this demo booking was released automatically so the shared demo calendar stays open for other visitors.' });
+        }
       }
     }
     if (n) this.save();

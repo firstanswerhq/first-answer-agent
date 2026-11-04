@@ -8,6 +8,10 @@ import { LlmError } from './llm.js';
 import { rid, firstName } from './util.js';
 import { localNow, isOpenNow } from './calendar.js';
 
+// ", Dana" or "" when the name is not usable; "Dana, " or "".
+const comma = (n) => { const f = firstName(n); return f === 'there' ? '' : `, ${f}`; };
+const nameLead = (n) => { const f = firstName(n); return f === 'there' ? '' : `${f}, `; };
+
 export const MODE_MODEL = 'model';
 export const MODE_OFFLINE = 'offline';
 
@@ -162,7 +166,11 @@ export class Agent {
     const step = this.stepper(lead, runInfo);
     const lastCustomer = [...lead.messages].reverse().find((m) => m.from === 'customer');
     const flags = classify(lastCustomer?.text || '', config.profile);
-    const ctx = { store, config, now: this.now, lead, flags, step, run: runInfo, sentReply: false, guardRejects: 0 };
+    // The name field is customer text too: instructions hidden in it are treated like instructions in a message.
+    const nameFlags = classify(lead.name, null);
+    if (nameFlags.injection && !flags.injection) { flags.injection = true; flags.reasons.push('The name field tries to give the agent instructions (possible prompt injection)'); flags.any = true; }
+    const ipKey = opts.ipKey ?? lead.ipHash ?? null;
+    const ctx = { store, config, now: this.now, lead, flags, step, run: runInfo, sentReply: false, guardRejects: 0, ipKey };
 
     step({ kind: 'received', title: trigger === 'new_lead' ? `New lead received from ${lead.source}` : 'Customer replied', detail: (lastCustomer?.text || '').slice(0, 160) });
 
@@ -170,7 +178,7 @@ export class Agent {
       if (trigger === 'customer_reply' && !lead.handoffAckSent) {
         // One short holding message per handoff, so the customer is not left staring at a silent page.
         lead.handoffAckSent = true;
-        new Functions(ctx).deliver(`Thanks, ${firstName(lead.name)}. A teammate has your message and will reply here soon. ${config.profile.urgency.safetyNote} You can also call us at ${config.business.phone}. - ${config.business.agentName} (AI)`);
+        new Functions(ctx).deliver(`Thanks${comma(lead.name)}. A teammate has your message and will reply here soon. ${config.profile.urgency.safetyNote} You can also call us at ${config.business.phone}. - ${config.business.agentName} (AI)`);
         step({ kind: 'info', title: 'Lead is with a human; the agent sent one short holding message and will not reply further', detail: lead.humanReason || '' });
       } else {
         step({ kind: 'info', title: 'Lead is with a human; the agent held back and did not reply', detail: lead.humanReason || '' });
@@ -185,10 +193,12 @@ export class Agent {
     let usedModel = false;
     let modelNote = '';
 
-    const ipKey = opts.ipKey ?? lead.ipHash ?? null;
     const globalOk = this.underHourlyCap();
     const ipOk = this.underIpCap(ipKey);
-    if (!config.forceOffline && this.llm?.configured && globalOk && ipOk) {
+    if (flags.medical) {
+      // A possible medical emergency is never left to the model: the fixed 911 wording is sent by software.
+      step({ kind: 'mode', title: 'Medical emergency wording: the fixed 911 reply is sent by software, not the model', detail: 'Enforced in code before any model call' });
+    } else if (!config.forceOffline && this.llm?.configured && globalOk && ipOk) {
       this.reserveModelRun(ipKey);
       runInfo.mode = MODE_MODEL;
       step({ kind: 'mode', title: `Reasoning with model ${this.llm.model} on Vultr Serverless Inference` });
@@ -273,12 +283,12 @@ export class Agent {
     const biz = this.config.business.name;
     if (mustEscalate(flags) && lead.status !== 'human') {
       step({ kind: 'guard', title: 'Guardrail: a required handoff was missing, so the software escalated', detail: flags.reasons.join('; ') });
-      if (!ctx.sentReply) fx.deliver(`${firstName(lead.name)}, I have passed this to a teammate who will follow up with you directly. - ${this.config.business.agentName} (AI)`);
+      if (!ctx.sentReply) fx.deliver(`${nameLead(lead.name)}I have passed this to a teammate who will follow up with you directly. - ${this.config.business.agentName} (AI)`);
       await fx.call('escalate_to_human', { reason: flags.reasons.join('; ').slice(0, 290) || 'Required by safety check', priority: flags.emergency ? 'urgent' : 'normal' }, 'guardrail');
     }
     if (!ctx.sentReply && !lead.messages.some((m) => m.from === 'agent' && m.ts >= ctx.run.startMs)) {
       step({ kind: 'guard', title: 'Guardrail: no reply was sent, so the software sent a safe holding message and handed off' });
-      fx.deliver(`Thanks ${firstName(lead.name)}, I have received your message and a teammate will follow up shortly. - ${this.config.business.agentName} (AI)`);
+      fx.deliver(`Thanks${comma(lead.name)}, I have received your message and a teammate will follow up shortly. - ${this.config.business.agentName} (AI)`);
       if (lead.status !== 'human') await fx.call('escalate_to_human', { reason: 'Agent finished without a reply; needs a person.' }, 'guardrail');
     }
   }

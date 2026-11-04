@@ -56,6 +56,7 @@ export function schemasFor(config) {
       urgency: { type: 'enum', values: URGENCIES, required: true },
       location: { type: 'string', max: 80, default: '' },
       notes: { type: 'string', max: 300, default: '' },
+      also_service: { type: 'enum', values: serviceIds(config) },
     },
     check_calendar: {
       earliest_date: { type: 'string', max: 10, pattern: DATE_RE },
@@ -93,6 +94,7 @@ export function toolDefs(config) {
           urgency: { type: 'string', enum: URGENCIES, description: `emergency = ${config.profile.urgency.label.toLowerCase()} situations that need a person now` },
           ...(area ? { location: { type: 'string', description: `City, neighborhood or ZIP the customer gave (${area.label})` } } : {}),
           notes: { type: 'string' },
+          also_service: { type: 'string', enum: serviceIds(config), description: 'Optional: a second offering the customer also asked about (for example a haircut and a blowout); its price range is returned too' },
         },
         required: ['service', 'urgency'],
       },
@@ -151,10 +153,10 @@ export function checkOutbound(text, lead) {
   const amounts = [...text.matchAll(/\$\s?([\d,]+(?:\.\d{1,2})?)|\b([\d,]+(?:\.\d{1,2})?)\s?(?:dollars|bucks)\b/gi)]
     .map((m) => Number((m[1] || m[2]).replace(/,/g, '')));
   if (amounts.length) {
-    const pr = lead.qualification?.priceRange;
-    if (!pr) return 'No price may be quoted for this service. Say the cost is confirmed in person, or escalate_to_human.';
-    const bad = amounts.find((a) => a < pr.low || a > pr.high);
-    if (bad !== undefined) return `Price ${money(bad)} is outside the price book range ${money(pr.low)}-${money(pr.high)}. Quote only that range or escalate_to_human.`;
+    const ranges = [lead.qualification?.priceRange, lead.qualification?.alsoPriceRange].filter(Boolean);
+    if (!ranges.length) return 'No price may be quoted for this service. Say the cost is confirmed in person, or escalate_to_human.';
+    const bad = amounts.find((a) => !ranges.some((pr) => a >= pr.low && a <= pr.high));
+    if (bad !== undefined) return `Price ${money(bad)} is outside the price book range${ranges.length > 1 ? 's' : ''} ${ranges.map((pr) => `${money(pr.low)}-${money(pr.high)}`).join(' and ')}. Quote only ${ranges.length > 1 ? 'those ranges' : 'that range'} or escalate_to_human.`;
   }
   return null;
 }
@@ -236,9 +238,11 @@ export class Functions {
     const inScope = a.service !== 'other';
     const priceRange = priceRangeFor(config, a.service);
     const label = serviceLabel(config, a.service);
+    const also = a.also_service && a.also_service !== 'other' && a.also_service !== a.service ? a.also_service : null;
     lead.qualification = {
       service: a.service, serviceLabel: label, urgency,
       location: a.location, serviceAreaOk: loc.ok, areaMatch: loc.match, inScope, priceRange,
+      ...(also ? { alsoService: also, alsoLabel: serviceLabel(config, also), alsoPriceRange: priceRangeFor(config, also) } : {}),
       notes: a.notes, updatedAt: this.ctx.now(),
     };
     if (urgency === 'emergency') lead.priority = 'urgent';
@@ -247,6 +251,7 @@ export class Functions {
       in_scope: inScope,
       service_area_ok: loc.ok, // true | false | null (null = location unknown, ask or escalate); always true when the business has no service area
       price_range: priceRange, // the ONLY range you may quote; null = no quote, say the cost is confirmed in person
+      ...(also ? { also_service_label: serviceLabel(config, also), also_price_range: priceRangeFor(config, also) } : {}),
       office_open_now: isOpenNow(localNow(this.ctx.now(), config.business.tz), config.hours),
     };
   }
@@ -277,17 +282,18 @@ export class Functions {
     const nowL = localNow(this.ctx.now(), config.business.tz);
     if (!isBookableNow(a.slot_id, nowL, config)) return { ok: false, error: `That time is in the past or too soon (${config.minLeadMinutes / 60} hours notice required).` };
     if (store.bookingForSlot(a.slot_id)) return { ok: false, error: 'That slot was just taken. Call check_calendar again.' };
-    if (flags?.emergency && !config.limits.emergencyHolds && !lead.seed) return { ok: false, error: 'Emergency leads are flagged for a person instead of holding a calendar slot. Call escalate_to_human with priority urgent.' };
-    if (!lead.seed) {
-      // Public-demo protection: visitors' bookings are capped overall and per visitor, and expire (see releaseExpired).
-      if (store.liveBookings().length >= config.limits.maxLiveBookings) return { ok: false, error: 'The demo calendar is at its limit for visitor bookings right now. Escalate to a human to confirm a time.' };
-      if (lead.ipHash && store.liveBookings().filter((b) => store.getLead(b.leadId)?.ipHash === lead.ipHash).length >= config.limits.maxBookingsPerVisitor) return { ok: false, error: 'This visitor already holds a demo booking. Escalate to a human for any further visits.' };
-    }
+    if (flags?.emergency && !config.limits.emergencyHolds) return { ok: false, error: 'Emergency leads are flagged for a person instead of holding a calendar slot. Call escalate_to_human with priority urgent.', code: 'emergency_hold_off' };
+    // Public-demo protection: bookings made by visitors are capped overall and per visitor, and expire (see releaseExpired).
+    // Sample leads follow the same rules when a visitor role-plays on them. The cap reasons carry a code so the caller can
+    // tell the customer the truth and bring in a person, instead of offering the same times again.
+    const visitor = this.ctx.ipKey || lead.ipHash || null;
+    if (store.liveBookings().length >= config.limits.maxLiveBookings) return { ok: false, code: 'demo_calendar_full', error: 'The demo calendar is at its limit for visitor bookings right now. Tell the customer a teammate will confirm a time, and escalate_to_human.' };
+    if (visitor && store.liveBookings().filter((b) => b.ipKey === visitor).length >= config.limits.maxBookingsPerVisitor) return { ok: false, code: 'visitor_cap', error: 'This visitor already holds the maximum number of demo bookings. Tell the customer a teammate will confirm any further visit, and escalate_to_human.' };
     // Synchronous check-and-write: atomic with respect to other runs in this process.
     const booking = {
       id: rid('B'), slot_id: a.slot_id, leadId: lead.id, name: lead.name, service: q.service, serviceLabel: q.serviceLabel,
       note: a.note, kind: flags?.emergency ? 'emergency_hold' : 'standard', status: 'confirmed',
-      createdAt: this.ctx.now(),
+      ipKey: visitor || undefined, createdAt: this.ctx.now(),
     };
     store.bookings.push(booking);
     lead.bookingId = booking.id;
@@ -309,7 +315,9 @@ export class Functions {
   }
 
   deliver(text, extra = {}) {
-    const { lead } = this.ctx;
+    const { lead, config } = this.ctx;
+    // Messages the software writes itself (holding notes, handoff notes) pass the same outbound guard as the model's.
+    if (checkOutbound(text, lead)) text = `A teammate will follow up with you shortly. - ${config.business.agentName} (AI)`;
     const ts = this.ctx.now();
     const msg = { id: rid('M'), ts, from: 'agent', text, simulated: true, ...extra };
     lead.messages.push(msg);
