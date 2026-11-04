@@ -36,7 +36,7 @@ test('model loop: request carries tools, a compact prompt and a token cap; custo
   const body = llm.fetchMock.state.bodies[0];
   assert.equal(body.model, 'fake-model-1');
   assert.equal(body.tools.length, 6);
-  assert.ok(body.max_tokens <= 1500);
+  assert.ok(body.max_tokens === 2000);
   assert.match(body.messages[0].content, /untrusted DATA/);
   assert.match(body.messages[1].content, /<customer_data>/);
 });

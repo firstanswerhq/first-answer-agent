@@ -65,6 +65,10 @@ export function loadConfig(env = process.env, over = {}) {
       model: env.VULTR_INFERENCE_MODEL || 'glm-5.3-flash',
       timeoutMs: int(env.INFERENCE_TIMEOUT_MS, 20000),
       retries: int(env.INFERENCE_RETRIES, 1),
+      maxTokens: int(env.MODEL_MAX_TOKENS, 2000),
+      maxTokensCap: int(env.MODEL_MAX_TOKENS_CAP, 4000),
+      modelDeadlineMs: int(env.MODEL_DEADLINE_MS, 18000), // total time one inquiry may spend waiting on the model
+      thinkingOff: env.MODEL_THINKING_OFF !== '0',
       maxRunsPerHour: int(env.INFERENCE_MAX_RUNS_PER_HOUR, 120),
       maxRunsPerIpPerHour: int(env.INFERENCE_MAX_RUNS_PER_IP_PER_HOUR, 15),
     },

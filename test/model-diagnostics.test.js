@@ -85,7 +85,7 @@ test('a model reply that is used has no fallback reason; signature exactly once;
 
 test('a server that rejects a forced tool_choice (400) is retried with "required", then remembered', async () => {
   const seen = [];
-  const script = [(b) => { seen.push(b.tool_choice); return msg({ content: '' }); }, (b) => { seen.push(b.tool_choice); return typeof b.tool_choice === 'object' ? { status: 400, json: {} } : reply(call('send_reply', { text: 'Happy to help. Which day works best for your cleaning?' })); }];
+  const script = [(b) => { seen.push(b.tool_choice); return msg({ content: '' }); }, (b) => { seen.push(b.tool_choice); return typeof b.tool_choice === 'object' ? { status: 400, json: {}, body: 'tool_choice value is not supported' } : reply(call('send_reply', { text: 'Happy to help. Which day works best for your cleaning?' })); }];
   const llm = fakeLlm(script);
   const env = makeEnv({ llm });
   const l = await newLead(env);

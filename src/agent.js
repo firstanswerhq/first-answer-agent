@@ -45,9 +45,10 @@ function fallbackFor(ctx, outcome) {
 }
 function errorReason(err) {
   if (err?.status) return `model_error:http_${err.status}`;
-  if (/timed out/i.test(err?.message || '')) return 'model_timeout';
+  if (/timed out|deadline/i.test(err?.message || '')) return 'model_timeout';
   if (/network/i.test(err?.message || '')) return 'model_error:network';
-  return `model_error:${String(err?.name || 'error').replace(/[^A-Za-z0-9_]/g, '').slice(0, 30) || 'error'}`;
+  if (/call limit/i.test(err?.message || '')) return 'model_error:call_limit';
+  return 'model_error:internal'; // not an upstream failure: never claim the model failed
 }
 
 export const MODE_MODEL = 'model';
@@ -389,9 +390,12 @@ export class Agent {
       { role: 'system', content: systemPrompt(this.config) },
       { role: 'user', content: buildContext(ctx) },
     ];
+    // One budget for the whole inquiry: total deadline, at most 6 upstream calls, per-call timeout min(remaining, 12 s).
+    const budget = ctx.budget || (ctx.budget = { startedAt: null, deadlineMs: this.config.inference?.modelDeadlineMs ?? 18000, calls: 0, maxCalls: 6, now: this.now });
     for (let i = 0; i < this.config.maxSteps; i += 1) {
+      if (budget.calls >= budget.maxCalls) break; // upstream call cap for one inquiry: the loop ends, the rules finish
       const t0 = this.now();
-      const { message, model, finishReason, reasoningOnly } = await this.llm.chat({ messages, tools: toolDefs(this.config) });
+      const { message, model, finishReason, reasoningOnly } = await this.llm.chat({ messages, tools: toolDefs(this.config), budget });
       this.stats.lastModel = model;
       const calls = Array.isArray(message.tool_calls) ? message.tool_calls.slice(0, 4) : [];
       step({ kind: 'model', title: calls.length ? `Model chose ${calls.length} function call${calls.length > 1 ? 's' : ''}` : 'Model finished', detail: (calls.length ? calls.map((c) => c?.function?.name).join(', ') : String(message.content || '').slice(0, 120)) + (finishReason && finishReason !== 'stop' && finishReason !== 'tool_calls' ? ` [finish: ${finishReason.slice(0, 20)}]` : '') + (reasoningOnly ? ' [reasoning only, no answer]' : ''), ms: this.now() - t0 });
@@ -411,14 +415,19 @@ export class Agent {
           messages.push({ role: 'assistant', content: text });
         } else if (text) ctx.emptyHint = 'empty_end:too_short';
         // No usable text: one forced retry that requires send_reply, then the built-in rules.
-        if (!ctx.forcedRetry && ctx.guardRejects < 3) {
+        if (!ctx.forcedRetry && ctx.guardRejects < 3 && budget.calls < budget.maxCalls) {
           ctx.forcedRetry = true;
           messages.push({ role: 'user', content: ctx.rejectRule === 'dangling' || ctx.rejectRule === 'no_times' || ctx.calendarOffer
             ? 'You already have the calendar results; now call send_reply with the actual open times (or say the requested time is taken). Do not say you will check.'
-            : 'Now call send_reply with a short message for the customer (1-3 sentences, no prices unless qualify_lead returned a range).' });
+            : ctx.emptyHint === 'empty_end:length'
+              ? 'Reply in 2-4 short sentences, no long reasoning. Call send_reply now with a short message for the customer (no prices unless qualify_lead returned a range).'
+              : 'Now call send_reply with a short message for the customer (1-3 sentences, no prices unless qualify_lead returned a range).' });
           const t1 = this.now();
           ctx.via = 'tool';
-          const retry = await this.llm.chat({ messages, tools: toolDefs(this.config), toolChoice: { type: 'function', function: { name: 'send_reply' } } });
+          // A cut-off answer (finish 'length') is retried with a bigger token budget and a request to be brief.
+          const cutOff = ctx.emptyHint === 'empty_end:length';
+          const cap = this.llm.maxTokensCap || 4000;
+          const retry = await this.llm.chat({ messages, tools: toolDefs(this.config), toolChoice: { type: 'function', function: { name: 'send_reply' } }, budget, maxTokens: cutOff ? Math.min(cap, Math.round((this.llm.maxTokens || 2000) * 2.5)) : undefined });
           const rc = (Array.isArray(retry.message.tool_calls) ? retry.message.tool_calls : []).filter((c) => c?.function?.name === 'send_reply').slice(0, 1);
           step({ kind: 'model', title: rc.length ? 'Model asked again to send a reply: it did' : 'Model asked again to send a reply: it still did not', ms: this.now() - t1 });
           for (const c of rc) {

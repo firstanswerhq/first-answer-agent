@@ -74,7 +74,7 @@ export function fakeFetch(script) {
     const r = typeof step === 'function' ? step(JSON.parse(opts.body)) : step;
     if (r.throw) throw r.throw;
     if (r.hang) return new Promise((_res, rej) => opts.signal.addEventListener('abort', () => rej(Object.assign(new Error('aborted'), { name: 'AbortError' }))));
-    return { ok: r.status >= 200 && r.status < 300, status: r.status, json: async () => r.json };
+    return { ok: r.status >= 200 && r.status < 300, status: r.status, json: async () => r.json, text: async () => (r.body ?? JSON.stringify(r.json ?? {})) };
   };
   fn.state = state;
   return fn;
