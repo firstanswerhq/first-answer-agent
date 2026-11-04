@@ -25,6 +25,8 @@ BUSINESS_PROFILE="${BUSINESS_PROFILE:-dental}"                # a file name in c
 BUSINESS_NAME="${BUSINESS_NAME:-}"                          # optional override of the name in the profile
 TRUST_PROXY="${TRUST_PROXY:-}"                              # set to 1 only if you put Caddy/nginx in front (see README); forced to 1 when DOMAIN is set
 DOMAIN="${DOMAIN:-}"                                        # optional host name for automatic HTTPS via Caddy, e.g. 155-138-206-164.sslip.io (see README)
+NTFY_TOPIC="${NTFY_TOPIC:-}"                                # optional ntfy topic for owner phone alerts (empty = no alerts)
+DASHBOARD_URL="${DASHBOARD_URL:-}"                          # optional link included in the owner alert
 FOLLOWUP_SPEEDUP="${FOLLOWUP_SPEEDUP:-60}"                 # demo clock for follow-up timers (1 = real time)
 AUTO_UPDATE="${AUTO_UPDATE:-1}"                             # 0 = install the update timer but leave it switched off
 REPO_PIN="${REPO_PIN:-}"                                    # optional tag or commit to stay on; the update timer then never moves off it
@@ -97,6 +99,8 @@ VULTR_INFERENCE_URL="$(q "$VULTR_INFERENCE_URL")"
 VULTR_INFERENCE_MODEL="$(q "$VULTR_INFERENCE_MODEL")"
 BUSINESS_PROFILE="$(q "$BUSINESS_PROFILE")"
 BUSINESS_NAME="$(q "$BUSINESS_NAME")"
+NTFY_TOPIC="$(q "$NTFY_TOPIC")"
+DASHBOARD_URL="$(q "$DASHBOARD_URL")"
 FOLLOWUP_SPEEDUP=$FOLLOWUP_SPEEDUP
 TRUST_PROXY=$TRUST_PROXY
 ENV

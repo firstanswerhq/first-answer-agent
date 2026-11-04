@@ -55,6 +55,8 @@ export function loadConfig(env = process.env, over = {}) {
       maxRunsPerIpPerHour: int(env.INFERENCE_MAX_RUNS_PER_IP_PER_HOUR, 15),
     },
     forceOffline: env.FORCE_OFFLINE === '1',
+    // Owner phone alerts through ntfy. No topic means no alerts. Never on the network in tests or with FORCE_OFFLINE=1.
+    notify: { topic: env.NTFY_TOPIC || '', dashboardUrl: env.DASHBOARD_URL || '', offline: env.FORCE_OFFLINE === '1' || env.NODE_ENV === 'test' || !!process.env.NODE_TEST_CONTEXT },
     profile,
     business: { ...profile.business, name: env.BUSINESS_NAME || profile.business.name, tz: env.BUSINESS_TZ || profile.business.tz },
     hours: profile.hours,

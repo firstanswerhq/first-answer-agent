@@ -4,6 +4,7 @@ import { VERSION, withProfile } from './config.js';
 import { Store } from './store.js';
 import { Agent, newSharedBudget } from './agent.js';
 import { LlmClient } from './llm.js';
+import { Notifier } from './notify.js';
 import { LeadService, validateLeadInput, summary, detail, InputError, SOURCES } from './service.js';
 import { FollowupScheduler } from './followups.js';
 import { computeMetrics } from './metrics.js';
@@ -22,15 +23,16 @@ const LEAD_ID = /^L-[0-9a-f]{8}$/;
  * deployment's own profile and, on request, the other shipped example profiles, each fully isolated from the others.
  * Only the model budget and the visitor-key salt are shared (so switching profiles cannot multiply the model budget).
  */
-export async function createApp({ config, store = new Store({ file: config.dataFile }), llm, now = Date.now, startTimers = true } = {}) {
+export async function createApp({ config, store = new Store({ file: config.dataFile }), llm, now = Date.now, startTimers = true, notifyTransport = null } = {}) {
   const client = llm ?? new LlmClient({ ...config.inference, fetchImpl: globalThis.fetch });
   const shared = newSharedBudget();
+  const notifier = new Notifier({ ...config.notify, transport: notifyTransport, now });
   const startedAt = now();
   const tenants = new Map();
   const timers = [];
 
   async function buildTenant(cfg, st) {
-    const agent = new Agent({ store: st, config: cfg, llm: client, now, shared });
+    const agent = new Agent({ store: st, config: cfg, llm: client, now, shared, notifier });
     const svc = new LeadService({ store: st, agent, config: cfg, now });
     const scheduler = new FollowupScheduler({ store: st, agent, now });
     if (cfg.seedOnEmpty && !st.state.meta.seeded && st.leads.length === 0) await seedSample(st, cfg, { realNow: now() });
@@ -116,7 +118,7 @@ export async function createApp({ config, store = new Store({ file: config.dataF
       ok: true, version: VERSION, mode: st.mode, modeLabel: st.label, model: st.model,
       inferenceConfigured: st.inferenceConfigured, modelVerified: st.modelVerified, lastError: st.lastError, quotaReached: st.quotaReached, modelRunsLastHour: st.modelRunsLastHour, modelRunCap: st.modelRunCap, uptimeSec: Math.round((now() - startedAt) / 1000),
       leads: store.leads.length, pendingFollowups: store.followups.filter((f) => f.status === 'pending').length,
-      business: config.business.name, followupSpeedup: config.followupSpeedup,
+      notify: notifier.status(), business: config.business.name, followupSpeedup: config.followupSpeedup,
     });
   });
 

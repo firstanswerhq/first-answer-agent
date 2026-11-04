@@ -1,6 +1,6 @@
 // The six functions the agent can call. Every call goes through the same path whether it
 // comes from the model or from the offline rules engine: validate arguments, enforce
-// guardrails in code, write real state, and record a timeline step.
+// guardrails in code, write state, and record a timeline step.
 import { findZip } from './extract.js';
 import { cleanText, money, rid, round2 } from './util.js';
 import { openSlots, localNow, isRealSlot, isBookableNow, slotLabel, isOpenNow, isValidDate, dateOf, DATE_RE } from './calendar.js';
@@ -101,7 +101,7 @@ export function toolDefs(config) {
     },
     {
       name: 'check_calendar',
-      description: 'List real open appointment times from the business calendar. Never offer a time that this function did not return.',
+      description: 'List open appointment times from the demo calendar. Never offer a time that this function did not return.',
       parameters: {
         type: 'object',
         properties: {
@@ -362,6 +362,7 @@ export class Functions {
     if (a.priority === 'urgent') lead.priority = 'urgent';
     lead.awaitingCustomer = false;
     this.cancelFollowups('handed to a human');
+    this.ctx.onEscalate?.(a);
     return { ok: true, status: 'Needs a Human', priority: lead.priority };
   }
 }
