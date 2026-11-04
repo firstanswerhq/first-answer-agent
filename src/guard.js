@@ -110,9 +110,12 @@ const clausesOf = (text) => text.split(/(?<=[.!?])\s+|\n+|[;:]|,|\s[-–—]\s|\
 // Past-tense claims that something was cancelled, moved or changed. The assistant has no such power, booking or not.
 const PAST_CHANGE = /\b(?:cancel(?:l?ed)|moved|rescheduled|re-scheduled|switched|changed|updated)\b/i;
 const CHANGE_OBJECT = /\b(?:appointment|booking|visit|reservation|slot|it|you|your|that|this|time|session)\b/i;
+// "Our hours changed", "prices were updated", "that time was updated in our calendar" are about the business, not the customer's appointment.
+const ABOUT_BUSINESS = /\b(?:hours|prices?|pricing|rates?|fees?|polic(?:y|ies)|menu|website|location|address|calendar|schedule|holiday)\b/i;
+const ABOUT_CUSTOMER = /\b(?:your|you(?:'re| are)?)\b.{0,20}\b(?:appointment|booking|visit|reservation|session|slot)\b|\bcancel(?:l?ed)\b/i;
 function changeProblem(text) {
   for (const c of clausesOf(text)) {
-    if (PAST_CHANGE.test(c) && CHANGE_OBJECT.test(c) && !NOT_A_CLAIM.test(c) && !NEGATED_BOOKED.test(c)) return { id: 'booking_change', message: 'Message says an appointment was changed or cancelled, but this assistant cannot do that. A teammate handles changes.' };
+    if (PAST_CHANGE.test(c) && CHANGE_OBJECT.test(c) && !NOT_A_CLAIM.test(c) && !NEGATED_BOOKED.test(c) && !(ABOUT_BUSINESS.test(c) && !ABOUT_CUSTOMER.test(c))) return { id: 'booking_change', message: 'Message says an appointment was changed or cancelled, but this assistant cannot do that. A teammate handles changes.' };
   }
   return null;
 }

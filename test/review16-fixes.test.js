@@ -77,3 +77,10 @@ test('emergency holds path: the safety note and phone appear once and never cont
     assert.doesNotMatch(all, /Which weekday works/, label);
   }
 });
+
+import { checkOutboundRule } from '../src/guard.js';
+test('change claims: statements about the business pass, claims about the customer appointment are rejected', () => {
+  const m = (t) => checkOutboundRule(t, {}, { model: true, booked: false });
+  for (const t of ['Our hours changed this fall: we are now open Monday to Thursday 8 AM to 5 PM.', 'Our prices were updated this year.', 'That time was updated in our calendar.', 'The holiday schedule changed, so we close at noon on Friday.']) assert.equal(m(t), null, t);
+  for (const t of ['Your appointment has been cancelled.', "I've canceled it for you.", "Done! I've moved your appointment to Friday at 9 AM.", 'No problem, you are now rescheduled for Thursday at 2 PM.', 'I have updated your appointment to 3 PM.']) assert.equal(m(t)?.id, 'booking_change', t);
+});
