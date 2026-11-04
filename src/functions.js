@@ -3,7 +3,7 @@
 // guardrails in code, write state, and record a timeline step.
 import { findZip } from './extract.js';
 import { cleanText, money, rid, round2 } from './util.js';
-import { openSlots, localNow, isRealSlot, isBookableNow, slotLabel, isOpenNow, isValidDate, dateOf, DATE_RE } from './calendar.js';
+import { openSlots, localNow, isRealSlot, isBookableNow, slotLabel, isOpenNow, isValidDate, dateOf, DATE_RE, feedFor, calendarSource, slotIsBusy, CALENDAR_LABELS } from './calendar.js';
 
 const URGENCIES = ['emergency', 'urgent', 'routine'];
 const serviceIds = (config) => [...config.services.map((x) => x.id), 'other'];
@@ -260,10 +260,12 @@ export class Functions {
   async check_calendar(a) {
     const { store, config, lead } = this.ctx;
     const from = a.earliest_date && isValidDate(a.earliest_date) ? a.earliest_date : undefined;
+    await feedFor(config)?.ensureFresh(this.ctx.now()); // refreshes the read-only Google feed when its cache is stale; never throws
+    const source = calendarSource(config);
     const slots = openSlots(store, config, this.ctx.now(), from, a.days, a.limit);
     lead.offeredSlots = slots.map((s) => s.slot_id);
     return {
-      ok: true, timezone: config.business.tz, business_hours: config.hours.text,
+      ok: true, timezone: config.business.tz, business_hours: config.hours.text, calendar: source, calendar_label: CALENDAR_LABELS[source],
       slots: slots.map((s) => ({ slot_id: s.slot_id, label: s.label })),
       note: slots.length ? undefined : 'No open slots in that range; try a later earliest_date or escalate_to_human.',
     };
@@ -272,6 +274,8 @@ export class Functions {
   // 3. book_appointment
   async book_appointment(a) {
     const { store, config, lead, flags } = this.ctx;
+    // The only await comes first: everything below is one synchronous check-and-write, so two runs cannot take one slot.
+    await feedFor(config)?.ensureFresh(this.ctx.now());
     if (store.bookingForLead(lead.id)) return { ok: false, error: 'This lead already has a booking. Changes must be handled by a human (escalate_to_human).' };
     if (lead.status === 'human' && !(flags?.emergency)) return { ok: false, error: 'Lead is flagged for a human; the agent may not book.' };
     const q = lead.qualification;
@@ -282,6 +286,7 @@ export class Functions {
     const nowL = localNow(this.ctx.now(), config.business.tz);
     if (!isBookableNow(a.slot_id, nowL, config)) return { ok: false, error: `That time is in the past or too soon (${config.minLeadMinutes / 60} hours notice required).` };
     if (store.bookingForSlot(a.slot_id)) return { ok: false, error: 'That slot was just taken. Call check_calendar again.' };
+    if (slotIsBusy(a.slot_id, config)) return { ok: false, error: 'That time is no longer available. Call check_calendar again.' };
     if (flags?.emergency && !config.limits.emergencyHolds) return { ok: false, error: 'Emergency leads are flagged for a person instead of holding a calendar slot. Call escalate_to_human with priority urgent.', code: 'emergency_hold_off' };
     // Public-demo protection: bookings made by visitors are capped overall and per visitor, and expire (see releaseExpired).
     // Sample leads follow the same rules when a visitor role-plays on them. The cap reasons carry a code so the caller can
@@ -378,7 +383,7 @@ function describeCall(name, args, result, config) {
       const area = result.service_area_ok === true ? 'in service area' : result.service_area_ok === false ? 'OUTSIDE service area' : 'area unconfirmed';
       return `Qualified the request: ${result.service_label}, ${result.urgency}${config.serviceArea ? ', ' + area : ''}`;
     }
-    case 'check_calendar': return `Checked the demo calendar: ${result.slots.length} open window${result.slots.length === 1 ? '' : 's'} found`;
+    case 'check_calendar': return `Checked the calendar (${result.calendar_label || CALENDAR_LABELS.demo}): ${result.slots.length} open window${result.slots.length === 1 ? '' : 's'} found`;
     case 'book_appointment': return `Booked the appointment: ${result.label}`;
     case 'send_reply': return 'Sent a reply to the customer (simulated, nothing is really sent)';
     case 'schedule_followup': return `Scheduled a follow-up in ${args.delay_minutes} minutes in case the customer goes quiet`;

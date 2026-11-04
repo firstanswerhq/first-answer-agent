@@ -3,6 +3,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadProfile, compileProfile } from './profile.js';
+import { CalendarFeed } from './icalfeed.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -35,9 +36,22 @@ export function withProfile(cfg, profile) {
   };
 }
 
+// Optional read-only Google Calendar feed for ONE profile (CALENDAR_PROFILE, default dental). Validated at startup: a bad
+// address stops the app with a message that never repeats the address. Unset means the demo calendar everywhere.
+function buildCalendarFeed(env, profile, businessTz, over) {
+  const url = String(env.CALENDAR_ICAL_URL || '').trim();
+  if (!url) return null;
+  const id = String(env.CALENDAR_PROFILE || 'dental').trim().toLowerCase();
+  let tz = businessTz;
+  if (id !== profile.id) {
+    try { tz = loadProfile(id).business.tz; } catch { throw new Error('CALENDAR_PROFILE is not a known business profile.'); }
+  }
+  return new CalendarFeed({ url, profile: id, tz, fetchImpl: over.calendarFetch ?? globalThis.fetch });
+}
+
 export function loadConfig(env = process.env, over = {}) {
   // The business profile (config/profiles/<name>.json) carries everything specific to one kind of business.
-  const { profile: profileOver, ...rest } = over;
+  const { profile: profileOver, calendarFetch, ...rest } = over;
   const profile = profileOver && typeof profileOver === 'object' ? (profileOver.services?.[0]?.re !== undefined ? profileOver : compileProfile(profileOver)) : loadProfile(profileOver ?? env.BUSINESS_PROFILE);
   const cfg = {
     port: int(env.PORT, 3000),
@@ -60,6 +74,7 @@ export function loadConfig(env = process.env, over = {}) {
     profile,
     business: { ...profile.business, name: env.BUSINESS_NAME || profile.business.name, tz: env.BUSINESS_TZ || profile.business.tz },
     hours: profile.hours,
+    calendarFeed: buildCalendarFeed(env, profile, env.BUSINESS_TZ || profile.business.tz, { calendarFetch }),
     serviceArea: profile.serviceArea, // null when customers come to the business and no area check is needed
     services: profile.services,
     wording: profile.wording,

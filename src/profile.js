@@ -33,6 +33,7 @@ export function compileProfile(raw) {
     name: str(b.name, 'business.name', 80), agentName: str(b.agentName, 'business.agentName', 80), phone: str(b.phone, 'business.phone', 30),
     tz: str(b.tz, 'business.tz', 60), accent: str(b.accent || '#a95aff', 'business.accent', 9), tagline: str(b.tagline, 'business.tagline', 160),
     description: str(b.description, 'business.description', 200), customerWord: str(b.customerWord || 'customer', 'business.customerWord', 30),
+    address: b.address ? str(b.address, 'business.address', 160) : '', // optional; used as the LOCATION of the calendar file
   };
   need(/^#[0-9a-fA-F]{6}$/.test(business.accent), 'business.accent must look like #rrggbb');
   try { new Intl.DateTimeFormat('en-US', { timeZone: business.tz }); } catch { throw new ProfileError('Invalid business profile: business.tz is not a valid time zone'); }

@@ -8,12 +8,22 @@ import { Notifier } from './notify.js';
 import { LeadService, validateLeadInput, summary, detail, InputError, SOURCES } from './service.js';
 import { FollowupScheduler } from './followups.js';
 import { computeMetrics } from './metrics.js';
-import { listSlots, mondayOf, localNow, dateOf, addDays, isValidDate, isOpenNow } from './calendar.js';
+import { listSlots, mondayOf, localNow, dateOf, addDays, isValidDate, isOpenNow, feedFor, calendarSource, busyOnDate } from './calendar.js';
 import { rateLimiter, acceptCounter, gate } from './ratelimit.js';
 import { seedSample, sampleIsStale } from './seed.js';
 import { loadProfile, SHIPPED_PROFILES } from './profile.js';
 import { safeEqual } from './util.js';
 import crypto from 'node:crypto';
+
+// Calendar status for /api/health and the Calendar page: only flags and short codes, never the feed address.
+const NO_FEED = { configured: false, connected: false, lastOk: null, lastError: null, eventsLoaded: 0 };
+function calendarHealth(cfg) {
+  const feed = feedFor(cfg);
+  if (!feed) return NO_FEED;
+  const { configured, connected, lastOk, lastError, eventsLoaded } = feed.status();
+  return { configured, connected, lastOk, lastError, eventsLoaded };
+}
+const CALENDAR_NOTICE = 'Google Calendar could not be read right now, so this page and the assistant are using the demo calendar instead. Nothing here is from your real calendar until the connection works again.';
 
 const SCENARIOS_OF = (config) => config.profile.scenarios;
 const LEAD_ID = /^L-[0-9a-f]{8}$/;
@@ -129,11 +139,13 @@ export async function createApp({ config, store = new Store({ file: config.dataF
   app.get('/api/health', (req, res) => {
     const { config, store, agent } = req.t;
     const st = agent.status();
+    const feed = feedFor(config);
+    feed?.ensureFresh(now()); // warm the cache in the background; never awaited and never throws
     res.json({
       ok: true, version: VERSION, mode: st.mode, modeLabel: st.label, model: st.model,
       inferenceConfigured: st.inferenceConfigured, modelVerified: st.modelVerified, lastError: st.lastError, quotaReached: st.quotaReached, modelRunsLastHour: st.modelRunsLastHour, modelRunCap: st.modelRunCap, uptimeSec: Math.round((now() - startedAt) / 1000),
       leads: store.leads.length, pendingFollowups: store.followups.filter((f) => f.status === 'pending').length,
-      notify: notifier.status(), business: config.business.name, followupSpeedup: config.followupSpeedup,
+      notify: notifier.status(), calendar: calendarHealth(config), business: config.business.name, followupSpeedup: config.followupSpeedup,
     });
   });
 
@@ -241,14 +253,19 @@ export async function createApp({ config, store = new Store({ file: config.dataF
     } catch (e) { return next(e); }
   });
 
-  app.get('/api/calendar', readLimit, (req, res) => {
+  app.get('/api/calendar', readLimit, async (req, res) => {
     const { config, store } = req.t;
+    await feedFor(config)?.ensureFresh(now());
     const today = dateOf(localNow(now(), config.business.tz));
     let start = typeof req.query.start === 'string' && isValidDate(req.query.start) && req.query.start >= '2000-01-01' && req.query.start <= '2100-12-31' ? req.query.start : today;
     start = mondayOf(start);
     const slots = listSlots(store, config, now(), start, 6);
-    const days = Array.from({ length: 6 }, (_, i) => addDays(start, i)).map((date) => ({ date, today: date === today, slots: slots.filter((s) => s.date === date) }));
-    res.json({ start, prev: addDays(start, -7), next: addDays(start, 7), today, timezone: config.business.tz, days });
+    const days = Array.from({ length: 6 }, (_, i) => addDays(start, i)).map((date) => ({ date, today: date === today, slots: slots.filter((s) => s.date === date), busy: busyOnDate(date, config) }));
+    const h = calendarHealth(config);
+    res.json({
+      start, prev: addDays(start, -7), next: addDays(start, 7), today, timezone: config.business.tz, days,
+      calendar: { source: calendarSource(config), configured: h.configured, connected: h.connected, notice: h.configured && !h.connected ? CALENDAR_NOTICE : null },
+    });
   });
 
   app.get('/api/metrics', readLimit, (req, res) => {

@@ -1,5 +1,7 @@
 // The app's own calendar. All slot ids are business-local wall time ("2026-11-05T10:00"),
 // so no timezone arithmetic is needed after we convert "now" once.
+import { instantOfLocal, wallOf } from './tz.js';
+
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 export const SLOT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:00$/;
@@ -83,6 +85,34 @@ export function isBookableNow(id, nowLocalStr, cfg) {
   return minutes(id) - minutes(nowLocalStr) >= cfg.minLeadMinutes;
 }
 
+// The connected Google Calendar feed applies to ONE profile only; every other profile keeps its demo calendar.
+export const feedFor = (cfg) => (cfg.calendarFeed && cfg.calendarFeed.appliesTo(cfg.profile.id) ? cfg.calendarFeed : null);
+export const connectedFeed = (cfg) => { const f = feedFor(cfg); return f && f.connected ? f : null; };
+export const CALENDAR_LABELS = { google: 'Connected Google Calendar (read-only)', demo: 'Demo calendar' };
+export const calendarSource = (cfg) => (connectedFeed(cfg) ? 'google' : 'demo');
+
+/** Does the connected feed have something busy during this slot? (false for the demo calendar) */
+export function slotIsBusy(id, cfg) {
+  const feed = connectedFeed(cfg);
+  if (!feed) return false;
+  const s = instantOfLocal(id, cfg.business.tz);
+  return feed.isBusy(s, s + cfg.hours.windowHours * 3_600_000);
+}
+
+/** Busy blocks of the connected feed on one date, clipped to that day, as local HH:MM. Titles are never included. */
+export function busyOnDate(date, cfg) {
+  const feed = connectedFeed(cfg);
+  if (!feed) return [];
+  const tz = cfg.business.tz;
+  const d0 = instantOfLocal(`${date}T00:00`, tz);
+  const d1 = instantOfLocal(`${addDays(date, 1)}T00:00`, tz);
+  const hhmm = (ms) => { const w = new Date(wallOf(ms, tz)); return `${String(w.getUTCHours()).padStart(2, '0')}:${String(w.getUTCMinutes()).padStart(2, '0')}`; };
+  return feed.busyBetween(d0, d1).map((b) => {
+    const s = Math.max(b.start, d0); const e = Math.min(b.end, d1);
+    return { start: hhmm(s), end: e >= d1 ? '24:00' : hhmm(e), allDay: s <= d0 && e >= d1 };
+  });
+}
+
 // Status of every slot in a date range, using the actual booking store.
 export function listSlots(store, cfg, nowMs, fromDate, days) {
   const nowL = localNow(nowMs, cfg.business.tz);
@@ -94,6 +124,7 @@ export function listSlots(store, cfg, nowMs, fromDate, days) {
       let status = 'open';
       if (booking) status = 'booked';
       else if (!isBookableNow(id, nowL, cfg)) status = 'past';
+      else if (slotIsBusy(id, cfg)) status = 'busy';
       out.push({
         slot_id: id, date, start: timeOf(id), end: endTime(timeOf(id), cfg.hours.windowHours),
         label: slotLabel(id, cfg.hours.windowHours), status, booking: booking || null,
