@@ -2,11 +2,7 @@
 // Every dynamic string goes through esc(): customer text is untrusted.
 import { isWorking } from './status.js';
 const $ = (s, r = document) => r.querySelector(s);
-const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-class Raw { constructor(s) { this.s = s; } }
-const raw = (s) => new Raw(s);
-const html = (strings, ...vals) => strings.reduce((out, s, i) => out + s + (i < vals.length ? (vals[i] instanceof Raw ? vals[i].s : Array.isArray(vals[i]) ? vals[i].map((x) => (x instanceof Raw ? x.s : esc(x))).join('') : esc(vals[i])) : ''), '');
-const R = (s) => raw(s);
+import { esc, html, R } from './tpl.js';
 
 // Which example business this tab shows: ?profile= in the address, remembered for the tab. Empty = the server's default.
 let PROFILE = new URLSearchParams(location.search).get('profile') || '';
@@ -316,14 +312,14 @@ async function renderCalendar(start, { quiet = false } = {}) {
   const hours = Array.from({ length: H1 - H0 }, (_, i) => `<div class="hlabel">${clock(String(H0 + i).padStart(2, '0'))}</div>`).join('');
   const agenda = cols.map((day) => `<h3>${esc(dname(day.date))} ${esc(label(day.date))}${day.today ? ' (today)' : ''}</h3>` + (day.slots.length ? '' : '<div class="row past"><span>Closed</span><span></span></div>') + day.slots.map((s) => `<div class="row ${s.status === 'open' ? 'free' : s.status === 'past' ? 'past' : ''}"><span>${esc(clock(s.start))}–${esc(clock(s.end))}</span><span>${s.status === 'booked' ? esc(s.booking.serviceLabel + ' · ' + s.booking.name) : s.status === 'busy' ? 'Busy (Google Calendar)' : s.status === 'open' ? 'Open' : s.date < c.today ? 'Past' : 'Too soon'}</span></div>`).join('')).join('');
   $('#view').innerHTML = html`
-    <div class="heading"><div><div class="eyebrow">Your week at a glance</div><h1>Calendar</h1><p class="sub">Booked and open appointment times from ${gcal ? 'your connected Google Calendar and the demo bookings' : 'the demo calendar'}. The assistant books only the open times shown here.</p>${gcal ? '<span class="badge" id="calBadge">Connected: Google Calendar (read-only)</span>' : ''}${c.calendar?.notice ? `<div class="note" id="calNotice" role="status"><strong>Demo calendar in use.</strong> ${esc(c.calendar.notice)}</div>` : ''}</div>
+    <div class="heading"><div><div class="eyebrow">Your week at a glance</div><h1>Calendar</h1><p class="sub">Booked and open appointment times from ${gcal ? 'your connected Google Calendar and the demo bookings' : 'the demo calendar'}. The assistant books only the open times shown here.</p>${R(calendarBadge(c))}${R(calendarNotices(c))}</div>
       <div class="actions"><button class="btn ghost small" data-week="${c.prev}" aria-label="Previous week">‹ Prev</button><span class="btn ghost small" style="pointer-events:none">${label(cols[0].date)} – ${label(cols[5].date)}, ${cols[0].date.slice(0, 4)}</span><button class="btn ghost small" data-week="${c.next}" aria-label="Next week">Next ›</button></div></div>
     <div class="card" style="padding:15px">
       <div class="week-wrap"><div class="week"><div></div>${R(cols.map((d) => html`<div class="dayhead ${d.today ? 'today' : ''}">${dname(d.date)}<small>${label(d.date)}</small></div>`).join(''))}
         <div class="hourcol">${R(hours)}</div>${R(cols.map(colHtml).join(''))}</div></div>
       <div class="agenda">${R(agenda)}</div>
     </div>
-    <div class="legend-row"><span>● Booked by the assistant</span><span style="color:#8791b2">● Existing ${state.cfg.business.customerWord}s (sample)</span>${gcal ? '<span style="color:#b3b8cc">● Busy (Google Calendar, titles hidden)</span>' : ''}<span style="margin-left:auto">All times ${tzName(state.cfg.business.tz)} · Appointments are ${WH} hour${WH === 1 ? '' : 's'} · ${state.cfg.hoursText}</span></div>
+    <div class="legend-row"><span>● Booked by the assistant</span><span style="color:#8791b2">● Existing ${state.cfg.business.customerWord}s (sample)</span>${R(calendarLegend(c))}<span style="margin-left:auto">All times ${tzName(state.cfg.business.tz)} · Appointments are ${WH} hour${WH === 1 ? '' : 's'} · ${state.cfg.hoursText}</span></div>
     <p class="foot">Demo data is fictional; messages are simulated.</p>`;
   $('#view').onclick = (e) => {
     const w = e.target.closest('[data-week]'); if (w) { renderCalendar(w.dataset.week); return; }
