@@ -7,6 +7,7 @@ import { CHANGE_REQUEST } from './safety.js';
 import { slotLabel, addDays, dateOf, localNow, isOpenNow, dateLabel, listSlots, slotsForDate, fmtClock } from './calendar.js';
 import { factAnswers, missingFactText, holidayName } from './facts.js';
 
+const OFF_TOPIC = /\b(recipes?|cooking|baking|banana bread|football|basketball|baseball|soccer|hockey|score|who won|game last night|weather|forecast|pizza|restaurants?|movies?|jokes?|poems?|songs?|lyrics|cover letter|r[eé]sum[eé]|essay|homework|math problem|python|javascript|crypto|bitcoin|horoscope|trivia|translate|write me|write a|tell me a story)\b/i;
 const SIGN = (config) => ` - ${config.business.agentName} (AI)`;
 const lc = (label) => (/^[A-Z][A-Z]/.test(label) ? label : label.charAt(0).toLowerCase() + label.slice(1));
 const aOrAn = (w) => (/^[aeiou]/i.test(w) ? 'an' : 'a');
@@ -128,6 +129,16 @@ export async function runRules(ctx, fx, trigger) {
     ctx.step({ kind: 'info', title: 'Flagged for a teammate to confirm (low priority, no phone alert)', detail: lead.confirmNeeded });
   };
 
+  // A plain question about the business that names a service ("how long does a new patient exam take?") is answered on its own:
+  // no unasked price and no list of times. The offer follows when the customer says yes.
+  const BOOK_INTENT = /\b(book|schedule|appointments?|come in|come by|see someone|availab\w*|openings?|open (?:times?|slots?)|this week|next week|price|cost|how much|need|want|looking for|would like|interested|can i get|can i see)\b|\$/i;
+  if (fa.any && service !== 'other' && !flags.handoff && !BOOK_INTENT.test(latest) && !requestedDay(latest, dateOf(localNow(ctx.now(), config.business.tz)))) {
+    await reply(`Hi ${first}! ${factText} Would you like me to find a time for your ${lc(q.service_label)}?`);
+    await flagMissing();
+    if (lead.status !== 'human') await fx.call('schedule_followup', { delay_minutes: 30, text: `Hi ${first}, would you like me to find a time for your ${lc(q.service_label)}? Reply here whenever you are ready.`.slice(0, 400) });
+    return;
+  }
+
   // 4. Not enough information yet: ask one clear question.
   if (service === 'other' || (loc.needed && !loc.known) || q.service_area_ok === null) {
     const needService = service === 'other';
@@ -142,6 +153,11 @@ export async function runRules(ctx, fx, trigger) {
     const ask = needService && needLoc ? `${wording.askService.replace(/\?$/, '')}, and ${where}?`
       : needService ? wording.askService : `${where}, so I can confirm we cover it?`;
     // The second ask sounds different from the first, so the customer never gets the same message twice in a row.
+    if (!fa.any && service === 'other' && !needLoc && attempts === 0 && OFF_TOPIC.test(latest) && !BOOK_INTENT.test(latest)) {
+      // Plainly outside what this business helps with: say so, and say what we do.
+      await reply(`Hi ${first}, thanks for reaching out to ${biz}. That one is outside what I can help with here. I can book appointments and answer questions about our hours, parking and visits, so ${ask}`);
+      return;
+    }
     if (fa.any && service === 'other' && !needLoc) {
       // A question about the business: answer it, then offer to book. Answering does not use up the one-question budget.
       await reply(`Hi ${first}, thanks for reaching out to ${biz}. ${factText} Happy to book a visit too: ${ask}`);
@@ -244,6 +260,7 @@ export async function runRules(ctx, fx, trigger) {
       sameDay = [...openList].sort(noteDone
         ? (x, y) => (x.slot_id === wanted ? -1 : y.slot_id === wanted ? 1 : (x.slot_id > wanted) === (y.slot_id > wanted) ? x.slot_id.localeCompare(y.slot_id) : x.slot_id > wanted ? -1 : 1) // the asked time, then the ones after it, then earlier ones
         : (x, y) => dist(x) - dist(y) || y.slot_id.localeCompare(x.slot_id)); // closest first; a tie goes to the later one
+      if (!noteDone) sameDay = [...sameDay.slice(0, 3).sort((x, y) => x.slot_id.localeCompare(y.slot_id)), ...sameDay.slice(3)]; // the three nearest, shown in time order
     } else {
       const inPart = (sl) => (part === 'morning' ? hourOf(sl) < 12 : part === 'afternoon' ? hourOf(sl) >= 12 && hourOf(sl) < 16 : hourOf(sl) >= 16);
       const label = reqDay.rel === 'today' ? `this ${part}` : `${dayWord} ${part}`;

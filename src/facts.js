@@ -9,7 +9,7 @@ const ASKS = {
   hours: /\b(?:office|business|opening|operating|store|shop|your|the) hours\b|\bhours of operation\b|\bwhen (?:are|do) you (?:open|close)\b|\bwhat time (?:do|are) you (?:open|close)\b|\bare you (?:open|closed)\b|\bwhat are (?:the |your )?hours\b/i,
   openNow: /\bare you (?:open|closed)\b[^?.!]{0,30}\b(?:now|right now|today|tonight|this (?:morning|afternoon|evening))\b|\b(?:open|closed) (?:right )?(?:now|today|tonight)\b/i,
   weekend: /\b(saturdays?|sundays?|weekends?)\b/i,
-  parking: /\bparking\b|\bwhere (?:do|can|should|would) (?:i|we) park\b|\b(?:can|do) (?:i|we) park\b|\bpark (?:my|our|the) (?:car|truck|van|bike)\b/i,
+  parking: /\bparking\b|\bwhere (?:do|can|should|would|will) (?:i|we|you|people|patients|customers|clients) park\b|\bwhere to park\b|\b(?:can|do) (?:i|we) park\b|\bpark (?:my|our|the) (?:car|truck|van|bike)\b/i,
   walkIns: /\bwalk[- ]?ins?\b|\bwithout (?:an? )?appointment\b|\bdrop[- ]?in\b|\bwalk in\b/i,
   duration: /\bhow long (?:is|does|will|would|do|should)\b[^?.!]{0,50}\b(?:exam|cleaning|appointment|visit|check-?up|consult\w*|session|meeting|haircut|service)\b|\blength of (?:the |an? )?(?:exam|appointment|visit|consult\w*)\b|\bhow long (?:does|will|would) (?:it|that|this) take\b|\bhow long (?:does|is|will) (?:a|an|the|my)\b[^?.!]{0,40}\btake\b/i,
 };

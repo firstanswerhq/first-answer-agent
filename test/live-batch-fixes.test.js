@@ -130,9 +130,9 @@ test('busy requested time: "Thursday at 9:00 AM is already taken", nearest open 
   assert.ok(t.indexOf('already taken') < t.indexOf('Open times'));
   const offers = [...t.matchAll(/\d\) ([A-Za-z]{3}, [A-Za-z]{3} \d+, [\d:]+ [AP]M)/g)].map((m) => m[1]);
   assert.equal(offers.length, 3);
-  assert.match(offers[0], /Thu, Nov 5, 10:00 AM/, 'closest to 9 AM on that day first');
+  assert.deepEqual(offers.map((o) => o.match(/(\d+:00 [AP]M)/)[1]), ['8:00 AM', '10:00 AM', '11:00 AM'], 'the three nearest to 9 AM, in time order');
   assert.ok(offers.every((o) => !/9:00 AM-/.test(o)), 'the taken window is never offered');
-  assert.deepEqual(l.offeredSlots.slice(0, 1), ['2026-11-05T10:00'], 'option numbers match what was shown');
+  assert.deepEqual(l.offeredSlots.slice(0, 1), ['2026-11-05T08:00'], 'option numbers match what was shown');
   // picking option 1 books that window
   await say(env, l, '1');
   assert.equal(l.status, 'booked');
