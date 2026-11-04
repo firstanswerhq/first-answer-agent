@@ -299,7 +299,7 @@ export class Agent {
         usedModel = true;
         // The model answered in prose or never produced a customer reply: finish the job with the rules engine
         // (same guarded functions) instead of treating a normal lead as an escalation.
-        if (!ctx.sentReply && lead.status !== 'human' && outcome !== 'guard_stop') {
+        if (!ctx.sentReply && lead.status !== 'human') {
           runInfo.mode = MODE_OFFLINE;
           ctx.writer = 'rules';
           step({ kind: 'mode', title: 'The AI model sent no reply, so the built-in rules finished the job', detail: 'Same steps and the same safety checks' });
@@ -360,7 +360,7 @@ export class Agent {
         if (ctx.sentReply || ctx.lead.status === 'human') return 'no_tool_calls';
         // The model wrote its answer as plain text instead of calling send_reply. Use that text as the reply, through the same
         // guarded send_reply (price, link, promise and leak checks), rather than throwing away a good answer.
-        const text = typeof message.content === 'string' ? message.content.trim() : '';
+        const text = typeof message.content === 'string' ? message.content.replace(/<(think|thinking|reasoning)>[\s\S]*?(?:<\/\1>|$)/gi, '').trim() : '';
         if (text.length >= 15 && text.split(/\s+/).length >= 3) {
           const signed = /\(AI\)\s*$/.test(text) ? text : `${text} - ${this.config.business.agentName} (AI)`;
           const r = await fx.call('send_reply', { text: signed }, 'model');
