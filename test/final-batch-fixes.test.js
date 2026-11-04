@@ -46,7 +46,7 @@ test('a model reply that says a teammate has it hands the inquiry to a person (t
 });
 
 test('billing disputes, refunds and double charges are handled in code, never by the model', async () => {
-  for (const m of ['You charged me twice for my last visit.', 'I want to dispute the charge on my card.', 'Can I get a refund for the whitening?', 'I was overcharged on my last bill and nobody will fix it. Get me a manager.']) {
+  for (const m of ['You charged me twice for my last visit.', 'I want to dispute the charge on my card.', 'We were charged double for the visit last week.', 'My card was charged again today for the same appointment.', 'I want a refund for the visit.', 'I was overcharged on my last bill and nobody will fix it. Get me a manager.']) {
     const llm = fakeLlm([txt('Sure!')]);
     const env = makeEnv({ llm });
     const l = await newLead(env, { message: m });

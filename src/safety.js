@@ -21,7 +21,10 @@ const HANDOFF = [
 ];
 
 // A dispute about money already paid is a person's job, whatever the tone: handled in code, never left to the model.
-const BILLING_DISPUTE = /\b(?:charged|billed) (?:me|us|my card|my account) (?:twice|two times|double|too much|extra|wrong|incorrectly|again)\b|\bovercharg\w*|\bdouble[- ]?(?:charged|billed)\b|\bdispute\b.{0,25}\b(?:charge|charges|bill|invoice|payment)\b|\b(?:charge|bill|invoice)\b.{0,25}\b(?:is|was|looks|seems) (?:wrong|incorrect|a mistake)\b|(?<!tax\s)\brefunds?\b(?!\s+policy)/i;
+const BILLING_DISPUTE = /\b(?:charged|billed)\b.{0,25}\b(?:twice|double|again|two times|too much|extra|incorrectly|wrongly)\b|\bovercharg\w*|\bdouble[- ]?(?:charged|billed)\b|\bunauthorized (?:charge|payment|transaction)s?\b|\bdispute\b.{0,25}\b(?:charge|charges|bill|invoice|payment)\b|\b(?:charge|bill|invoice)\b.{0,25}\b(?:is|was|looks|seems) (?:wrong|incorrect|a mistake)\b|\bwant (?:my|our) money back\b|\brefund me\b|\bwant a refund (?:for|of) (?:the|my|this) (?:visit|service|appointment|work|cleaning|haircut|color|session)\b|\bdemand (?:a |my |the )?refund\b/i;
+// A plain question about refunds (a policy) goes to a person without the angry apology. Tax-refund talk is the accounting core business.
+const REFUND_WORD = /\brefunds?\b/i;
+const TAX_REFUND = /\b(?:tax|taxes|return|returns|federal|state|irs|itemiz\w*|arrive|arrives|how long|bigger|larger|file|filing|overpaid|withholding|deduction|credit)\b/i;
 
 // Plainly unrelated to any business here (recipes, sports, trades). The reply says it is outside what the assistant helps with; no owner phone alert.
 export const OFF_TOPIC = /\b(?:(?:recommend|suggest|know of)\b.{0,25}\b(?:good|best|reliable|decent)\b.{0,30}\bnear\b)|\b(recipes?|cooking|baking|banana bread|football|basketball|baseball|soccer|hockey|score|who won|game last night|weather|forecast|pizza|restaurants?|movies?|jokes?|poems?|songs?|lyrics|cover letter|r[eé]sum[eé]|essay|homework|math problem|python|javascript|crypto|bitcoin|horoscope|trivia|translate|write me|write a|tell me a story)\b/i;
@@ -93,7 +96,7 @@ export function classify(text, profile = null) {
     emergency: !!profile?.urgency?.emergencyRe?.test(t),
     complaint: strong,
     complaintWeak: !strong && anger >= 1,
-    handoff: test(HANDOFF, t) || !!topic,
+    handoff: test(HANDOFF, t) || !!topic || (REFUND_WORD.test(t) && !TAX_REFUND.test(t) && !BILLING_DISPUTE.test(t)),
     outOfScope: !!profile?.outOfScopeRe?.test(t),
     injection: test(INJECTION, t),
     medical: MEDICAL_911.test(t) || SELF_HARM.test(t),
