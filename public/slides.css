@@ -1,0 +1,68 @@
+.slide{position:absolute;inset:0;display:none;padding:74px 92px;background:radial-gradient(ellipse at 75% 45%,#3c1c6c80,transparent 43%),linear-gradient(120deg,#090f25,#100c25 62%,#1b1035)}
+.slide.active{display:flex}
+.slide-title{align-items:center}
+.slide-copy{width:53%;position:relative;z-index:1}
+.slide .kicker{color:#d385ff;text-transform:uppercase;letter-spacing:.24em;font-size:12px;font-weight:700}
+.slide h1{font-size:clamp(52px,5.5vw,100px);line-height:.98;max-width:810px;margin:24px 0 20px;letter-spacing:-.065em}
+.gradient-text{background:linear-gradient(100deg,#fff,#d6c4ff 50%,#ff8ce8);-webkit-background-clip:text;background-clip:text;color:transparent}
+.slide p{max-width:640px;color:#c0c4d8;font-size:19px;line-height:1.65}
+.slide-mark{margin-top:30px;color:#a8acc4;font-size:12px;letter-spacing:.16em;text-transform:uppercase}
+.hero-network{position:absolute;right:8%;top:12%;width:42%;height:76%;display:grid;place-items:center}
+.hero-network .agent-orb{width:220px;height:220px;box-shadow:0 0 90px #a652ff9c,0 0 160px #d45bd733}
+.hero-network svg{position:absolute;width:100%;height:100%;inset:0}
+.hero-network .node{position:absolute;width:82px;height:82px;border-radius:24px;display:grid;place-items:center;background:#ffffff0a;border:1px solid #d6b9ff45;box-shadow:0 0 30px #9f5cff24;color:#f5d6ff;font-size:27px}
+.node.phone{left:8%;top:17%}.node.chat{right:3%;top:22%}.node.cal{left:10%;bottom:15%}.node.house{right:7%;bottom:14%}
+.steps{display:flex;align-items:center;gap:15px;margin-top:42px;max-width:1060px}
+.step{flex:1;min-height:224px;padding:21px 20px;border:1px solid #c39aff36;border-radius:18px;background:linear-gradient(145deg,#ffffff0d,#ffffff04);box-shadow:inset 0 1px #fff1,0 20px 55px #0002}
+.step-num{font-size:10px;letter-spacing:.16em;color:#d28cff}
+.step-icon{width:50px;height:50px;border-radius:15px;margin:15px 0 15px;display:grid;place-items:center;background:#b45cff19;border:1px solid #c687ff42;color:#eccaff;font-size:23px}
+.step h2{font-size:17px;margin-bottom:8px}
+.step p{font-size:11px;line-height:1.55;margin:0;color:#aeb4cc}
+.arrow{font-size:23px;color:#ce89ff;text-shadow:0 0 18px #bf5cff}
+.arch-title{display:block}
+.arch-title h1{font-size:55px;margin:14px 0 6px}
+.arch-sub{font-size:15px!important;margin-bottom:0}
+.badge{display:inline-flex;align-items:center;gap:7px;border:1px solid #cb91ff3b;background:#bb66ff12;color:#dfbdff;padding:7px 11px;border-radius:99px;font-size:10px}
+.slide-footer{position:absolute;bottom:34px;left:92px;right:92px;display:flex;justify-content:space-between;color:#7983a2;font-size:10px;letter-spacing:.12em;text-transform:uppercase}
+.mobile-mode .app{width:390px;height:844px;inset:50% auto auto 50%;transform:translate(-50%,-50%);border:1px solid #ffffff35;border-radius:30px;box-shadow:0 0 0 9px #030612,0 25px 75px #000a;overflow:hidden;grid-template-columns:1fr}
+.mobile-mode .sidebar{display:none}
+.mobile-mode .main{height:100%}
+.mobile-mode .topbar{height:56px;padding:0 15px}
+.mobile-mode .crumb{font-size:10px}
+.mobile-mode .search{display:none}
+.mobile-mode .content{padding:17px 14px 73px}
+.mobile-mode h1{font-size:22px}
+.mobile-mode .heading{align-items:flex-start;margin-bottom:14px}
+.mobile-mode .heading .btn{padding:8px;font-size:10px}
+.mobile-mode .inbox-grid,.mobile-mode .detail-grid{grid-template-columns:1fr}
+.mobile-mode .inbox-grid>.card{overflow:auto}
+.mobile-mode .inbox-grid .side-card{display:none}
+.mobile-mode .table{min-width:680px}
+.mobile-mode .detail-grid{gap:10px}
+.mobile-mode .conversation{min-height:320px;padding:13px}
+.mobile-mode .timeline{padding:14px}
+.mobile-mode .week{min-width:660px}
+.mobile-mode .week-wrap{overflow:auto}
+.mobile-mode .stat-grid{grid-template-columns:repeat(2,1fr);gap:8px}
+.mobile-mode .stat{min-height:91px;padding:12px}
+.mobile-mode .stat strong{font-size:21px}
+.mobile-mode .chartarea{height:200px}
+.mobile-mode .mobile-nav{display:flex;position:absolute;bottom:0;left:0;right:0;height:58px;background:#0e1327;border-top:1px solid var(--line);justify-content:space-around;align-items:center;z-index:3;color:#aab1ca;font-size:9px}
+.mobile-mode .mobile-nav span{display:grid;place-items:center;gap:3px}
+.mobile-mode .mobile-nav b{font-size:15px;color:#d3b5ff}
+.mobile-mode .slide{padding:32px 24px}
+.mobile-mode .slide-title{display:block}
+.mobile-mode .slide-copy{width:100%;padding-top:35px}
+.mobile-mode .slide h1{font-size:42px;margin:16px 0}
+.mobile-mode .slide p{font-size:13px}
+.mobile-mode .hero-network{opacity:.5;right:-5%;top:35%;width:95%;height:60%}
+.mobile-mode .hero-network .agent-orb{width:120px;height:120px}
+.mobile-mode .hero-network .node{width:48px;height:48px;border-radius:15px;font-size:18px}
+.mobile-mode .arch-title h1{font-size:34px}
+.mobile-mode .steps{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:20px}
+.mobile-mode .step{min-height:150px;padding:12px}
+.mobile-mode .step-icon{width:36px;height:36px;margin:8px 0}
+.mobile-mode .step h2{font-size:13px}
+.mobile-mode .step p{font-size:9px}
+.mobile-mode .arrow{display:none}
+.mobile-mode .slide-footer{left:24px;right:24px;bottom:15px;font-size:8px}

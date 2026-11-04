@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>First Answer Agent</title>
+<meta name="description" content="An AI agent that answers new home-service leads in seconds, books the job, and hands off to a human when unsure.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%23a95aff'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/design-base.css">
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<div class="app" id="app">
+  <aside class="sidebar">
+    <div class="sidebrand"><span class="orbmini"></span> First Answer</div>
+    <div class="side-label">Workspace</div>
+    <nav class="nav" aria-label="Main">
+      <a href="#/inbox" data-nav="inbox"><svg viewBox="0 0 24 24"><path d="M4 13l3-8h10l3 8v6H4z"/><path d="M4 13h5l1 2h4l1-2h5"/></svg>Live Inbox<span class="count" id="navCount" hidden></span></a>
+      <a href="#/calendar" data-nav="calendar"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/></svg>Calendar</a>
+      <a href="#/results" data-nav="results"><svg viewBox="0 0 24 24"><path d="M5 19V9M12 19V5M19 19v-7"/></svg>Results</a>
+    </nav>
+    <div class="side-label" style="margin-top:22px">Manage</div>
+    <nav class="nav" aria-label="Manage">
+      <a href="#/guardrails" data-nav="guardrails"><svg viewBox="0 0 24 24"><path d="M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6z"/></svg>Guardrails</a>
+      <a href="/lead" target="_blank" rel="noopener"><svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5H5V6h5"/></svg>Customer lead form</a>
+    </nav>
+    <div class="sidebar-foot">
+      <strong><i class="live-dot" id="footDot"></i><span id="footTitle">Agent is live</span></strong>
+      <p id="footText">Answering new leads<br>in Nashville, TN</p>
+    </div>
+  </aside>
+  <section class="main">
+    <div class="topbar">
+      <div class="crumb"><span id="bizName">Harbor Lane Home Services</span> <span style="color:#65708e">/</span> <span id="crumb">Live Inbox</span></div>
+      <div class="top-actions">
+        <label class="search" aria-label="Search leads"><span aria-hidden="true">&#8981;</span><input id="search" type="search" placeholder="Search leads" autocomplete="off"></label>
+        <span class="badge" id="modeBadge" role="status"><i class="live-dot"></i><span>Loading</span></span>
+      </div>
+    </div>
+    <main id="view" class="content" aria-live="polite"></main>
+  </section>
+  <nav class="mobile-nav" aria-label="Main (mobile)">
+    <a href="#/inbox" data-nav="inbox"><svg viewBox="0 0 24 24"><path d="M4 13l3-8h10l3 8v6H4z"/><path d="M4 13h5l1 2h4l1-2h5"/></svg>Inbox</a>
+    <a href="#/calendar" data-nav="calendar"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/></svg>Calendar</a>
+    <a href="#/results" data-nav="results"><svg viewBox="0 0 24 24"><path d="M5 19V9M12 19V5M19 19v-7"/></svg>Results</a>
+    <a href="#/guardrails" data-nav="guardrails"><svg viewBox="0 0 24 24"><path d="M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6z"/></svg>Rules</a>
+  </nav>
+</div>
+<script src="/app.js" type="module"></script>
+</body>
+</html>
