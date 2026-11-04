@@ -118,7 +118,7 @@ export function loadConfig(env = process.env, over = {}) {
       maxLeads: int(env.MAX_LEADS, 300),
       leadRate: { windowMs: 60_000, max: int(env.RATE_LEADS_PER_MIN, 10) },
       replyRate: { windowMs: 60_000, max: int(env.RATE_REPLIES_PER_MIN, 30) },
-      readRate: { windowMs: 60_000, max: int(env.RATE_READS_PER_MIN, 300) },
+      readRate: { windowMs: 60_000, max: int(env.RATE_READS_PER_MIN, 1200) },
       maxMessagesPerLead: 40,
       leadRateHour: { windowMs: 3_600_000, max: int(env.RATE_LEADS_PER_HOUR, 12) },
       replyRateHour: { windowMs: 3_600_000, max: int(env.RATE_REPLIES_PER_HOUR, 40) },

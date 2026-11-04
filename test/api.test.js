@@ -328,3 +328,8 @@ test('TRUST_PROXY: off by default, parsed from the environment, and rate limits 
   const on = await startServer({ config: cfgFor({ trustProxy: 1, limits: { ...cfgFor().limits, leadRate: { windowMs: 60_000, max: 1 } } }) });
   try { assert.equal(await hit(on, '1.1.1.1'), 202); assert.equal(await hit(on, '2.2.2.2'), 202, 'different forwarded clients'); assert.equal(await hit(on, '2.2.2.2'), 429); } finally { await on.stop(); }
 });
+
+test('read rate limit default leaves room for normal dashboard polling behind a shared address', async () => {
+  const { loadConfig } = await import('../src/config.js');
+  assert.ok(loadConfig({}).limits.readRate.max >= 1200);
+});

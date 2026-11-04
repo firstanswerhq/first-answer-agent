@@ -7,7 +7,7 @@ const raw = (s) => new Raw(s);
 const html = (strings, ...vals) => strings.reduce((out, s, i) => out + s + (i < vals.length ? (vals[i] instanceof Raw ? vals[i].s : Array.isArray(vals[i]) ? vals[i].map((x) => (x instanceof Raw ? x.s : esc(x))).join('') : esc(vals[i])) : ''), '');
 const R = (s) => raw(s);
 
-const state = { cfg: null, leads: [], agent: null, today: '', filter: 'all', query: '', timer: null, tz: 'America/Chicago', view: '' };
+const state = { calStart: '', calSig: '', failures: 0, cfg: null, leads: [], agent: null, today: '', filter: 'all', query: '', timer: null, tz: 'America/Chicago', view: '' };
 
 async function api(path, opts) {
   const res = await fetch(path, opts && opts.body ? { ...opts, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(opts.body) } : opts);
@@ -182,15 +182,26 @@ async function renderDetail(id, first) {
   conv.dataset.sig = sig;
   const badge = $('#dBadge'); badge.className = `badge ${working ? 'offline' : ''}`;
   badge.innerHTML = html`<i class="live-dot"></i>${working ? 'Working' : 'Completed'}`;
-  $('#tl').innerHTML = l.timeline.length ? l.timeline.map((t) => timelineItem(t)).join('') : '<p class="sub">No steps yet.</p>';
+  paintTimeline(l.timeline);
   $('#facts').innerHTML = factsHtml(l, d.followupSpeedup);
   return working;
+}
+
+// Re-render the timeline only when it changed, and keep any "Arguments and result" box the viewer has open.
+function paintTimeline(timeline) {
+  const tl = $('#tl');
+  const sig = timeline.length + ':' + (timeline.at(-1)?.id || '');
+  if (tl.dataset.sig === sig) return;
+  const open = new Set([...tl.querySelectorAll('details[open][data-step]')].map((d) => d.dataset.step));
+  tl.innerHTML = timeline.length ? timeline.map((t) => timelineItem(t)).join('') : '<p class="sub">No steps yet.</p>';
+  tl.querySelectorAll('details[data-step]').forEach((d) => { if (open.has(d.dataset.step)) d.open = true; });
+  tl.dataset.sig = sig;
 }
 
 function timelineItem(t) {
   const cls = t.kind === 'guard' ? 'guard' : t.ok === false ? 'bad' : t.kind === 'followup' ? 'followup' : t.kind === 'function' || t.kind === 'done' ? 'done' : '';
   const modeTxt = t.mode === 'model' ? 'model' : t.mode === 'timer' ? 'timer' : 'rules';
-  const rawBox = t.fn ? html`<details class="raw"><summary>Arguments and result</summary><pre>${JSON.stringify({ args: t.args, result: t.result }, null, 2)}</pre></details>` : '';
+  const rawBox = t.fn ? html`<details class="raw" data-step="${t.id}"><summary>Arguments and result</summary><pre>${JSON.stringify({ args: t.args, result: t.result }, null, 2)}</pre></details>` : '';
   return html`<div class="timeline-item ${cls}"><strong>${t.title}</strong>${t.fn ? R(html`<small><span class="fn">${t.fn}()</span>${t.source === 'guardrail' ? 'by guardrail' : t.source === 'model' ? 'chosen by model' : 'rules engine'}</small>`) : ''}${t.detail && !t.fn ? R(html`<small>${t.detail}</small>`) : ''}${R(rawBox)}<time>+${t.sinceLeadMs < 1000 ? t.sinceLeadMs + ' ms' : (t.sinceLeadMs / 1000).toFixed(1) + ' s'} from receipt · ${fmtTime(t.ts, true)} · ${modeTxt}${t.ms ? ` · step took ${t.ms} ms` : ''}</time></div>`;
 }
 
@@ -213,8 +224,12 @@ function factsHtml(l, speedup) {
 
 // ---------- Calendar ----------
 const H0 = 8; const H1 = 17; const ROW = 54;
-async function renderCalendar(start) {
+async function renderCalendar(start, { quiet = false } = {}) {
   const c = await api(`/api/calendar${start ? '?start=' + start : ''}`);
+  state.calStart = c.start;
+  const calSig = JSON.stringify(c.days);
+  if (quiet && state.calSig === calSig) return; // nothing changed: leave the page (and scroll position) alone
+  state.calSig = calSig;
   const cols = c.days;
   const label = (d) => new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' }).format(new Date(d + 'T00:00:00Z'));
   const dname = (d) => new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', weekday: 'short' }).format(new Date(d + 'T00:00:00Z')).toUpperCase();
@@ -336,19 +351,29 @@ async function route() {
   let again = 3000;
   try {
     if (!state.cfg) { state.cfg = await api('/api/config'); state.tz = state.cfg.business.tz; }
-    await refreshLeads();
-    if (name === 'lead' && arg) { const working = await renderDetail(arg, first); again = working ? 900 : 2500; }
-    else if (name === 'calendar') { if (first) await renderCalendar(); again = 8000; }
+    // The detail page polls only its own lead; the inbox list is fetched when you are on a page that shows it.
+    if (!(name === 'lead' && arg) && name !== 'calendar') await refreshLeads();
+    else if (first || !state.agent) await refreshLeads();
+    if (name === 'lead' && arg) { const working = await renderDetail(arg, first); again = working ? 1200 : 3000; }
+    else if (name === 'calendar') { await renderCalendar(first ? undefined : state.calStart, { quiet: !first }); again = 8000; }
     else if (name === 'results') { if (first) await renderResults(); again = 0; }
     else if (name === 'guardrails') { renderGuardrails(); again = 0; }
     else { await renderInbox(first); again = 2500; }
+    state.failures = 0;
   } catch (err) {
     if (name === 'lead') { $('#view').innerHTML = html`<a class="back" href="#/inbox">&larr; Back to Live Inbox</a><div class="card empty">${err.message}</div>`; again = 0; }
     else toast(err.message);
+    state.failures += 1;
+  }
+  if (again) {
+    // Back off: slower when the tab is hidden and after errors (for example "Too many requests"), so polling never trips the limit.
+    if (document.hidden) again = Math.max(again * 5, 15000);
+    if (state.failures > 0) again = Math.min(60000, again * 2 ** Math.min(state.failures, 5));
   }
   if (again) state.timer = setTimeout(() => { if (state.view === view) route(); }, again);
 }
 
 $('#search').addEventListener('input', (e) => { state.query = e.target.value; if (state.view.startsWith('inbox') && $('#rows')) paintInbox(); });
 window.addEventListener('hashchange', route);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) route(); });
 route();
