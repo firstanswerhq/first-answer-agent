@@ -249,12 +249,31 @@ function timelineItem(t) {
   return html`<div class="timeline-item ${cls}"><strong>${t.title}</strong>${t.fn ? R(html`<small>${t.source === 'guardrail' ? 'Done by a safety check' : t.source === 'model' ? 'Chosen by the AI model' : 'Done by the built-in rules'}</small>`) : ''}${t.detail && !t.fn ? R(html`<small>${t.detail}</small>`) : ''}${R(rawBox)}<time>+${t.sinceLeadMs < 1000 ? t.sinceLeadMs + ' ms' : (t.sinceLeadMs / 1000).toFixed(1) + ' s'} from receipt · ${fmtTime(t.ts, true)} · ${modeTxt}${t.ms ? ` · step took ${t.ms} ms` : ''}</time></div>`;
 }
 
+// Plain words for a fallback reason (a short code from the server: a rule id or an error class, never message text).
+const RULE_WORDS = { booking_claim: 'booking claim', booking_change: 'claim about changing an appointment', free_offer: 'free offer', promise: 'promise', link: 'link or web address', price: 'price outside the approved range', injection: 'instruction override', contact: 'contact details', too_long: 'too long', think: 'reasoning text', reasoning: 'reasoning text', leak: 'internal wording', json: 'tool or JSON text', tool_text: 'tool names', markup: 'markup', invalid_args: 'invalid message' };
+function fallbackText(code) {
+  if (!code) return '';
+  const [kind, detail = ''] = String(code).split(':');
+  const rule = RULE_WORDS[detail] || detail.replace(/_/g, ' ');
+  if (kind === 'text_rejected' || kind === 'tool_rejected') return `model reply was rejected: ${rule}`;
+  if (kind === 'empty_end') return detail === 'length' ? 'model reply was cut off before any answer' : detail === 'reasoning_only' ? 'model sent reasoning but no answer' : 'model sent no usable reply';
+  if (kind === 'model_timeout') return 'model call timed out';
+  if (kind === 'model_error') return `model call failed: ${rule.replace(/^http /, 'HTTP ')}`;
+  if (kind === 'loop_limit') return 'model did not finish';
+  if (kind === 'quota') return 'hourly AI limit reached';
+  if (kind === 'offline') return 'AI model switched off or not connected';
+  if (kind === 'safety_path') return 'urgent or sensitive message handled in code';
+  return '';
+}
+
 function factsHtml(l, speedup) {
   const q = l.qualification; const rows = [];
   const add = (k, v) => rows.push(html`<dt>${k}</dt><dd>${v}</dd>`);
   add('First reply', l.replyTimeSec == null ? 'Not yet' : l.seed ? `${replyText(l.replyTimeSec, l.lastRunMode)} (simulated)` : `${secs(l.replyTimeSec)} (measured)`);
   if (l.confirmNeeded) add('Teammate to confirm', l.confirmNeeded);
-  add('Answered by', (l.answeredBy || l.lastReplyBy) === 'safety' ? 'Safety rules' : (l.answeredBy || l.lastReplyBy) === 'model' ? 'AI model' : (l.answeredBy || l.lastReplyBy) === 'rules' ? 'Built-in rules' : l.lastRunMode === 'model' ? 'AI model' : l.lastRunMode === 'offline' ? 'Built-in rules' : 'Pending');
+  { const by = l.answeredBy || l.lastReplyBy; const base = by === 'safety' ? 'Safety rules' : by === 'model' ? 'AI model' : by === 'rules' ? 'Built-in rules' : l.lastRunMode === 'model' ? 'AI model' : l.lastRunMode === 'offline' ? 'Built-in rules' : 'Pending';
+    const why = by === 'model' ? '' : fallbackText(l.fallbackReason);
+    add('Answered by', why ? `${base} (${why})` : base); }
   if (q) {
     add('Service', q.serviceLabel);
     add('Priority', l.priority === 'urgent' ? 'urgent' : q.urgency);

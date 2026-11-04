@@ -19,13 +19,13 @@ const LEAK = /system prompt|my instructions|developer message|api[- ]?key|VULTR_
 const NUMW = '(?:zero|oh|one|two|three|four|five|six|seven|eight|nine)';
 
 const UNSAFE_TEXT = [
-  [/\b(?:ignor|disregard|forget|overrid|bypass|dismiss)\w*\b[^.!?]{0,60}\b(?:instructions?|prompts?|rules?|guidelines|guardrails?|programming|directives?|system message)\b/i, 'Message echoes an instruction override.'],
-  [/\b(?:ignora\w*|olvida\w*|ignorez?|oubliez?|ignorier\w*|vergiss\w*|vergesst|missachte\w*|ignorare|dimentica\w*)\b[^.!?]{0,60}\b(?:instrucciones|instruccion|reglas|instructions|consignes|r[eè]gles|anweisungen|befehle|regeln|istruzioni)\b/i, 'Message echoes an instruction override.'],
-  [/\b(?:developer|jailbreak|dan|god) mode\b|as an ai(?: language)? model|\bi am (?:now )?(?:in|an?) (?:unrestricted|unfiltered)\b|\bunrestricted mode\b/i, 'Message echoes an instruction override.'],
-  [/^\s*[{[]|"\s*(?:tool|tool_calls?|function|arguments|name)\s*"\s*:/i, 'Message looks like JSON or a tool call, not a message for a customer.'],
-  [/\b(?:send_reply|qualify_lead|check_calendar|book_appointment|schedule_followup|escalate_to_human|tool[_ ]call|function[_ ]call)\b/i, 'Message mentions internal tools.'],
-  [/<\/?\s*[a-z!][^>]*>|<\/?\s*(?:script|think|thinking|reasoning)\b/i, 'Message contains markup.'],
-  [/^\s*(?:thinking|thoughts?|reasoning|analysis|scratchpad)\s*[:>-]/im, 'Message contains reasoning text.'],
+  ['injection', /\b(?:ignor|disregard|forget|overrid|bypass|dismiss)\w*\b[^.!?]{0,60}\b(?:instructions?|prompts?|rules?|guidelines|guardrails?|programming|directives?|system message)\b/i, 'Message echoes an instruction override.'],
+  ['injection', /\b(?:ignora\w*|olvida\w*|ignorez?|oubliez?|ignorier\w*|vergiss\w*|vergesst|missachte\w*|ignorare|dimentica\w*)\b[^.!?]{0,60}\b(?:instrucciones|instruccion|reglas|instructions|consignes|r[eè]gles|anweisungen|befehle|regeln|istruzioni)\b/i, 'Message echoes an instruction override.'],
+  ['injection', /\b(?:developer|jailbreak|dan|god) mode\b|as an ai(?: language)? model|\bi am (?:now )?(?:in|an?) (?:unrestricted|unfiltered)\b|\bunrestricted mode\b/i, 'Message echoes an instruction override.'],
+  ['json', /^\s*[{[]|"\s*(?:tool|tool_calls?|function|arguments|name)\s*"\s*:/i, 'Message looks like JSON or a tool call, not a message for a customer.'],
+  ['tool_text', /\b(?:send_reply|qualify_lead|check_calendar|book_appointment|schedule_followup|escalate_to_human|tool[_ ]call|function[_ ]call)\b/i, 'Message mentions internal tools.'],
+  ['markup', /<\/?\s*[a-z!][^>]*>|<\/?\s*(?:script|think|thinking|reasoning)\b/i, 'Message contains markup.'],
+  ['reasoning', /^\s*(?:thinking|thoughts?|reasoning|analysis|scratchpad)\s*[:>-]/im, 'Message contains reasoning text.'],
 ];
 // Links, bare domains and written-out addresses. "Dr. Lee" and "9.30" are not domains (the ending must be a known web ending).
 const TLD = '(?:com|net|org|io|co|us|info|biz|app|dev|me|ly|xyz|online|site|store|shop|example|test|invalid|localhost|ai|gov|edu|ca|uk|de|ru|cn|tk|cc|tv|link|click|top|club|page|website|tech|cloud|live|fyi)';
@@ -74,46 +74,51 @@ function bookingProblem(text, opts) {
   const claimClause = (c) => (BOOKING_CLAIM.test(c) || SEE_YOU.test(c)) && !NEGATED_BOOKED.test(c) && (SEE_YOU.test(c) || !NOT_A_CLAIM.test(c));
   if (opts.booked === false) {
     // Sentence by sentence first, then clause by clause: a negation in another clause does not excuse a claim.
-    if (clausesOf(text).some(claimClause)) return 'Message says an appointment is booked or confirmed, but no appointment has been booked for this customer. Offer times with check_calendar and book only when they choose one.';
+    if (clausesOf(text).some(claimClause)) return { id: 'booking_claim', message: 'Message says an appointment is booked or confirmed, but no appointment has been booked for this customer. Offer times with check_calendar and book only when they choose one.' };
     return null;
   }
   const b = opts.booking;
   if (!b) return null;
   // The customer already has a booking. This assistant cannot change, cancel or add one, so any such claim is false.
   for (const c of clausesOf(text)) {
-    if (CHANGE_CLAIM.test(c) && !NOT_A_CLAIM.test(c.replace(/\bas well\b/i, '')) && !NEGATED_BOOKED.test(c)) return 'Message says an appointment was changed, cancelled or added, but this assistant cannot do that. A teammate handles changes.';
-    if (CHANGE_CLAIM.test(c) && /\bas well\b|\banother\b|\bsecond\b/i.test(c) && !NOT_A_CLAIM.test(c.replace(/\bas well\b/i, ''))) return 'Message says a second appointment was made, but only one exists.';
+    if (CHANGE_CLAIM.test(c) && !NOT_A_CLAIM.test(c.replace(/\bas well\b/i, '')) && !NEGATED_BOOKED.test(c)) return { id: 'booking_change', message: 'Message says an appointment was changed, cancelled or added, but this assistant cannot do that. A teammate handles changes.' };
+    if (CHANGE_CLAIM.test(c) && /\bas well\b|\banother\b|\bsecond\b/i.test(c) && !NOT_A_CLAIM.test(c.replace(/\bas well\b/i, ''))) return { id: 'booking_change', message: 'Message says a second appointment was made, but only one exists.' };
     if (claimClause(c)) {
       // Names a different day or time than the real booking
       const dow = new Date(`${String(b.slot_id).slice(0, 10)}T12:00:00Z`).getUTCDay();
       const named = DAYS.filter((d) => new RegExp(`\\b${d}\\b`, 'i').test(c));
-      if (named.length && !named.includes(DAYS[dow])) return 'Message confirms a different day than the real booking.';
+      if (named.length && !named.includes(DAYS[dow])) return { id: 'booking_claim', message: 'Message confirms a different day than the real booking.' };
       const clock = requestedClock(c);
-      if (clock && (clock.hour !== Number(String(b.slot_id).slice(11, 13)) || clock.minute !== 0)) return 'Message confirms a different time than the real booking.';
+      if (clock && (clock.hour !== Number(String(b.slot_id).slice(11, 13)) || clock.minute !== 0)) return { id: 'booking_claim', message: 'Message confirms a different time than the real booking.' };
     }
   }
   return null;
 }
 
-export function checkOutbound(rawText, lead, opts = {}) {
+/** Like checkOutbound, but returns { id, message } so the reason can be counted (ids never contain message text). */
+export function checkOutboundRule(rawText, lead, opts = {}) {
   const text = cleanOutbound(rawText);
-  for (const [re, msg] of UNSAFE_TEXT) if (re.test(text)) return `${msg} Write a short plain message for the customer.`;
-  if (LINKS.some((re) => re.test(text))) return 'Messages may not contain links, web addresses or spelled-out contact details.';
+  for (const [id, re, msg] of UNSAFE_TEXT) if (re.test(text)) return { id, message: `${msg} Write a short plain message for the customer.` };
+  if (LINKS.some((re) => re.test(text))) return { id: 'link', message: 'Messages may not contain links, web addresses or spelled-out contact details.' };
   // Phone numbers and email addresses that are not the business's or the lead's own are never repeated.
   const own = new Set([digitsOf(lead?.phone), ...(opts.ownPhones || []).map(digitsOf)].filter((d) => d.length === 10));
   const foreign = [...text.matchAll(/\+?\d[\d\s().-]{8,}\d/g)].map((m) => digitsOf(m[0])).find((d) => d.length === 10 && !own.has(d));
-  if (foreign || /[\w.+-]+@[\w-]+\.[\w.-]+/.test(text)) return 'Message repeats a phone number or email address that is not the business contact. Leave it out.';
+  if (foreign || /[\w.+-]+@[\w-]+\.[\w.-]+/.test(text)) return { id: 'contact', message: 'Message repeats a phone number or email address that is not the business contact. Leave it out.' };
   const bp = bookingProblem(text, opts);
   if (bp) return bp;
   const freeOk = (lead?.qualification?.priceRange?.high ?? 1) === 0; // a service the profile explicitly prices at zero
-  if (BANNED.test(text) || (!freeOk && FREE_OFFER.test(text))) return 'Message makes a promise the agent may not make (discount, refund, guarantee, warranty or free work). Rephrase, or escalate_to_human.';
-  if (LEAK.test(text)) return 'Message appears to reveal internal instructions.';
+  if (BANNED.test(text) || (!freeOk && FREE_OFFER.test(text))) return { id: BANNED.test(text) ? 'promise' : 'free_offer', message: 'Message makes a promise the agent may not make (discount, refund, guarantee, warranty or free work). Rephrase, or escalate_to_human.' };
+  if (LEAK.test(text)) return { id: 'leak', message: 'Message appears to reveal internal instructions.' };
   const amounts = amountsIn(text);
   if (amounts.length) {
     const ranges = [lead?.qualification?.priceRange, lead?.qualification?.alsoPriceRange].filter(Boolean);
-    if (!ranges.length) return 'No price may be quoted for this service. Say the cost is confirmed in person, or escalate_to_human.';
+    if (!ranges.length) return { id: 'price', message: 'No price may be quoted for this service. Say the cost is confirmed in person, or escalate_to_human.' };
     const bad = amounts.find((a) => !ranges.some((pr) => a >= pr.low && a <= pr.high));
-    if (bad !== undefined) return `Price ${money(bad)} is outside the price book range${ranges.length > 1 ? 's' : ''} ${ranges.map((pr) => `${money(pr.low)}-${money(pr.high)}`).join(' and ')}. Quote only ${ranges.length > 1 ? 'those ranges' : 'that range'} or escalate_to_human.`;
+    if (bad !== undefined) return { id: 'price', message: `Price ${money(bad)} is outside the price book range${ranges.length > 1 ? 's' : ''} ${ranges.map((pr) => `${money(pr.low)}-${money(pr.high)}`).join(' and ')}. Quote only ${ranges.length > 1 ? 'those ranges' : 'that range'} or escalate_to_human.` };
   }
   return null;
+}
+
+export function checkOutbound(text, lead, opts = {}) {
+  return checkOutboundRule(text, lead, opts)?.message ?? null;
 }

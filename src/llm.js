@@ -11,8 +11,10 @@ export class LlmError extends Error {
 }
 
 export class LlmClient {
-  constructor({ key, url, model, timeoutMs = 20000, retries = 2, fetchImpl = globalThis.fetch, backoffMs = 400, sleepFn = sleep }) {
-    Object.assign(this, { key, url, model, timeoutMs, retries, fetchImpl, backoffMs, sleepFn });
+  constructor({ key, url, model, timeoutMs = 20000, retries = 2, fetchImpl = globalThis.fetch, backoffMs = 400, sleepFn = sleep, maxTokens = 1200 }) {
+    // maxTokens is generous on purpose: models that think before answering can use a small budget up on thinking and return nothing.
+    Object.assign(this, { key, url, model, timeoutMs, retries, fetchImpl, backoffMs, sleepFn, maxTokens });
+    this.toolChoiceSupport = 'object'; // lowered when the server answers 400 or 422 to a forced tool_choice
   }
 
   get configured() { return !!(this.key && this.model); }
@@ -41,19 +43,45 @@ export class LlmClient {
     }
   }
 
+  /** What a forced tool_choice should look like for this server. Falls back from the object form to "required" to nothing. */
+  choiceFor(toolChoice) {
+    if (toolChoice === 'auto' || typeof toolChoice === 'string') return toolChoice;
+    if (this.toolChoiceSupport === 'object') return toolChoice;
+    if (this.toolChoiceSupport === 'required') return 'required';
+    return 'auto';
+  }
+
   async chat({ messages, tools, toolChoice = 'auto' }) {
     if (!this.configured) throw new LlmError('Inference is not configured');
+    for (let tries = 0; tries < 3; tries += 1) {
+      const choice = this.choiceFor(toolChoice);
+      try {
+        return await this.chatOnce({ messages, tools, choice });
+      } catch (err) {
+        // A server that does not understand a forced tool_choice answers 400 or 422. Remember it and use a simpler form next time.
+        const forced = choice !== 'auto' && toolChoice !== 'auto';
+        if (forced && err instanceof LlmError && (err.status === 400 || err.status === 422) && this.toolChoiceSupport !== 'auto') {
+          this.toolChoiceSupport = typeof choice === 'object' ? 'required' : 'auto';
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw new LlmError('Inference rejected the request');
+  }
+
+  async chatOnce({ messages, tools, choice }) {
     const body = {
-      model: this.model, messages, temperature: 0.2, max_tokens: 500,
-      tools: tools.map((t) => ({ type: 'function', function: t })), tool_choice: toolChoice,
+      model: this.model, messages, temperature: 0.2, max_tokens: this.maxTokens,
+      tools: tools.map((t) => ({ type: 'function', function: t })), tool_choice: choice,
     };
     let lastErr;
     for (let attempt = 0; attempt <= this.retries; attempt += 1) {
       try {
         const data = await this.request('/chat/completions', body);
-        const msg = data?.choices?.[0]?.message;
-        if (!msg || typeof msg !== 'object') throw new LlmError('Inference returned no message');
-        return { message: msg, model: typeof data.model === 'string' ? data.model : this.model, attempts: attempt + 1 };
+        const raw = data?.choices?.[0]?.message;
+        if (!raw || typeof raw !== 'object') throw new LlmError('Inference returned no message');
+        return { message: normalizeMessage(raw), model: typeof data.model === 'string' ? data.model : this.model, attempts: attempt + 1, finishReason: String(data.choices[0].finish_reason || ''), reasoningOnly: !contentText(raw.content) && !!(raw.reasoning_content || raw.reasoning) };
       } catch (err) {
         lastErr = err;
         if (!(err instanceof LlmError) || !err.retryable || attempt === this.retries) break;
@@ -86,4 +114,14 @@ export function pickModel(ids) {
     if (hit) return hit;
   }
   return '';
+}
+
+// Content may be a string or a list of parts ({type:"text", text}) depending on the server.
+function contentText(c) {
+  if (typeof c === 'string') return c;
+  if (Array.isArray(c)) return c.map((p) => (typeof p === 'string' ? p : typeof p?.text === 'string' ? p.text : '')).join('');
+  return '';
+}
+function normalizeMessage(m) {
+  return { ...m, content: contentText(m.content) };
 }

@@ -147,7 +147,7 @@ export async function createApp({ config, store = new Store({ file: config.dataF
       ok: true, version: VERSION, mode: st.mode, modeLabel: st.label, model: st.model,
       inferenceConfigured: st.inferenceConfigured, modelVerified: st.modelVerified, lastError: st.lastError, quotaReached: st.quotaReached, modelRunsLastHour: st.modelRunsLastHour, modelRunCap: st.modelRunCap, uptimeSec: Math.round((now() - startedAt) / 1000),
       leads: store.leads.length, pendingFollowups: store.followups.filter((f) => f.status === 'pending').length,
-      notify: notifier.status(), calendar: calendarHealth(config), business: config.business.name, followupSpeedup: config.followupSpeedup,
+      fallbackReasons: agent.fallbackReasons(), notify: notifier.status(), calendar: calendarHealth(config), business: config.business.name, followupSpeedup: config.followupSpeedup,
     });
   });
 

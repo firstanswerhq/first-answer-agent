@@ -22,7 +22,7 @@ const ALERT_STEP = {
 const comma = (n) => { const f = firstName(n); return f === 'there' ? '' : `, ${f}`; };
 const nameLead = (n) => { const f = firstName(n); return f === 'there' ? '' : `${f}, `; };
 
-export const newSharedBudget = () => ({ modelRunStamps: [], ipRunStamps: new Map(), stats: { modelRuns: 0, offlineRuns: 0, lastModelOk: null, lastError: '', lastModel: '', lastRunMode: null } });
+export const newSharedBudget = () => ({ modelRunStamps: [], ipRunStamps: new Map(), stats: { fallbacks: [], modelRuns: 0, offlineRuns: 0, lastModelOk: null, lastError: '', lastModel: '', lastRunMode: null } });
 
 // The alert category comes from the code's safety flags, never from model-written text.
 const TOPIC_CATEGORY = { clinical: 'Medication or clinical question', diagnosis: 'Medication or clinical question', allergy: 'Allergy or health question', health: 'Allergy or health question', advice: 'Tax or legal advice question', insurance: 'Insurance or billing question', contract: 'Contract or fee question', correction: 'Color correction request' };
@@ -35,6 +35,19 @@ export function alertCategory(f = {}) {
   if (f.handoff) return 'Customer asked for a person';
   if (f.outOfScope) return 'Request outside our services';
   return 'Needs a person';
+}
+
+/** Short, non-sensitive reason a model run ended with the rules writing the reply. Rule ids and error classes only, never text. */
+function fallbackFor(ctx, outcome) {
+  if (ctx.rejectRule) return `${ctx.rejectVia === 'text' ? 'text_rejected' : 'tool_rejected'}:${ctx.rejectRule}`;
+  if (outcome === 'step_cap' || outcome === 'guard_stop') return 'loop_limit';
+  return ctx.emptyHint || 'empty_end';
+}
+function errorReason(err) {
+  if (err?.status) return `model_error:http_${err.status}`;
+  if (/timed out/i.test(err?.message || '')) return 'model_timeout';
+  if (/network/i.test(err?.message || '')) return 'model_error:network';
+  return `model_error:${String(err?.name || 'error').replace(/[^A-Za-z0-9_]/g, '').slice(0, 30) || 'error'}`;
 }
 
 export const MODE_MODEL = 'model';
@@ -119,6 +132,20 @@ export class Agent {
       .catch(() => {})
       .finally(() => this.pendingAlerts.delete(p));
     this.pendingAlerts.add(p);
+  }
+
+  noteFallback(reason) {
+    const list = this.stats.fallbacks;
+    list.push({ ts: this.now(), reason });
+    if (list.length > 500) list.splice(0, list.length - 500);
+  }
+
+  /** Counts of the reasons rules or safety wrote a reply, over the last hour: { reason: count }. */
+  fallbackReasons(windowMs = 3_600_000) {
+    const since = this.now() - windowMs;
+    const out = {};
+    for (const f of this.stats.fallbacks) if (f.ts >= since) out[f.reason] = (out[f.reason] || 0) + 1;
+    return out;
   }
 
   get modelRunStamps() { return this.shared.modelRunStamps; }
@@ -291,6 +318,7 @@ export class Agent {
       // Angry customers, urgent non-medical situations and instruction-injection attempts never wait for the model.
       handledInCode = true;
       ctx.writer = 'safety';
+      ctx.fallbackReason = 'safety_path';
       step({ kind: 'mode', title: 'Checked in code, handed to a person', detail: `No AI call needed; a safe reply is sent now. ${flags.reasons.join('; ')}` });
       await runRules(ctx, fx, trigger);
     } else if (!config.forceOffline && this.llm?.configured && globalOk && ipOk) {
@@ -306,6 +334,7 @@ export class Agent {
         if (!ctx.sentReply && lead.status !== 'human') {
           runInfo.mode = MODE_OFFLINE;
           ctx.writer = 'rules';
+          ctx.fallbackReason = fallbackFor(ctx, outcome);
           step({ kind: 'mode', title: 'The AI model sent no reply, so the built-in rules finished the job', detail: 'Same steps and the same safety checks' });
           this.stats.offlineRuns += 1;
           await runRules(ctx, fx, trigger);
@@ -319,10 +348,12 @@ export class Agent {
         modelNote = this.stats.lastError;
         runInfo.mode = MODE_OFFLINE;
         ctx.writer = 'rules';
+        ctx.fallbackReason = errorReason(err);
         step({ kind: 'mode', ok: false, title: 'The AI model call failed, so the built-in rules took over', detail: modelNote });
       }
     } else {
       const why = config.forceOffline ? 'the AI model is switched off' : !this.llm?.configured ? 'the AI model is not connected' : !globalOk ? 'the hourly AI limit was reached' : 'this visitor reached the hourly AI limit';
+      ctx.fallbackReason = config.forceOffline || !this.llm?.configured ? 'offline' : 'quota';
       step({ kind: 'mode', title: `Backup mode: built-in rules (${why})`, detail: 'The built-in rules follow the same steps and use the same safety checks as the AI model' });
     }
 
@@ -339,6 +370,8 @@ export class Agent {
 
     lead.lastRunMode = runInfo.mode;
     { const last = [...lead.messages].reverse().find((m) => m.from === 'agent'); lead.lastReplyBy = last?.by || (runInfo.mode === MODE_MODEL ? 'model' : 'rules'); }
+    lead.lastFallbackReason = [...lead.messages].reverse().find((m) => m.from === 'agent')?.fallbackReason || null;
+    if (lead.lastFallbackReason && !lead.seed) this.noteFallback(lead.lastFallbackReason);
     lead.lastRunAt = this.now();
     lead.runCount = (lead.runCount || 0) + 1;
     step({
@@ -356,26 +389,31 @@ export class Agent {
     ];
     for (let i = 0; i < this.config.maxSteps; i += 1) {
       const t0 = this.now();
-      const { message, model } = await this.llm.chat({ messages, tools: toolDefs(this.config) });
+      const { message, model, finishReason, reasoningOnly } = await this.llm.chat({ messages, tools: toolDefs(this.config) });
       this.stats.lastModel = model;
       const calls = Array.isArray(message.tool_calls) ? message.tool_calls.slice(0, 4) : [];
-      step({ kind: 'model', title: calls.length ? `Model chose ${calls.length} function call${calls.length > 1 ? 's' : ''}` : 'Model finished', detail: calls.length ? calls.map((c) => c?.function?.name).join(', ') : String(message.content || '').slice(0, 120), ms: this.now() - t0 });
+      step({ kind: 'model', title: calls.length ? `Model chose ${calls.length} function call${calls.length > 1 ? 's' : ''}` : 'Model finished', detail: (calls.length ? calls.map((c) => c?.function?.name).join(', ') : String(message.content || '').slice(0, 120)) + (finishReason && finishReason !== 'stop' && finishReason !== 'tool_calls' ? ` [finish: ${finishReason.slice(0, 20)}]` : '') + (reasoningOnly ? ' [reasoning only, no answer]' : ''), ms: this.now() - t0 });
       if (!calls.length) {
         if (ctx.sentReply || ctx.lead.status === 'human') return 'no_tool_calls';
         // The model wrote its answer as plain text instead of calling send_reply. Use that text as the reply, through the same
         // guarded send_reply (price, link, promise and leak checks), rather than throwing away a good answer.
-        const text = typeof message.content === 'string' ? message.content.replace(/<(think|thinking|reasoning)>[\s\S]*?(?:<\/\1>|$)/gi, '').trim() : '';
+        const raw = typeof message.content === 'string' ? message.content : '';
+        let text = raw.replace(/<(think|thinking|reasoning)>[\s\S]*?(?:<\/\1>|$)/gi, '').trim();
+        if (!text) ctx.emptyHint = raw.trim() ? 'text_rejected:think' : finishReason === 'length' ? 'empty_end:length' : reasoningOnly ? 'empty_end:reasoning_only' : 'empty_end';
+        // A long answer is cut at the last full sentence that fits, instead of being thrown away.
+        if (text.length > 560) { const cut = text.slice(0, 560); const end = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('! '), cut.lastIndexOf('? ')); text = end > 120 ? cut.slice(0, end + 1) : `${cut.replace(/\s+\S*$/, '')}...`; }
         if (text.length >= 15 && text.split(/\s+/).length >= 3) {
-          const signed = /\(AI\)\s*$/.test(text) ? text : `${text} - ${this.config.business.agentName} (AI)`;
-          const r = await fx.call('send_reply', { text: signed }, 'model');
+          ctx.via = 'text';
+          const r = await fx.call('send_reply', { text }, 'model');
           if (r.ok) { step({ kind: 'info', title: 'The model answered in plain text; the software sent that text through the same safety checks' }); return 'text_reply'; }
           messages.push({ role: 'assistant', content: text });
-        }
+        } else if (text) ctx.emptyHint = 'empty_end:too_short';
         // No usable text: one forced retry that requires send_reply, then the built-in rules.
         if (!ctx.forcedRetry && ctx.guardRejects < 3) {
           ctx.forcedRetry = true;
           messages.push({ role: 'user', content: 'Now call send_reply with a short message for the customer (1-3 sentences, no prices unless qualify_lead returned a range).' });
           const t1 = this.now();
+          ctx.via = 'tool';
           const retry = await this.llm.chat({ messages, tools: toolDefs(this.config), toolChoice: { type: 'function', function: { name: 'send_reply' } } });
           const rc = (Array.isArray(retry.message.tool_calls) ? retry.message.tool_calls : []).filter((c) => c?.function?.name === 'send_reply').slice(0, 1);
           step({ kind: 'model', title: rc.length ? 'Model asked again to send a reply: it did' : 'Model asked again to send a reply: it still did not', ms: this.now() - t1 });
@@ -395,6 +433,7 @@ export class Agent {
         const rawArgs = c?.function?.arguments;
         if (rawArgs && typeof rawArgs === 'object') args = rawArgs; // some servers return parsed arguments
         else { try { args = JSON.parse(rawArgs || '{}'); } catch { parseErr = 'Arguments were not valid JSON'; } }
+        ctx.via = 'tool';
         const result = parseErr ? { ok: false, error: parseErr } : await fx.call(String(c?.function?.name), args, 'model');
         messages.push({ role: 'tool', tool_call_id: String(c?.id || ''), content: JSON.stringify(result).slice(0, 4000) });
       }

@@ -143,7 +143,7 @@ export function toolDefs(config) {
 }
 
 // ---- outbound message guard: see guard.js ----
-import { checkOutbound, cleanOutbound } from './guard.js';
+import { checkOutbound, checkOutboundRule, cleanOutbound } from './guard.js';
 export { checkOutbound, cleanOutbound };
 
 export function priceRangeFor(config, serviceId) {
@@ -199,6 +199,7 @@ export class Functions {
       result = await this[name](args);
     } catch (err) {
       result = { ok: false, error: err instanceof ValidationError ? err.message : 'Function failed' };
+      if (name === 'send_reply' && this.ctx.writer === 'model') this.noteReject(err instanceof ValidationError && /long|max|characters|at most/i.test(err.message) ? 'too_long' : 'invalid_args');
       if (!(err instanceof ValidationError)) result.error = `Function failed: ${String(err.message).slice(0, 120)}`;
     }
     store.save();
@@ -294,6 +295,13 @@ export class Functions {
     return { ok: true, booking_id: booking.id, slot_id: a.slot_id, label: slotLabel(a.slot_id, config.hours.windowHours), kind: booking.kind };
   }
 
+  // The first reason a model reply was refused (a rule id only, never any text); used to explain a fallback to the rules.
+  noteReject(id) {
+    if (this.ctx.rejectRule) return;
+    this.ctx.rejectRule = id;
+    this.ctx.rejectVia = this.ctx.via || 'tool';
+  }
+
   guardOpts() {
     const { store, config, lead } = this.ctx;
     // Only the model's own wording is checked for booking claims; the software's fixed texts are written after a real booking.
@@ -304,10 +312,11 @@ export class Functions {
   // 4. send_reply
   async send_reply(a) {
     const { lead, config } = this.ctx;
-    const bad = checkOutbound(a.text, lead, this.guardOpts());
+    const bad = checkOutboundRule(a.text, lead, this.guardOpts());
     if (bad) {
       this.ctx.guardRejects = (this.ctx.guardRejects || 0) + 1;
-      return { ok: false, error: bad, guardrail: true };
+      if (this.ctx.writer === 'model') this.noteReject(bad.id);
+      return { ok: false, error: bad.message, guardrail: true };
     }
     void config;
     return this.deliver(a.text);
@@ -318,8 +327,13 @@ export class Functions {
     // Messages the software writes itself (holding notes, handoff notes) pass the same outbound guard as the model's.
     if (checkOutbound(text, lead, this.guardOpts())) text = `A teammate will follow up with you shortly. - ${config.business.agentName} (AI)`;
     text = cleanOutbound(text);
+    // The model's replies always end with one AI signature, exactly once.
+    if (this.ctx.writer === 'model') {
+      const tail = `${config.business.agentName} (AI)`;
+      if (!text.toLowerCase().endsWith(tail.toLowerCase())) text = `${text.replace(/[\s-]*\(AI\)[.!]?\s*$/i, '').replace(/[\s-]+$/, '')} - ${tail}`;
+    }
     const ts = this.ctx.now();
-    const msg = { id: rid('M'), ts, from: 'agent', text, simulated: true, by: this.ctx.writer || 'rules', ...extra };
+    const msg = { id: rid('M'), ts, from: 'agent', text, simulated: true, by: this.ctx.writer || 'rules', ...(this.ctx.writer !== 'model' && this.ctx.fallbackReason ? { fallbackReason: this.ctx.fallbackReason } : {}), ...extra };
     lead.messages.push(msg);
     lead.awaitingCustomer = true;
     if (!lead.firstReplyAt) {
