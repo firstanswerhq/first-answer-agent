@@ -249,6 +249,7 @@ export class Agent {
       if (trigger === 'customer_reply') {
         const fxh = new Functions(ctx);
         const phone = config.business.phone;
+        ctx.writer = flags.medical || flags.emergency ? 'safety' : 'rules';
         if (flags.medical) {
           fxh.deliver(medicalText(config, flags) + ` - ${config.business.agentName} (AI)`);
           lead.priority = 'urgent';
@@ -266,6 +267,7 @@ export class Agent {
       } else {
         step({ kind: 'info', title: 'This inquiry is with a person; the assistant held back and did not reply', detail: lead.humanReason || '' });
       }
+      { const last = [...lead.messages].reverse().find((m) => m.from === 'agent' && m.ts >= runInfo.startMs); if (last) lead.lastReplyBy = last.by; }
       lead.lastRunAt = this.now();
       store.save();
       return;

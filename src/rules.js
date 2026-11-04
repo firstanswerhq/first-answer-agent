@@ -35,6 +35,7 @@ export async function runRules(ctx, fx, trigger) {
 
   // 1. Hard stops that need a person.
   if (lead.status === 'human') return;
+  if (flags.medical || flags.injection || flags.complaint) ctx.writer = 'safety';
   if (flags.medical) {
     // Fixed, safe wording for any business: call 911 (or 988), and bring a person in at once.
     await reply(medicalText(config, flags));

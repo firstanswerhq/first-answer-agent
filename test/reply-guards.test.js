@@ -103,3 +103,35 @@ test('the lead\'s own phone and the business phone may be repeated; other number
   assert.ok(checkOutbound('Call (615) 555-0123 instead.', lead, opts));
   assert.ok(checkOutbound('Write to me at a.b@example.com', lead, opts));
 });
+
+// ---- who-wrote-it labels stay honest after a hand-off ----
+test('labels after hand-off: holding reply is rules, 911 text is safety, on the lead, the detail and the public mode', async () => {
+  const { detail } = await import('../src/service.js');
+  const llm = fakeLlm([textOnly('Thanks for reaching out! We can fit a checkup this week, which day works best for you?')]);
+  const env = makeEnv({ llm });
+  const l = await newLead(env);
+  assert.equal(l.lastReplyBy, 'model');
+  // hand-off, then a later message gets the holding reply
+  const { done: d0 } = env.svc.addCustomerMessage(l.id, 'I want to talk to a real person please');
+  await d0;
+  const l2 = env.store.getLead(l.id);
+  assert.equal(l2.status, 'human');
+  const { done } = env.svc.addCustomerMessage(l.id, 'Any update?');
+  await done;
+  assert.equal(l2.lastReplyBy, 'rules');
+  assert.equal(detail(l2, env.store).answeredBy, 'rules');
+  const { done: d2 } = env.svc.addCustomerMessage(l.id, 'I have chest pain now');
+  await d2;
+  assert.equal(l2.lastReplyBy, 'safety');
+  assert.equal(detail(l2, env.store).answeredBy, 'safety');
+});
+
+test('a fresh 911 reply is labelled Safety rules, and the dashboard detail reads the same label as the list', async () => {
+  const env = makeEnv({ llm: null });
+  const l = await newLead(env, { message: 'I have chest pain and cannot breathe' });
+  assert.equal(l.lastReplyBy, 'safety');
+  assert.ok(l.messages.filter((m) => m.from === 'agent').every((m) => m.by === 'safety'));
+  const fs = await import('node:fs');
+  const src = fs.readFileSync(new URL('../public/app.js', import.meta.url), 'utf8');
+  assert.match(src, /l\.answeredBy \|\| l\.lastReplyBy/);
+});

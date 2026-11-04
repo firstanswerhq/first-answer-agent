@@ -82,5 +82,5 @@ export function detail(lead, store) {
   const fus = store.followups.filter((f) => f.leadId === lead.id);
   const { token: _t, ipHash: _ip, ...rest } = lead; // the secret token and IP hash are never sent to the dashboard
   // Fictional sample leads are open for role-play, so their token goes to the dashboard. Every other lead's token stays private.
-  return { ...rest, sourceSimulated: isSimulatedSource(lead.source), phone: lead.seed ? lead.phone : maskPhone(lead.phone), demoToken: lead.seed ? lead.token : undefined, booking, followups: fus.slice(-4) };
+  return { ...rest, sourceSimulated: isSimulatedSource(lead.source), phone: lead.seed ? lead.phone : maskPhone(lead.phone), demoToken: lead.seed ? lead.token : undefined, booking, followups: fus.slice(-4), answeredBy: lead.lastReplyBy || null };
 }
