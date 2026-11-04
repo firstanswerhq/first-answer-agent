@@ -3,7 +3,7 @@
 // guardrails in code, write state, and record a timeline step.
 import { findZip } from './extract.js';
 import { cleanText, money, rid, round2 } from './util.js';
-import { openSlots, localNow, isRealSlot, isBookableNow, slotLabel, isOpenNow, isValidDate, dateOf, DATE_RE, feedFor, calendarSource, slotIsBusy, CALENDAR_LABELS } from './calendar.js';
+import { openSlots, localNow, isRealSlot, isBookableNow, slotLabel, isOpenNow, isValidDate, dateOf, DATE_RE, feedFor, calendarSource, slotCheck, calendarLabel } from './calendar.js';
 
 const URGENCIES = ['emergency', 'urgent', 'routine'];
 const serviceIds = (config) => [...config.services.map((x) => x.id), 'other'];
@@ -265,7 +265,7 @@ export class Functions {
     const slots = openSlots(store, config, this.ctx.now(), from, a.days, a.limit);
     lead.offeredSlots = slots.map((s) => s.slot_id);
     return {
-      ok: true, timezone: config.business.tz, business_hours: config.hours.text, calendar: source, calendar_label: CALENDAR_LABELS[source],
+      ok: true, timezone: config.business.tz, business_hours: config.hours.text, calendar: source, calendar_label: calendarLabel(config),
       slots: slots.map((s) => ({ slot_id: s.slot_id, label: s.label })),
       note: slots.length ? undefined : 'No open slots in that range; try a later earliest_date or escalate_to_human.',
     };
@@ -286,7 +286,9 @@ export class Functions {
     const nowL = localNow(this.ctx.now(), config.business.tz);
     if (!isBookableNow(a.slot_id, nowL, config)) return { ok: false, error: `That time is in the past or too soon (${config.minLeadMinutes / 60} hours notice required).` };
     if (store.bookingForSlot(a.slot_id)) return { ok: false, error: 'That slot was just taken. Call check_calendar again.' };
-    if (slotIsBusy(a.slot_id, config)) return { ok: false, error: 'That time is no longer available. Call check_calendar again.' };
+    const chk = slotCheck(a.slot_id, config);
+    if (chk === 'busy') return { ok: false, error: 'That time is no longer available. Call check_calendar again.' };
+    if (chk === 'unchecked') return { ok: false, error: 'The connected calendar has not been checked for that date, so it cannot be booked. Offer an earlier time or escalate_to_human.' };
     if (flags?.emergency && !config.limits.emergencyHolds) return { ok: false, error: 'Emergency leads are flagged for a person instead of holding a calendar slot. Call escalate_to_human with priority urgent.', code: 'emergency_hold_off' };
     // Public-demo protection: bookings made by visitors are capped overall and per visitor, and expire (see releaseExpired).
     // Sample leads follow the same rules when a visitor role-plays on them. The cap reasons carry a code so the caller can
@@ -383,7 +385,7 @@ function describeCall(name, args, result, config) {
       const area = result.service_area_ok === true ? 'in service area' : result.service_area_ok === false ? 'OUTSIDE service area' : 'area unconfirmed';
       return `Qualified the request: ${result.service_label}, ${result.urgency}${config.serviceArea ? ', ' + area : ''}`;
     }
-    case 'check_calendar': return `Checked the calendar (${result.calendar_label || CALENDAR_LABELS.demo}): ${result.slots.length} open window${result.slots.length === 1 ? '' : 's'} found`;
+    case 'check_calendar': return `Checked the calendar (${result.calendar_label || 'Demo calendar'}): ${result.slots.length} open window${result.slots.length === 1 ? '' : 's'} found`;
     case 'book_appointment': return `Booked the appointment: ${result.label}`;
     case 'send_reply': return 'Sent a reply to the customer (simulated, nothing is really sent)';
     case 'schedule_followup': return `Scheduled a follow-up in ${args.delay_minutes} minutes in case the customer goes quiet`;

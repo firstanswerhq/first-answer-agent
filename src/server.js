@@ -8,7 +8,7 @@ import { Notifier } from './notify.js';
 import { LeadService, validateLeadInput, summary, detail, InputError, SOURCES } from './service.js';
 import { FollowupScheduler } from './followups.js';
 import { computeMetrics } from './metrics.js';
-import { listSlots, mondayOf, localNow, dateOf, addDays, isValidDate, isOpenNow, feedFor, calendarSource, busyOnDate } from './calendar.js';
+import { listSlots, mondayOf, localNow, dateOf, addDays, isValidDate, isOpenNow, feedFor, calendarSource, busyOnDate, dayChecked } from './calendar.js';
 import { rateLimiter, acceptCounter, gate } from './ratelimit.js';
 import { seedSample, sampleIsStale } from './seed.js';
 import { loadProfile, SHIPPED_PROFILES } from './profile.js';
@@ -18,12 +18,12 @@ import { slotLabel } from './calendar.js';
 import crypto from 'node:crypto';
 
 // Calendar status for /api/health and the Calendar page: only flags and short codes, never the feed address.
-const NO_FEED = { configured: false, connected: false, lastOk: null, lastError: null, eventsLoaded: 0 };
+const NO_FEED = { configured: false, connected: false, lastOk: null, lastError: null, eventsLoaded: 0, stale: false, staleMinutes: 0, unsupportedRules: 0, warnings: 0 };
 function calendarHealth(cfg) {
   const feed = feedFor(cfg);
   if (!feed) return NO_FEED;
-  const { configured, connected, lastOk, lastError, eventsLoaded } = feed.status();
-  return { configured, connected, lastOk, lastError, eventsLoaded };
+  const { configured, connected, lastOk, lastError, eventsLoaded, stale, staleMinutes, unsupportedRules, warnings } = feed.status();
+  return { configured, connected, lastOk, lastError, eventsLoaded, stale, staleMinutes, unsupportedRules, warnings };
 }
 const CALENDAR_NOTICE = 'Google Calendar could not be read right now, so this page and the assistant are using the demo calendar instead. Nothing here is from your real calendar until the connection works again.';
 
@@ -278,11 +278,11 @@ export async function createApp({ config, store = new Store({ file: config.dataF
     let start = typeof req.query.start === 'string' && isValidDate(req.query.start) && req.query.start >= '2000-01-01' && req.query.start <= '2100-12-31' ? req.query.start : today;
     start = mondayOf(start);
     const slots = listSlots(store, config, now(), start, 6);
-    const days = Array.from({ length: 6 }, (_, i) => addDays(start, i)).map((date) => ({ date, today: date === today, slots: slots.filter((s) => s.date === date), busy: busyOnDate(date, config) }));
+    const days = Array.from({ length: 6 }, (_, i) => addDays(start, i)).map((date) => ({ date, today: date === today, slots: slots.filter((s) => s.date === date), busy: busyOnDate(date, config), checked: dayChecked(date, config) }));
     const h = calendarHealth(config);
     res.json({
       start, prev: addDays(start, -7), next: addDays(start, 7), today, timezone: config.business.tz, days,
-      calendar: { source: calendarSource(config), configured: h.configured, connected: h.connected, notice: h.configured && !h.connected ? CALENDAR_NOTICE : null },
+      calendar: { source: calendarSource(config), configured: h.configured, connected: h.connected, stale: h.stale, staleMinutes: h.staleMinutes, unsupportedRules: h.unsupportedRules, warnings: h.warnings, lastError: h.lastError, notice: h.configured && !h.connected ? CALENDAR_NOTICE : null },
     });
   });
 

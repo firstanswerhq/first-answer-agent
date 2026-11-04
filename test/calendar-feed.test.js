@@ -232,7 +232,10 @@ test('fetch: after a failure the demo calendar is used, and it recovers on the n
   assert.equal(await statusOf(cfg, '2026-11-05T09:00', WED_10AM + 31_000), 'busy');
   assert.equal(cfg.calendarFeed.status().connected, true);
   fail = true;
-  assert.equal(await statusOf(cfg, '2026-11-05T09:00', WED_10AM + 100_000), 'open', 'a failed refresh drops back to the demo calendar, never stale data');
+  assert.equal(await statusOf(cfg, '2026-11-05T09:00', WED_10AM + 100_000), 'busy', 'a short outage keeps the last good read (flagged stale)');
+  assert.equal(cfg.calendarFeed.status().stale, true);
+  assert.equal(await statusOf(cfg, '2026-11-05T09:00', WED_10AM + 31_000 + 16 * 60_000), 'open', 'after 15 minutes of failures it drops back to the demo calendar');
+  assert.equal(cfg.calendarFeed.status().connected, false);
 });
 
 // ---------------------------------------------------------------- app behavior
@@ -299,7 +302,7 @@ test('health, config and calendar API: status flags and codes only, never the ad
     const bodies = [];
     for (const p of ['/api/health', '/api/config', '/api/calendar', '/api/profiles', '/api/leads', '/api/metrics']) bodies.push(await (await fetch(s.base + p)).text());
     const health = JSON.parse(bodies[0]);
-    assert.deepEqual(Object.keys(health.calendar).sort(), ['configured', 'connected', 'eventsLoaded', 'lastError', 'lastOk']);
+    assert.deepEqual(Object.keys(health.calendar).sort(), ['configured', 'connected', 'eventsLoaded', 'lastError', 'lastOk', 'stale', 'staleMinutes', 'unsupportedRules', 'warnings']);
     assert.equal(health.calendar.connected, true);
     assert.equal(health.calendar.eventsLoaded, 1);
     assert.match(health.calendar.lastOk, /^\d{4}-\d\d-\d\dT/);

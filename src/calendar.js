@@ -89,14 +89,31 @@ export function isBookableNow(id, nowLocalStr, cfg) {
 export const feedFor = (cfg) => (cfg.calendarFeed && cfg.calendarFeed.appliesTo(cfg.profile.id) ? cfg.calendarFeed : null);
 export const connectedFeed = (cfg) => { const f = feedFor(cfg); return f && f.connected ? f : null; };
 export const CALENDAR_LABELS = { google: 'Connected Google Calendar (read-only)', demo: 'Demo calendar' };
+/** Label for the timeline: says how old the data is when a refresh has been failing. Never claims fresh data when stale. */
+export function calendarLabel(cfg) {
+  const f = connectedFeed(cfg);
+  if (!f) return CALENDAR_LABELS.demo;
+  const st = f.status();
+  return st.stale ? `Connected Google Calendar (read-only, last updated ${st.staleMinutes} min ago)` : CALENDAR_LABELS.google;
+}
 export const calendarSource = (cfg) => (connectedFeed(cfg) ? 'google' : 'demo');
 
-/** Does the connected feed have something busy during this slot? (false for the demo calendar) */
-export function slotIsBusy(id, cfg) {
+/** 'free', 'busy' (the connected feed has something there) or 'unchecked' (outside the range the feed was read for). */
+export function slotCheck(id, cfg) {
   const feed = connectedFeed(cfg);
-  if (!feed) return false;
+  if (!feed) return 'free';
   const s = instantOfLocal(id, cfg.business.tz);
-  return feed.isBusy(s, s + cfg.hours.windowHours * 3_600_000);
+  const e = s + cfg.hours.windowHours * 3_600_000;
+  if (!feed.covers(s, e)) return 'unchecked';
+  return feed.isBusy(s, e) ? 'busy' : 'free';
+}
+export const slotIsBusy = (id, cfg) => slotCheck(id, cfg) === 'busy';
+
+/** Was this whole local day inside the range the feed was read for? (always true on the demo calendar) */
+export function dayChecked(date, cfg) {
+  const feed = connectedFeed(cfg);
+  if (!feed) return true;
+  return feed.covers(instantOfLocal(`${date}T00:00`, cfg.business.tz), instantOfLocal(`${addDays(date, 1)}T00:00`, cfg.business.tz));
 }
 
 /** Busy blocks of the connected feed on one date, clipped to that day, as local HH:MM. Titles are never included. */
@@ -124,7 +141,10 @@ export function listSlots(store, cfg, nowMs, fromDate, days) {
       let status = 'open';
       if (booking) status = 'booked';
       else if (!isBookableNow(id, nowL, cfg)) status = 'past';
-      else if (slotIsBusy(id, cfg)) status = 'busy';
+      else {
+        const chk = slotCheck(id, cfg);
+        if (chk !== 'free') status = chk;
+      }
       out.push({
         slot_id: id, date, start: timeOf(id), end: endTime(timeOf(id), cfg.hours.windowHours),
         label: slotLabel(id, cfg.hours.windowHours), status, booking: booking || null,
