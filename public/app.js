@@ -259,7 +259,7 @@ function factsHtml(l, speedup) {
   add('Answered by', l.lastRunMode === 'model' ? 'AI model' : l.lastRunMode === 'offline' ? 'Built-in rules' : 'Pending');
   if (q) {
     add('Service', q.serviceLabel);
-    add('Priority', q.urgency);
+    add('Priority', l.priority === 'urgent' ? 'urgent' : q.urgency);
     if (state.cfg?.serviceArea) add('Service area', q.serviceAreaOk === true ? `In area (${q.areaMatch})` : q.serviceAreaOk === false ? `Outside area (${q.areaMatch})` : 'Not confirmed');
     if (q.urgency !== 'emergency') add('Price range we may quote', q.priceRange ? `$${q.priceRange.low.toLocaleString()}–$${q.priceRange.high.toLocaleString()}` : 'No quote, cost confirmed in person');
   }

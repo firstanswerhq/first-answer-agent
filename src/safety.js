@@ -36,12 +36,26 @@ const INJECTION = [
 // Medical or personal-safety emergencies. Same in every business: the customer is told to call 911 (or 988) and a person
 // is brought in at once. This is a safety net, not a diagnosis.
 const MEDICAL_911 = /\b(chest (pain|pressure|tightness)|heart attack|stroke|can'?t breathe|cannot breathe|trouble breathing|difficulty breathing|struggling to breathe|not breathing|unresponsive|unconscious|passed out|seizure|overdos(e|ed|ing)|severe(ly)? bleeding|bleeding (heavily|badly|a lot)|anaphyla\w*|allergic reaction.{0,30}(throat|swelling|breath))\b/i;
-const SELF_HARM = /\b(suicid\w*|kill (myself|my ?self)|end my life|want to die|hurt myself|harm myself)\b/i;
+// Direct and indirect wording about ending one's life or hurting oneself. Phrases that are ordinary figures of speech
+// ("dying to get in", "killing it", "die of embarrassment", "end of life planning") are not matched.
+const SELF_HARM = new RegExp([
+  String.raw`\bsuic\w*`,
+  String.raw`\bkil{1,2}(?:ing)?\s*my\s*self\b`,
+  String.raw`\b(?:end(?:ing)?|take|taking)\s+(?:my\s+(?:own\s+)?life|it\s+all)\b`,
+  String.raw`\b(?:want|wanna)\s*(?:to|2)?\s*(?:die|be\s+dead)\b(?!\s+(?:laughing|of\s+embarrassment))`,
+  String.raw`\bwish\s+i\s+(?:was|were)\s+dead\b`,
+  String.raw`\b(?:do\s*n[o']?t|dont|do\s+not|no\s+longer)\s+want\s+to\s+(?:be\s+alive|live(?!\s+(?:in|at|near|far|with|here|there|on|by|downtown|nearby|close)\b)|go\s+on|exist)\b`,
+  String.raw`\b(?:can'?t|cannot|can\s+not)\s+go\s+on(?=\s*(?:$|[.,!?;])|\s+(?:like\s+this|anymore|any\s+more|much\s+longer|without))`,
+  String.raw`\bno\s+(?:reason|point)\s+(?:to|in)\s+(?:live|living|go\s+on|going\s+on|keep\s+going|be\s+alive)\b`,
+  String.raw`\bbetter\s+off\s+without\s+me\b`,
+  String.raw`\b(?:hurt|harm|cut)ing?\s+myself\b|\b(?:hurt|harm)\s+myself\b`,
+  String.raw`\bself[\s-]?harm\w*`,
+].join('|'), 'i');
 
 // Make the text comparable before matching: fold look-alike characters, drop zero-width characters, and join letters
 // that were spaced or dotted out ("i g n o r e", "i.g.n.o.r.e"). Used for the classifier only, never for what is stored.
 export function normalizeForSafety(text) {
-  let t = String(text || '').normalize('NFKC').replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u2064\uFEFF\u00AD]/g, '');
+  let t = String(text || '').normalize('NFKC').replace(/[\u2018\u2019\u02BC`\u00B4]/g, "'").replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u2064\uFEFF\u00AD]/g, '');
   t = t.replace(/\b(?:[A-Za-z][ .\-_*]){3,}[A-Za-z]\b/g, (m) => m.replace(/[ .\-_*]/g, ''));
   return t;
 }

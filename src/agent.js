@@ -12,6 +12,7 @@ const ALERT_STEP = {
   sent: { ok: true, title: "Alert sent to the owner's phone" },
   failed: { ok: false, title: "Alert to the owner's phone could not be sent" },
   simulated: { ok: true, title: 'Alert not sent (demo scenario, not a real customer)' },
+  duplicate_again: { ok: true, title: 'Already alerted, not sent again' },
   not_configured: { ok: true, title: 'Alert not configured (no owner phone alert is set up here)' },
   offline: { ok: true, title: 'Alert not sent (alerts are switched off in this mode)' },
   rate_limited: { ok: true, title: 'Alert not sent (hourly alert limit reached)' },
@@ -109,7 +110,7 @@ export class Agent {
   alertOwner(lead, step, a, flags = {}, again = false) {
     if (!this.notifier) return;
     const p = this.notifier.alert(lead, { category: alertCategory(flags), priority: a.priority === 'urgent' || lead.priority === 'urgent' || flags.emergency || flags.medical ? 'urgent' : 'normal', business: this.config.business.name, again })
-      .then(({ status }) => { const s = ALERT_STEP[status]; if (s) { step({ kind: 'alert', ...s }); this.store.save(); } })
+      .then(({ status }) => { const s = ALERT_STEP[status === 'duplicate' && again ? 'duplicate_again' : status]; if (s) { step({ kind: 'alert', ...s }); this.store.save(); } })
       .catch(() => {})
       .finally(() => this.pendingAlerts.delete(p));
     this.pendingAlerts.add(p);
@@ -246,7 +247,7 @@ export class Agent {
         const fxh = new Functions(ctx);
         const phone = config.business.phone;
         if (flags.medical) {
-          fxh.deliver(medicalText(config, flags));
+          fxh.deliver(medicalText(config, flags) + ` - ${config.business.agentName} (AI)`);
           lead.priority = 'urgent';
           step({ kind: 'guard', title: 'New message after handoff: possible medical emergency, so the fixed 911 reply was shown and the inquiry marked urgent', detail: 'Checked in code' });
           this.alertOwner(lead, step, { priority: 'urgent' }, flags, true);
