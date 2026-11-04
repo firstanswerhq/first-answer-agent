@@ -475,12 +475,21 @@ export class Agent {
       const phoneDigits = String(this.config.business.phone || '').replace(/\D/g, '');
       const note = String(this.config.profile.urgency.safetyNote || '').slice(0, 24).toLowerCase();
       const mine = lead.messages.filter((m) => m.from === 'agent' && m.ts >= ctx.run.startMs);
-      const covered = mine.some((m) => String(m.text).replace(/\D/g, '').includes(phoneDigits) && (/911/.test(m.text) || (note && m.text.toLowerCase().includes(note))));
-      if (!covered) {
-        step({ kind: 'guard', title: 'Guardrail: the urgent reply did not carry the safety note and the phone number, so the software sent them' });
+      const hasPhone = mine.some((m) => String(m.text).replace(/\D/g, '').includes(phoneDigits));
+      const hasNote = mine.some((m) => /911/.test(m.text) || (note && m.text.toLowerCase().includes(note)));
+      if (!(hasPhone && hasNote)) {
+        step({ kind: 'guard', title: 'Guardrail: the urgent reply did not carry the safety note and the phone number, so the software completed it' });
         const prevWriter = ctx.writer;
         ctx.writer = 'safety';
-        fx.deliver(flags.medical ? `${medicalText(this.config, flags)} - ${this.config.business.agentName} (AI)` : urgentText(this.config, lead, mine.length > 0));
+        const sig = ` - ${this.config.business.agentName} (AI)`;
+        if (mine.length && (hasPhone || hasNote)) {
+          // The model's reply has one of the two: add only what is missing, so nothing appears twice.
+          fx.deliver(hasNote ? `You can also call us at ${this.config.business.phone}.${sig}` : `${this.config.profile.urgency.safetyNote}${sig}`);
+        } else {
+          // The model's reply has neither (it may even be asking for a booking time): the fixed text replaces it.
+          if (mine.length) lead.messages = lead.messages.filter((m) => !(m.from === 'agent' && m.ts >= ctx.run.startMs && m.by === 'model'));
+          fx.deliver(flags.medical ? `${medicalText(this.config, flags)}${sig}` : urgentText(this.config, lead, false));
+        }
         ctx.writer = prevWriter === 'model' && mine.length ? 'model' : 'safety';
         ctx.sentReply = true;
       }

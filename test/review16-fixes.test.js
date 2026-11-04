@@ -54,3 +54,26 @@ test('off-topic badge: lead summary carries the flag and the dashboard renders "
   const ok = await newLead(env, { name: 'Pat Two', phone: '(615) 555-0133', message: 'Is the weather going to close the office tomorrow?' });
   assert.equal(summary(ok, env.store).offTopic, false);
 });
+
+import { loadConfig } from '../src/config.js';
+test('emergency holds path: the safety note and phone appear once and never contradict a booking question', async () => {
+  const config = loadConfig({ DATA_FILE: '', EMERGENCY_HOLDS: '1' }, { profile: 'dental', seedOnEmpty: false, followupSpeedup: 60 });
+  const phone = config.business.phone;
+  const note = config.profile.urgency.safetyNote;
+  const txt = (c) => ({ status: 200, json: { choices: [{ finish_reason: 'stop', message: { content: c } }] } });
+  const cases = [
+    [`I am so sorry you are in pain. ${note} A teammate will follow up with you directly.`, 'note only'],
+    [`I am so sorry about the pain. Please call us at ${phone} and a teammate will follow up with you directly.`, 'phone only'],
+    ['Which weekday works best for you to come in?', 'booking question'],
+    [`I am sorry you are in pain. ${note} You can also call us at ${phone} and a teammate will follow up.`, 'both'],
+  ];
+  for (const [reply, label] of cases) {
+    const env = makeEnv({ llm: fakeLlm([txt(reply)]), config });
+    const l = await newLead(env, { message: "My face is swelling and I can't open my mouth." });
+    const all = agentTexts(l).join(' | ');
+    const digits = all.replace(/\D/g, '');
+    assert.equal((digits.match(new RegExp(phone.replace(/\D/g, ''), 'g')) || []).length, 1, `${label}: phone once in ${all}`);
+    assert.equal((all.match(/call 911/gi) || []).length, 1, `${label}: 911 once in ${all}`);
+    assert.doesNotMatch(all, /Which weekday works/, label);
+  }
+});
