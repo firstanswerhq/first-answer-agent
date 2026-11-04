@@ -142,47 +142,9 @@ export function toolDefs(config) {
   ];
 }
 
-// ---- outbound message guard (price book, promises, links, leaks) ----
-const BANNED = /\b(discount|refund|guarantee[sd]?|price[- ]match|warranty|coupon|waive[sd]?|promo(tion)? code|\d+\s?% off|free of charge|no charge|on the house)\b/i;
-const LEAK = /system prompt|my instructions|developer message|api[- ]?key|VULTR_|as an ai language model/i;
-
-// A sentence that says an appointment is made. Only allowed when the lead really has a booking (made by book_appointment).
-const BOOKING_CLAIM = /\b(?:booked|scheduled|reserved|confirmed(?!\s+(?:at|in|by|with|after|during|once|when))|locked in|penciled in|pencilled in|all set|good to go|on (?:the|our|my) (?:calendar|schedule|books)|put you down|(?:got|have|has) you (?:down|in)|set for|see you (?:on|at|then|soon|thursday|friday|monday|tuesday|wednesday|saturday|tomorrow|next)|spot is yours|holding (?:a|the|that|your) (?:time|slot|spot))\b/i;
-const NOT_A_CLAIM = /\b(?:once|until|if|when|before|after|unless|can|could|will|would|shall|should|may|might|to get you|want|wanted|like|interested|ready|not|never|cannot|unable|how|which|whether|need|needs|please|let me|going to|once you|hold)\b|n't|\?/i;
-// Text that must never reach a customer from the model: injection echoes, tool-call or JSON text, markup, reasoning leaks.
-const UNSAFE_TEXT = [
-  [/\bignor(?:e|es|ed|ing)\b[^.!?]{0,50}\b(?:instructions?|prompts?|rules?|guidelines|guardrails?)\b/i, 'Message echoes an instruction override.'],
-  [/\b(?:developer|jailbreak|dan) mode\b|as an ai(?: language)? model|\bi am (?:now )?(?:in|an?) (?:unrestricted|unfiltered)\b/i, 'Message echoes an instruction override.'],
-  [/^\s*[{[]|"\s*(?:tool|tool_calls?|function|arguments|name)\s*"\s*:/i, 'Message looks like JSON or a tool call, not a message for a customer.'],
-  [/\b(?:send_reply|qualify_lead|check_calendar|book_appointment|schedule_followup|escalate_to_human|tool[_ ]call|function[_ ]call)\b/i, 'Message mentions internal tools.'],
-  [/<\/?\s*[a-z!][^>]*>|<\/?\s*(?:script|think|thinking|reasoning)\b/i, 'Message contains markup.'],
-  [/^\s*(?:thinking|thoughts?|reasoning|analysis|scratchpad)\s*[:>-]/im, 'Message contains reasoning text.'],
-];
-const digitsOf = (v) => String(v || '').replace(/\D/g, '').slice(-10);
-
-export function checkOutbound(text, lead, opts = {}) {
-  for (const [re, msg] of UNSAFE_TEXT) if (re.test(text)) return `${msg} Write a short plain message for the customer.`;
-  // Phone numbers and email addresses that are not the business's or the lead's own are never repeated.
-  const own = new Set([digitsOf(lead?.phone), ...(opts.ownPhones || []).map(digitsOf)].filter((d) => d.length === 10));
-  const foreign = [...text.matchAll(/\+?\d[\d\s().-]{8,}\d/g)].map((m) => digitsOf(m[0])).find((d) => d.length === 10 && !own.has(d));
-  if (foreign || /[\w.+-]+@[\w-]+\.[\w.-]+/.test(text)) return 'Message repeats a phone number or email address that is not the business contact. Leave it out.';
-  if (opts.booked === false) {
-    const claim = text.split(/(?<=[.!?])\s+|\n+/).find((sent) => BOOKING_CLAIM.test(sent) && !NOT_A_CLAIM.test(sent));
-    if (claim) return 'Message says an appointment is booked or confirmed, but no appointment has been booked for this customer. Offer times with check_calendar and book only when they choose one.';
-  }
-  if (BANNED.test(text)) return 'Message makes a promise the agent may not make (discount, refund, guarantee, warranty or free work). Rephrase, or escalate_to_human.';
-  if (/https?:\/\/|www\./i.test(text)) return 'Messages may not contain links.';
-  if (LEAK.test(text)) return 'Message appears to reveal internal instructions.';
-  const amounts = [...text.matchAll(/\$\s?([\d,]+(?:\.\d{1,2})?)|\b([\d,]+(?:\.\d{1,2})?)\s?(?:dollars|bucks)\b/gi)]
-    .map((m) => Number((m[1] || m[2]).replace(/,/g, '')));
-  if (amounts.length) {
-    const ranges = [lead.qualification?.priceRange, lead.qualification?.alsoPriceRange].filter(Boolean);
-    if (!ranges.length) return 'No price may be quoted for this service. Say the cost is confirmed in person, or escalate_to_human.';
-    const bad = amounts.find((a) => !ranges.some((pr) => a >= pr.low && a <= pr.high));
-    if (bad !== undefined) return `Price ${money(bad)} is outside the price book range${ranges.length > 1 ? 's' : ''} ${ranges.map((pr) => `${money(pr.low)}-${money(pr.high)}`).join(' and ')}. Quote only ${ranges.length > 1 ? 'those ranges' : 'that range'} or escalate_to_human.`;
-  }
-  return null;
-}
+// ---- outbound message guard: see guard.js ----
+import { checkOutbound, cleanOutbound } from './guard.js';
+export { checkOutbound, cleanOutbound };
 
 export function priceRangeFor(config, serviceId) {
   const svc = config.services.find((x) => x.id === serviceId);
@@ -335,7 +297,8 @@ export class Functions {
   guardOpts() {
     const { store, config, lead } = this.ctx;
     // Only the model's own wording is checked for booking claims; the software's fixed texts are written after a real booking.
-    return { booked: !!store.bookingForLead(lead.id) || this.ctx.writer !== 'model', ownPhones: [config.business.phone] };
+    const booking = store.bookingForLead(lead.id);
+    return { booked: !!booking || this.ctx.writer !== 'model', booking: this.ctx.writer === 'model' ? booking : null, ownPhones: [config.business.phone] };
   }
 
   // 4. send_reply
@@ -354,6 +317,7 @@ export class Functions {
     const { lead, config } = this.ctx;
     // Messages the software writes itself (holding notes, handoff notes) pass the same outbound guard as the model's.
     if (checkOutbound(text, lead, this.guardOpts())) text = `A teammate will follow up with you shortly. - ${config.business.agentName} (AI)`;
+    text = cleanOutbound(text);
     const ts = this.ctx.now();
     const msg = { id: rid('M'), ts, from: 'agent', text, simulated: true, by: this.ctx.writer || 'rules', ...extra };
     lead.messages.push(msg);
