@@ -130,6 +130,7 @@ function bookingProblem(text, opts) {
   const b = opts.booking;
   if (!b) return opts.model ? changeProblem(text) : null;
   // The customer already has a booking. This assistant cannot change, cancel or add one, so any such claim is false.
+  { const cp = changeProblem(text); if (cp) return cp; }
   for (const c of clausesOf(text)) {
     if (CHANGE_CLAIM.test(c) && !NOT_A_CLAIM.test(c.replace(/\bas well\b/i, '')) && !NEGATED_BOOKED.test(c)) return { id: 'booking_change', message: 'Message says an appointment was changed, cancelled or added, but this assistant cannot do that. A teammate handles changes.' };
     if (CHANGE_CLAIM.test(c) && /\bas well\b|\banother\b|\bsecond\b/i.test(c) && !NOT_A_CLAIM.test(c.replace(/\bas well\b/i, ''))) return { id: 'booking_change', message: 'Message says a second appointment was made, but only one exists.' };
