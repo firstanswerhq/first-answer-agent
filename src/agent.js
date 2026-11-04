@@ -268,7 +268,7 @@ export class Agent {
     lead.lastRunAt = this.now();
     lead.runCount = (lead.runCount || 0) + 1;
     step({
-      kind: 'done', title: lead.firstReplyAt && !lead.replyDoneLogged ? `Done. ${lead.replyTimeSec < 1 && runInfo.mode !== MODE_MODEL ? 'Reply sent instantly (built-in rules)' : `First reply in ${lead.replyTimeSec < 1 ? Math.round(lead.replyTimeSec * 1000) + ' ms' : lead.replyTimeSec + ' s'}`}` : 'Done',
+      kind: 'done', title: lead.firstReplyAt && !lead.replyDoneLogged ? `Done. First reply in ${lead.replyTimeSec < 1 ? 'under 1 s' : lead.replyTimeSec + ' s'}` : 'Done',
       detail: `Status: ${lead.status}`,
     });
     lead.replyDoneLogged = true;

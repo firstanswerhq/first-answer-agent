@@ -28,7 +28,7 @@ Demo data is fictional and no text or email is ever sent. Please use made-up det
 | Customers and sample inquiries | **Simulated** (fictional names, 555 numbers) |
 | The calendar being a business's actual calendar | **Simulated.** It is the app's own calendar; there is no Google or Outlook sync yet. |
 
-If no AI key is set, or the AI model cannot be reached or is over its hourly limit, the app switches to **backup mode**: built-in rules that follow the same steps and use the same safety checks. The header badge and `/api/health` say which mode is active. The badge shows a model name only while the AI model is really answering, and `/api/health` reports `modelVerified: true` only after a real test call to the model succeeded.
+If the AI model is not connected, cannot be reached or has reached its hourly limit, the app switches to **backup mode**: built-in rules that follow the same steps and use the same safety checks. The header badge and `/api/health` say which mode is active. The badge shows a model name only while the AI model is really answering, and `/api/health` reports `modelVerified: true` only after a real test call to the model succeeded.
 
 ## Why it matters
 
@@ -64,7 +64,7 @@ Taken on the live deployment (<https://155-138-206-164.sslip.io>) with the real 
 
 ![Calendar for the dental office](docs/screenshots/03-dental-calendar.jpg)
 
-**4. Results.** Median reply time of live replies with the AI model and built-in rules shown separately, plus a reply time bar per inquiry. Numbers are discussed under "Measured on the live deployment".
+**4. Results.** Median reply time of live replies with the AI model and built-in rules shown separately, plus a reply time bar per inquiry. Numbers are from a frozen snapshot, discussed under "Measured on the live deployment".
 
 ![Results screen](docs/screenshots/04-dental-results.jpg)
 
@@ -98,11 +98,12 @@ Taken on the live deployment (<https://155-138-206-164.sslip.io>) with the real 
 
 ## Measured on the live deployment
 
-From the Results screen on the live app (dental office, live replies only, sample day excluded; screenshot 4):
+Frozen snapshot from the Results screen of the live app: **Nov 4, 2026, about 10:25 AM Central**, dental office, live replies only, sample data excluded (screenshot 4).
 
-* **Typical reply time (median): 7.3 s over 5 live replies.** Split as shown: AI model 7.0 s (3 replies), built-in rules 7.9 s (2 replies).
-* 5 inquiries answered of 5 received; 0 appointments booked in that run; 2 of 5 needed a person (one prompt-injection test message and one angry-customer message).
-* This is a small sample from one session, not a benchmark. Reply time is measured from the inquiry arriving to the first reply.
+* **Typical reply time (median): 7.0 s over 9 live replies.**
+* AI model: 6.5 s (7 replies). Built-in rules: 7.9 s (2 replies); these include the time spent asking the model first, so backup mode is not instant.
+* 9 of 9 inquiries answered; 2 booked (22%); 3 needed a person (33%).
+* This is a small sample. The live dashboard keeps changing as visitors try it, so the numbers you see there will differ. Reply time is measured from the inquiry arriving to the first reply.
 
 What the agent did on the live model for a price question (screenshot 2): the customer asked how much a cleaning and checkup costs for an adult who pays out of pocket. The AI model called `qualify_lead`, then `check_calendar` (4 open windows found), and wrote a reply that quoted the approved range ($110-$190 for a cleaning and checkup) and offered real open times from the calendar (Wed Nov 4 at 2:00 PM, Thu Nov 5 at 9:00, 10:00 or 11:00 AM). The reply was a simulated send.
 
@@ -154,7 +155,7 @@ flowchart LR
 * **Vultr Cloud Compute VM** (`vc2-1c-2gb`, Atlanta, Ubuntu 24.04) is the control layer. It runs the Express API, the dashboard, the calendar and booking store, the follow-up timers, the safety checks and the assistant loop. It is set up by one startup script ([`deploy/cloud-init.sh`](deploy/cloud-init.sh)).
 * **Vultr Serverless Inference** (OpenAI-compatible, `https://api.vultrinference.com/v1`) is the assistant's reasoning engine. The app sends chat requests with action definitions and runs the actions the model returns. Default model: `glm-5.3-flash` (change it with `VULTR_INFERENCE_MODEL`).
 
-Serverless Inference is optional for this challenge, but it is the primary path. The VM works on its own: with no key the same app runs in backup mode.
+Serverless Inference is optional for this challenge, but it is the primary path. The VM works on its own: with no AI key the same app runs in backup mode.
 
 ## The assistant: how it executes real tasks
 
@@ -173,7 +174,7 @@ Reliability and cost control: runs for the same inquiry never overlap, a cap on 
 
 ### Backup mode
 
-If `VULTR_INFERENCE_KEY` is not set, the hourly or per-visitor limit is reached, or a model call fails, built-in rules follow the **same steps** and call the **same checked functions**. The run is labeled "Backup mode: built-in rules" in the step list, the header badge and `/api/health`. Reply time is measured from the inquiry arriving to the first reply, so rule-based replies are near-instant and AI model replies include the model's response time.
+If `VULTR_INFERENCE_KEY` is not set, the hourly or per-visitor limit is reached, or a model call fails, built-in rules follow the **same steps** and call the **same checked functions**. The run is labeled "Backup mode: built-in rules" in the step list, the header badge and `/api/health`. Reply time is measured from the inquiry arriving to the first reply, so every reply includes any time spent asking the AI model first. A reply written by the built-in rules after a model attempt is therefore not instant; the dashboard shows the real time for each reply.
 
 ### Guardrails (checked in code, not only in the prompt)
 

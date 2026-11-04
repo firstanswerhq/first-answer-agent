@@ -33,8 +33,8 @@ const fmtDay = (iso) => { const [y, m, d] = iso.split('-').map(Number); return n
 const tzName = (tz) => { try { return new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'longGeneric' }).formatToParts(new Date()).find((p) => p.type === 'timeZoneName')?.value || tz; } catch { return tz; } };
 const fmtSlot = (id) => { const [d, t] = id.split('T'); const [y, m, dd] = d.split('-').map(Number); const day = new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', weekday: 'short', month: 'short', day: 'numeric' }).format(new Date(Date.UTC(y, m - 1, dd))); const h = Number(t.slice(0, 2)); return `${day}, ${h % 12 || 12}:${t.slice(3, 5)} ${h >= 12 ? 'PM' : 'AM'}`; };
 const secs = (n) => (n == null ? '—' : n < 1 ? `${Math.round(n * 1000)} ms` : `${n.toFixed(1)} s`);
-// A reply from the built-in rules that took under a second reads "instant (rules)"; a model reply keeps its real time.
-const replyText = (sec, mode) => (sec == null ? 'Waiting' : sec < 1 && mode !== 'model' ? 'instant (rules)' : secs(sec));
+// Every reply shows its real measured time.
+const replyText = (sec, mode) => (sec == null ? 'Waiting' : secs(sec));
 const upper1 = (t) => String(t || '').charAt(0).toUpperCase() + String(t || '').slice(1);
 const dayKey = (ts) => new Intl.DateTimeFormat('en-CA', { timeZone: state.tz }).format(new Date(ts));
 // Time of day for today, and the date plus time for anything older (a 3-day-old item must not look like it is from today).
@@ -252,7 +252,7 @@ function timelineItem(t) {
 function factsHtml(l, speedup) {
   const q = l.qualification; const rows = [];
   const add = (k, v) => rows.push(html`<dt>${k}</dt><dd>${v}</dd>`);
-  add('First reply', l.replyTimeSec == null ? 'Not yet' : l.seed ? `${replyText(l.replyTimeSec, l.lastRunMode)} (simulated)` : l.replyTimeSec < 1 && l.lastRunMode !== 'model' ? 'instant (rules)' : `${secs(l.replyTimeSec)} (measured)`);
+  add('First reply', l.replyTimeSec == null ? 'Not yet' : l.seed ? `${replyText(l.replyTimeSec, l.lastRunMode)} (simulated)` : `${secs(l.replyTimeSec)} (measured)`);
   add('Answered by', l.lastRunMode === 'model' ? 'AI model' : l.lastRunMode === 'offline' ? 'Built-in rules' : 'Pending');
   if (q) {
     add('Service', q.serviceLabel);
@@ -330,7 +330,7 @@ async function renderResults(scope = 'live') {
     <div class="heading"><div><div class="eyebrow">${withSample ? 'Live replies plus the fictional sample day' : 'Live replies only'}</div><h1>Results</h1><p class="sub">Numbers come from the inquiries stored in this app. The dashboard shows how long each reply actually took. The sample day is fictional and labeled as such.</p></div>
       <select class="btn ghost" id="scope" aria-label="Data scope"><option value="live">Live replies only (measured)</option><option value="all">Include simulated sample data</option></select></div>
     <div class="stat-grid">
-      <div class="card stat"><label>Typical reply time${ms.answered ? ` (median of ${ms.answered} live repl${ms.answered === 1 ? 'y' : 'ies'})` : ''}</label><strong>${ms.medianSec == null ? '—' : replyText(ms.medianSec, ms.model.answered && !ms.rules.answered ? 'model' : 'rules')}</strong><small class="dim">${ms.answered ? `AI model: ${ms.model.answered ? secs(ms.model.medianSec) + ' (' + ms.model.answered + ')' : 'none yet'} · Built-in rules: ${ms.rules.answered ? (ms.rules.medianSec < 1 ? 'instant' : secs(ms.rules.medianSec)) + ' (' + ms.rules.answered + ')' : 'none yet'}` : 'No live replies yet'}</small></div>
+      <div class="card stat"><label>Typical reply time${ms.answered ? ` (median of ${ms.answered} live repl${ms.answered === 1 ? 'y' : 'ies'})` : ''}</label><strong>${ms.medianSec == null ? '—' : replyText(ms.medianSec, ms.model.answered && !ms.rules.answered ? 'model' : 'rules')}</strong><small class="dim">${ms.answered ? `AI model: ${ms.model.answered ? secs(ms.model.medianSec) + ' (' + ms.model.answered + ')' : 'none yet'} · Built-in rules: ${ms.rules.answered ? secs(ms.rules.medianSec) + ' (' + ms.rules.answered + ')' : 'none yet'}` : 'No live replies yet'}</small></div>
       <div class="card stat"><label>Inquiries answered</label><strong>${m.answered}</strong><small class="dim">of ${m.totalLeads} received${withSample ? ' (includes the fictional sample)' : ''}</small></div>
       <div class="card stat"><label>Appointments booked</label><strong>${m.booked}</strong><small>${m.bookedRate == null ? 'No data yet' : m.bookedRate + '% of answered inquiries' + (withSample ? ' (sample is fictional)' : '')}</small></div>
       <div class="card stat"><label>Needs a person</label><strong>${m.human}</strong><small class="dim">${m.humanRate == null ? 'No data yet' : m.humanRate + '% need judgment or a follow-up call'}</small></div>
