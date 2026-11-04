@@ -43,7 +43,7 @@
     { "id": "urgent_visit", "label": "Urgent dental visit", "group": "b", "price": null, "keywords": ["toothache", "tooth hurts", "tooth is hurting", "aching", "chipped", "cracked tooth", "broken tooth", "sensitive tooth"] }
   ],
   "urgency": {
-    "emergencyPhrases": ["severe pain", "unbearable pain", "knocked out", "tooth fell out", "bleeding (that )?(will not|won't|wont|does not|doesn't) stop", "can't stop (the )?bleeding", "swelling in (my|his|her|their) (face|jaw|neck)", "(face|jaw) is (swollen|swelling)", "abscess", "trouble (breathing|swallowing)", "can't (breathe|swallow)"],
+    "emergencyPhrases": ["severe pain", "unbearable pain", "knocked out", "tooth fell out", "bleeding (that )?(will not|won't|wont|does not|doesn't) stop", "can't stop (the )?bleeding", "swelling in (my|his|her|their) (face|jaw|neck)", "(face|jaw) is (swollen|swelling)", "abscess(es)?\\b", "trouble (breathing|swallowing)", "can't (breathe|swallow)"],
     "urgentWords": ["asap", "urgent", "today", "soon", "tonight", "as soon as possible"],
     "label": "Dental emergency",
     "defaultService": "urgent_visit",
@@ -52,7 +52,7 @@
     "handoffReason": "Dental emergency (severe pain, knocked-out tooth, heavy bleeding or facial swelling): priority callback, call the patient now."
   },
   "alwaysHuman": [
-    { "id": "insurance", "label": "insurance, billing or payment questions", "phrases": ["insurance", "billing", "bill ", "copay", "co-pay", "medicaid", "payment plan", "charged twice"] },
+    { "id": "insurance", "label": "insurance, billing or payment questions", "phrases": ["insurance", "billing", "my bill", "the bill", "bill is", "copay", "co-pay", "medicaid", "payment plan", "charged twice"] },
     { "id": "clinical", "label": "medical history, prescriptions or sedation", "phrases": ["prescription", "refill", "antibiotic", "sedation", "medical records", "pregnant", "blood thinner"] }
   ],
   "outOfScope": ["eye exam", "glasses", "contacts", "massage", "chiropract", "dermatolog", "primary care", "flu shot"],

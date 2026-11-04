@@ -16,8 +16,13 @@ export class ProfileError extends Error {}
 
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 // Literal phrases match at a word start, any case, with flexible spaces ("check up" also matches "check  up").
-const phraseRe = (list) => (list.length ? new RegExp(list.map((p) => `(?<![\\w])${escapeRe(String(p).trim().toLowerCase()).replace(/\s+/g, '\\s+')}`).join('|'), 'i') : null);
-const patternRe = (list) => (list.length ? new RegExp(list.map((p) => `(?:${p})`).join('|'), 'i') : null);
+const phraseRe = (list) => (list.length ? new RegExp(list.map((p) => {
+  const t = String(p).trim().toLowerCase();
+  const whole = t.endsWith('$'); // "contract$" matches only the whole word (not longer words that start the same way)
+  return `(?<![\\w])${escapeRe(whole ? t.slice(0, -1) : t).replace(/\s+/g, '\\s+')}${whole ? '(?![\\w])' : ''}`;
+}).join('|'), 'i') : null);
+// Patterns never start in the middle of a word ("client" is not a "lien"); end a pattern with \\b to stop it at a word end.
+const patternRe = (list) => (list.length ? new RegExp(list.map((p) => `(?<![\\w])(?:${p})`).join('|'), 'i') : null);
 
 const need = (cond, msg) => { if (!cond) throw new ProfileError(`Invalid business profile: ${msg}`); };
 const str = (v, name, max = 300) => { need(typeof v === 'string' && v.trim() && v.length <= max, `${name} must be a non-empty string`); return v.trim(); };

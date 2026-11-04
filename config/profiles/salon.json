@@ -43,7 +43,7 @@
     { "id": "reaction", "label": "Reaction or injury follow-up", "group": "b", "price": null, "keywords": ["allergic reaction", "burning", "blister", "chemical burn", "rash", "hives"] }
   ],
   "urgency": {
-    "emergencyPhrases": ["allergic reaction", "scalp (is )?burning", "burning scalp", "chemical burn", "blister", "swelling (on|in|around) (my|her|his) (face|scalp|eyes)", "trouble breathing", "can't breathe"],
+    "emergencyPhrases": ["allergic reaction", "scalp (is )?burning", "burning scalp", "chemical burn", "blister(s|ed|ing)?\\b", "swelling (on|in|around) (my|her|his) (face|scalp|eyes)", "trouble breathing", "can't breathe"],
     "urgentWords": ["asap", "urgent", "today", "soon", "tonight", "tomorrow", "as soon as possible"],
     "label": "Reaction or injury",
     "defaultService": "reaction",

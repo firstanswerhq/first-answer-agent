@@ -43,7 +43,7 @@
     { "id": "tax_notice", "label": "IRS or state tax notice", "group": "b", "price": null, "keywords": ["irs notice", "notice from the irs", "letter from the irs", "irs letter", "levy", "garnish", "lien", "penalty notice", "audit", "back taxes"] }
   ],
   "urgency": {
-    "emergencyPhrases": ["irs notice", "notice from the irs", "letter from the irs", "irs letter", "levy", "garnish", "lien", "penalty notice", "deadline is (today|tomorrow)", "due (today|tomorrow)", "audit"],
+    "emergencyPhrases": ["irs (notice|letter)", "(notice|letter) from the irs", "(received|got|have|has) (a |an )?(tax )?levy\\b", "(irs|tax|bank|wage|state) levy\\b", "levy (notice|letter|on my|against)", "garnish(ed|ment|ments|ing)?\\b", "(tax |state )?lien (notice|letter|filed|on my|against)", "(received|got|have|has|filed) (a |an )?(tax )?lien\\b", "lien was filed", "penalty notice\\b", "deadline is (today|tomorrow)\\b", "due (today|tomorrow)\\b", "(irs|tax|state|received|got|have|facing|under|being|in an?) (an? )?audit(ed)?\\b", "audit (letter|notice)", "audited by\\b"],
     "urgentWords": ["asap", "urgent", "today", "soon", "tomorrow", "as soon as possible"],
     "label": "Time-sensitive notice",
     "defaultService": "tax_notice",
@@ -53,7 +53,7 @@
   },
   "alwaysHuman": [
     { "id": "advice", "label": "tax or legal advice questions", "phrases": ["legal advice", "tax advice", "loophole", "is it legal", "can i deduct", "can i write off", "should i claim", "offshore", "lawsuit"] },
-    { "id": "contract", "label": "engagement letters, contracts or fee disputes", "phrases": ["engagement letter", "contract", "fee dispute", "overcharged", "malpractice"] }
+    { "id": "contract", "label": "engagement letters, contracts or fee disputes", "phrases": ["engagement letter", "contract$", "contracts$", "fee dispute", "overcharged", "malpractice"] }
   ],
   "outOfScope": ["immigration", "divorce", "custody", "criminal", "wills and trusts", "real estate closing", "mortgage loan", "insurance quote"],
   "scenarios": [
