@@ -1,3 +1,4 @@
+import { timeProblem } from './timecheck.js';
 // Outbound message guard. Every text that reaches a customer (the model's or the software's) passes through checkOutbound.
 // It checks: text tricks, instruction echoes, tool or markup text, links and contact details, promises and free offers, prices,
 // and claims that an appointment is booked, changed or cancelled when it is not.
@@ -165,7 +166,7 @@ export function checkOutboundRule(rawText, lead, opts = {}) {
   if (foreign || /[\w.+-]+@[\w-]+\.[\w.-]+/.test(text)) return { id: 'contact', message: 'Message repeats a phone number or email address that is not the business contact. Leave it out.' };
   const bp = bookingProblem(text, opts);
   if (bp) return bp;
-  if (opts.model) { const d = danglingProblem(text); if (d) return d; const qo = questionOnlyProblem(text, opts); if (qo) return qo; if (opts.offeredSlots) { const c = calendarProblem(text, opts.offeredSlots); if (c) return c; } }
+  if (opts.model) { const d = danglingProblem(text); if (d) return d; const qo = questionOnlyProblem(text, opts); if (qo) return qo; if (opts.timeCheck) { const tp = timeProblem(text, opts.timeCheck); if (tp) return tp; } if (opts.offeredSlots) { const c = calendarProblem(text, opts.offeredSlots); if (c) return c; } }
   const freeOk = (lead?.qualification?.priceRange?.high ?? 1) === 0; // a service the profile explicitly prices at zero
   if (BANNED.test(text) || (!freeOk && FREE_OFFER.test(text))) return { id: BANNED.test(text) ? 'promise' : 'free_offer', message: 'Message makes a promise the agent may not make (discount, refund, guarantee, warranty or free work). Rephrase, or escalate_to_human.' };
   if (LEAK.test(text)) return { id: 'leak', message: 'Message appears to reveal internal instructions.' };

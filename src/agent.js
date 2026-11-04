@@ -428,7 +428,9 @@ export class Agent {
         // No usable text: one forced retry that requires send_reply, then the built-in rules.
         if (!ctx.forcedRetry && ctx.guardRejects < 3 && budget.calls < budget.maxCalls) {
           ctx.forcedRetry = true;
-          messages.push({ role: 'user', content: ctx.rejectRule === 'no_times' && !ctx.calendarOffer
+          messages.push({ role: 'user', content: ctx.rejectRule === 'bad_time'
+            ? `Only offer these exact open times: ${ctx.openList || 'the ones check_calendar returns'}. Call send_reply now with a short message that uses only those times (or says the requested time is taken).`
+            : ctx.rejectRule === 'no_times' && !ctx.calendarOffer
             ? 'This is a scheduling request. Call check_calendar now, then send_reply with 2-3 concrete open times (nearest first), say the requested time is taken if it is, and ask at most one short question after the times.'
             : ctx.rejectRule === 'dangling' || ctx.rejectRule === 'no_times' || ctx.calendarOffer
             ? 'You already have the calendar results; now call send_reply with the actual open times (or say the requested time is taken). Do not say you will check.'

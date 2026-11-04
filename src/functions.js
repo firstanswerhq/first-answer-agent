@@ -3,7 +3,7 @@
 // guardrails in code, write state, and record a timeline step.
 import { findZip, pickSlot } from './extract.js';
 import { cleanText, money, rid, round2, firstName } from './util.js';
-import { openSlots, localNow, isRealSlot, isBookableNow, slotLabel, isOpenNow, isValidDate, dateOf, DATE_RE, feedFor, calendarSource, slotCheck, calendarLabel } from './calendar.js';
+import { openSlots, listSlots, localNow, isRealSlot, isBookableNow, slotLabel, isOpenNow, isValidDate, dateOf, DATE_RE, feedFor, calendarSource, slotCheck, calendarLabel } from './calendar.js';
 
 const URGENCIES = ['emergency', 'urgent', 'routine'];
 const serviceIds = (config) => [...config.services.map((x) => x.id), 'other'];
@@ -175,6 +175,8 @@ export const HANDOFF_CLAIM = /\bi(?:'ve| have) (?:flagged|escalated) (?:this|it|
 // Only first-person completed claims escalate; future promises ("a teammate will review ...") never do.
 export const claimsHandoff = (text) => HANDOFF_CLAIM.test(text);
 
+const addDaysStr = (date, n) => { const [y, m, d] = date.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10); };
+
 export class Functions {
   /**
    * @param ctx { store, config, now(), lead, flags, step(stepObj), run }
@@ -317,12 +319,28 @@ export class Functions {
     return when && what;
   }
 
+  /** What the outbound time check needs: today's date, the open start times on a date, and the real nearest open times. */
+  timeCheckOpts() {
+    const { store, config } = this.ctx;
+    const nowMs = this.ctx.now();
+    const today = dateOf(localNow(nowMs, config.business.tz));
+    const cache = new Map();
+    const openOn = (date) => {
+      if (!cache.has(date)) cache.set(date, new Set(listSlots(store, config, nowMs, date, 1).filter((s) => s.status === 'open').map((s) => s.start)));
+      return cache.get(date);
+    };
+    const anyOpen = (hm) => { for (let i = 0; i < 14; i += 1) if (openOn(addDaysStr(today, i)).has(hm)) return true; return false; };
+    const nearest = openSlots(store, config, nowMs, today, 14, 6).map((s) => s.label).join('; ');
+    this.ctx.openList = nearest;
+    return { today, openOn, anyOpen, nearest };
+  }
+
   guardOpts() {
     const { store, config, lead } = this.ctx;
     // Only the model's own wording is checked for booking claims; the software's fixed texts are written after a real booking.
     const booking = store.bookingForLead(lead.id);
     const model = this.ctx.writer === 'model';
-    return { model, offeredSlots: model && !booking ? this.ctx.calendarOffer || null : null, booked: !!booking || this.ctx.writer !== 'model', booking: this.ctx.writer === 'model' ? booking : null, ownPhones: [config.business.phone], schedulingRequest: model && this.schedulingAsk(), knownRanges: (config.services || []).map((x) => x.price).filter((x) => x && x.high > 0) };
+    return { model, offeredSlots: model && !booking ? this.ctx.calendarOffer || null : null, booked: !!booking || this.ctx.writer !== 'model', booking: this.ctx.writer === 'model' ? booking : null, ownPhones: [config.business.phone], timeCheck: model && !booking ? this.timeCheckOpts() : null, schedulingRequest: model && this.schedulingAsk(), knownRanges: (config.services || []).map((x) => x.price).filter((x) => x && x.high > 0) };
   }
 
   // 4. send_reply

@@ -250,7 +250,7 @@ function timelineItem(t) {
 }
 
 // Plain words for a fallback reason (a short code from the server: a rule id or an error class, never message text).
-const RULE_WORDS = { booking_claim: 'booking claim', booking_change: 'claim about changing an appointment', free_offer: 'free offer', promise: 'promise', link: 'link or web address', price: 'price outside the approved range', injection: 'instruction override', contact: 'contact details', too_long: 'too long', think: 'reasoning text', reasoning: 'reasoning text', leak: 'internal wording', json: 'tool or JSON text', tool_text: 'tool names', markup: 'markup', invalid_args: 'invalid message', dangling: 'promise to look something up', no_times: 'open times missing' };
+const RULE_WORDS = { booking_claim: 'booking claim', booking_change: 'claim about changing an appointment', free_offer: 'free offer', promise: 'promise', link: 'link or web address', price: 'price outside the approved range', injection: 'instruction override', contact: 'contact details', too_long: 'too long', think: 'reasoning text', reasoning: 'reasoning text', leak: 'internal wording', json: 'tool or JSON text', tool_text: 'tool names', markup: 'markup', invalid_args: 'invalid message', dangling: 'promise to look something up', no_times: 'open times missing', bad_time: 'offered a time that is not open' };
 function fallbackText(code) {
   if (!code) return '';
   const [kind, detail = ''] = String(code).split(':');
