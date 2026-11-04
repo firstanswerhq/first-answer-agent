@@ -29,14 +29,32 @@ export function detectSize(text, job) {
   return 'unknown';
 }
 
+/**
+ * Find a ZIP code only where it plausibly is one: a Tennessee-region 3xxxx number that is not part of a longer
+ * number, a price ("$30000", "30000 dollars") or a measurement ("35000 sq ft"). Returns the 5 digits or null.
+ */
+export function findZip(text) {
+  const re = /(?<![\d$,.])(3\d{4})(?![\d,]|\.\d|\s*(?:dollars?|bucks|usd|sq|square|ft|feet|k\b|%|\$))/gi;
+  for (const m of String(text).matchAll(re)) {
+    const before = String(text).slice(Math.max(0, m.index - 12), m.index).toLowerCase();
+    if (/(\$|budget|about|around|roughly|spend|pay|cost|price)\s*$/.test(before) && !/zip\s*(code)?\s*$/.test(before)) continue;
+    return m[1];
+  }
+  return null;
+}
+
 export function detectLocation(text) {
-  const zip = text.match(/\b(37\d{3}|3[0-9]{4}|[0-9]{5})\b/);
+  const zipMatch = findZip(text);
+  const zip = zipMatch ? [zipMatch, zipMatch] : null;
   const lower = text.toLowerCase();
   const city = [...SERVICE_AREA.cities].sort((a, b) => b.length - a.length).find((c) => lower.includes(c.toLowerCase()));
   const outside = SERVICE_AREA.outside.find((c) => lower.includes(c.toLowerCase()));
   if (outside && !city) return { text: outside, known: true, inArea: false };
   if (zip) {
-    return { text: zip[1], known: true, inArea: SERVICE_AREA.zips.includes(zip[1]) || (!!city) };
+    if (SERVICE_AREA.zips.includes(zip[1])) return { text: zip[1], known: true, inArea: true };
+    // A ZIP we do not list next to a city we do serve is ambiguous: keep both so the agent asks instead of guessing.
+    if (city) return { text: `${city} ${zip[1]}`, known: true, inArea: null };
+    return { text: zip[1], known: true, inArea: false };
   }
   if (city) return { text: city, known: true, inArea: true };
   return { text: '', known: false, inArea: null };

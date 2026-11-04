@@ -2,6 +2,7 @@
 // comes from the model or from the offline rules engine: validate arguments, enforce
 // guardrails in code, write real state, and record a timeline step.
 import { JOB_TYPES } from './config.js';
+import { findZip } from './extract.js';
 import { cleanText, money, rid, round2 } from './util.js';
 import { openSlots, localNow, isRealSlot, isBookableNow, slotLabel, isOpenNow, isValidDate, dateOf, DATE_RE } from './calendar.js';
 
@@ -168,9 +169,12 @@ export function locationCheck(config, location) {
   const loc = (location || '').trim();
   if (!loc) return { ok: null, match: '' };
   const lower = loc.toLowerCase();
-  const zip = loc.match(/\b\d{5}\b/);
-  if (zip) return { ok: config.serviceArea.zips.includes(zip[0]), match: zip[0] };
+  const zip = findZip(loc);
   const city = config.serviceArea.cities.find((c) => lower.includes(c.toLowerCase()));
+  if (zip) {
+    if (config.serviceArea.zips.includes(zip)) return { ok: true, match: zip };
+    return { ok: city ? null : false, match: zip }; // unlisted ZIP beside a served city: unknown, so ask
+  }
   if (city) return { ok: true, match: city };
   const out = config.serviceArea.outside.find((c) => lower.includes(c.toLowerCase()));
   if (out) return { ok: false, match: out };

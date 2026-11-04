@@ -176,3 +176,35 @@ test('forced offline mode is labeled as forced', async () => {
   const l = await newLead(env);
   assert.ok(l.timeline.some((t) => /forced/.test(t.title)));
 });
+
+test('ZIP detection: only real ZIP-looking numbers count, never prices or sizes', async () => {
+  const { findZip, detectLocation } = await import('../src/extract.js');
+  assert.equal(findZip('gutters in Franklin 37064 please'), '37064');
+  assert.equal(findZip('my zip code is 37206'), '37206');
+  for (const t of ['budget 10000 dollars', 'budget $30000', 'a 30000 dollar roof', 'house is 35000 sq ft', 'order 123456 ref', 'call 6155550123', 'about 30000 bucks']) assert.equal(findZip(t), null, t);
+  const loc = detectLocation('clean the gutters in Nashville, budget 10000 dollars');
+  assert.deepEqual([loc.text, loc.known, loc.inArea], ['Nashville', true, true]);
+});
+
+test('offline: a dollar figure is not mistaken for a ZIP, so the lead is not sent to a human as out of area', async () => {
+  const env = makeEnv();
+  const l = await newLead(env, { message: 'Can you clean the gutters on my 2 story house in Nashville? Budget 10000 dollars.' });
+  assert.equal(l.status, 'replied');
+  assert.notEqual(l.qualification.location, '10000');
+  assert.equal(l.qualification.serviceAreaOk, true);
+});
+
+test('offline: an unlisted ZIP next to a served city asks a question instead of declaring the lead out of area', async () => {
+  const env = makeEnv();
+  const l = await newLead(env, { message: 'Gutter cleaning for a 2 story house in Franklin 37999 please' });
+  assert.equal(l.qualification.serviceAreaOk, null);
+  assert.equal(l.status, 'replied');
+  assert.match(agentTexts(l)[0], /ZIP code or neighborhood/);
+});
+
+test('offline: an unlisted ZIP with no served city is still treated as outside the area', async () => {
+  const env = makeEnv();
+  const l = await newLead(env, { message: 'Gutter cleaning for a 2 story house, 38103' });
+  assert.equal(l.status, 'human');
+  assert.equal(l.qualification.serviceAreaOk, false);
+});
