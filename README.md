@@ -4,14 +4,22 @@
 
 Built for **Vultr Agent Rush (lablab.ai), Challenge 2: Powering the Future of Work** (sales operations and customer support). Everything specific to one kind of business lives in one **business profile** file. Three example businesses ship (a dental office, a hair salon and a tax and bookkeeping office), and you add your own with one file. A dental office is the default demo, and a **Switch business** control in the dashboard header shows the other two in one click.
 
+**Live demo (real Vultr VM and real Vultr Serverless Inference):**
+
+* App: <https://155-138-206-164.sslip.io>
+* Health check (shows `mode`, `model` and `modelVerified`): <https://155-138-206-164.sslip.io/api/health>
+* Customer contact form: <https://155-138-206-164.sslip.io/lead>, for the other example businesses <https://155-138-206-164.sslip.io/lead?profile=salon> and <https://155-138-206-164.sslip.io/lead?profile=accounting>
+
+Demo data is fictional and no text or email is ever sent. Please use made-up details in the form.
+
 > Disclosure: this repository was built during Vultr Agent Rush (Nov 3-8, 2026). It is new, original work started for this event. The initial layers were committed together; later changes are individual commits.
 
 ## Real vs simulated
 
 | Part | Status |
 | --- | --- |
-| Vultr Cloud Compute VM (`vc2-1c-2gb`, Atlanta) running the app | Built and tested; live deployment in progress |
-| Vultr Serverless Inference model calls with tool calling (default model `glm-5.3-flash`) | Built and tested against mocked and local OpenAI-compatible servers; proof from the deployed VM will be added here |
+| Vultr Cloud Compute VM (`vc2-1c-2gb`, Atlanta, Ubuntu 24.04) running the app | **Real.** Live at <https://155-138-206-164.sslip.io> (HTTPS through Caddy and Let's Encrypt). |
+| Vultr Serverless Inference model calls with tool calling (model `glm-5.3-flash`) | **Real.** The live app's `/api/health` shows `modelVerified: true`, which is set only after a real test call to the model succeeds. The test suite itself uses mocked and local OpenAI-compatible servers. |
 | Safety checks in code (input validation, approved prices, business hours, double booking, handoff rules, instruction-in-message screening) | **Real**, run on every message |
 | Booking rules (business hours, 2 hours notice, no double booking) | **Real rules** on the app's built-in calendar |
 | Saved state (inquiries, bookings, follow-up timers, one JSON file with safe writes) | **Real** |
@@ -40,7 +48,63 @@ New inquiries (leads) come in from the contact form, a text or a call; the dashb
 | **Guardrails** | The rules the software enforces for the active business: hours, approved prices, topics that always go to a person, urgent handling. |
 | **Contact form** (`/lead`) | A public customer form. The customer watches the assistant reply on the page. `/lead?profile=salon` opens it for another example business. |
 
-Screenshots will be added here after the live deployment.
+## Screenshots
+
+Taken on the live deployment (<https://155-138-206-164.sslip.io>) with the real AI model answering. All customers are fictional; messages are simulated. Files are in [`docs/screenshots/`](docs/screenshots/).
+
+**1. Live Inbox (dental office).** Inquiries from different sources with the reply time of each, status, and an "AI model · glm-5.3-flash" badge. The top rows are live test inquiries (one is a prompt-injection attempt that was handed to a person); rows marked "(simulated)" are the fictional sample day.
+
+![Live Inbox for the dental office](docs/screenshots/01-dental-inbox.jpg)
+
+**2. Inquiry detail with "What the assistant did".** A price question answered by the AI model: the reply quotes the approved $110-$190 range and offers open times from the calendar, and the right-hand panel lists each step (model chosen, `qualify_lead`, `check_calendar`) with timing.
+
+![Inquiry detail with the step list](docs/screenshots/02-dental-inquiry-detail.jpg)
+
+**3. Calendar.** One week of booked and open appointment times from the app's own calendar, including "too soon", closed and not-bookable slots.
+
+![Calendar for the dental office](docs/screenshots/03-dental-calendar.jpg)
+
+**4. Results.** Median reply time of live replies with the AI model and built-in rules shown separately, plus a reply time bar per inquiry. Numbers are discussed under "Measured on the live deployment".
+
+![Results screen](docs/screenshots/04-dental-results.jpg)
+
+**5. Guardrails.** The rules enforced in code for this business: what the assistant is blocked from doing, what always goes to a person, and the approved price ranges.
+
+![Guardrails screen](docs/screenshots/05-dental-guardrails.jpg)
+
+**6. Customer contact form (`/lead`).** The public form a customer fills in; it says up front that the assistant is an AI and that this is a demo.
+
+![Customer contact form](docs/screenshots/06-dental-contact-form.jpg)
+
+**7. Switch business: hair salon inbox.** The same app after switching to Willow & Oak Hair Studio: new name, accent color, services and sample inquiries.
+
+![Live Inbox for the hair salon](docs/screenshots/07-salon-inbox.jpg)
+
+**8. Salon calendar.** The salon's own hours and 2-hour appointments.
+
+![Calendar for the hair salon](docs/screenshots/08-salon-calendar.jpg)
+
+**9. Switch business: tax and bookkeeping inbox.** Cedar Ridge Tax & Bookkeeping, a third business from one profile file.
+
+![Live Inbox for the tax office](docs/screenshots/09-accounting-inbox.jpg)
+
+**10. Phone layout: inbox.** The dashboard on a phone, with bottom navigation.
+
+![Inbox on a phone](docs/screenshots/10-mobile-inbox.jpg)
+
+**11. Phone layout: contact form for the salon (`/lead?profile=salon`).**
+
+![Salon contact form on a phone](docs/screenshots/11-mobile-contact-form-salon.jpg)
+
+## Measured on the live deployment
+
+From the Results screen on the live app (dental office, live replies only, sample day excluded; screenshot 4):
+
+* **Typical reply time (median): 7.3 s over 5 live replies.** Split as shown: AI model 7.0 s (3 replies), built-in rules 7.9 s (2 replies).
+* 5 inquiries answered of 5 received; 0 appointments booked in that run; 2 of 5 needed a person (one prompt-injection test message and one angry-customer message).
+* This is a small sample from one session, not a benchmark. Reply time is measured from the inquiry arriving to the first reply.
+
+What the agent did on the live model for a price question (screenshot 2): the customer asked how much a cleaning and checkup costs for an adult who pays out of pocket. The AI model called `qualify_lead`, then `check_calendar` (4 open windows found), and wrote a reply that quoted the approved range ($110-$190 for a cleaning and checkup) and offered real open times from the calendar (Wed Nov 4 at 2:00 PM, Thu Nov 5 at 9:00, 10:00 or 11:00 AM). The reply was a simulated send.
 
 ## Make it yours
 
@@ -175,7 +239,7 @@ Leave `DOMAIN` empty and nothing changes: the app listens on port 80 over plain 
 ## Tests
 
 ```bash
-npm test      # node --test, 212 tests
+npm test      # node --test: 212 tests, all passing at the time of writing
 ```
 
 The same flows (price question and booking, urgent situation, angry customer, prompt injection, after-hours, vague message, always-human topics, medical emergencies, sample day, the assistant's instructions and action definitions) run against all three profiles, plus function validation, approved-price and outgoing-message checks, booking conflicts and demo limits, the safety screening, the built-in rules, follow-up timers, the tool-calling loop against mocked and real local OpenAI-compatible servers, API validation, rate limiting, demo protection, the business switcher and its isolation, wording checks, persistence, and the deploy and update scripts.
