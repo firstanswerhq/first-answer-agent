@@ -250,6 +250,7 @@ export class Functions {
     const source = calendarSource(config);
     const slots = openSlots(store, config, this.ctx.now(), from, a.days, a.limit);
     lead.offeredSlots = slots.map((s) => s.slot_id);
+    this.ctx.calendarOffer = slots.length ? lead.offeredSlots.slice() : null;
     return {
       ok: true, timezone: config.business.tz, business_hours: config.hours.text, calendar: source, calendar_label: calendarLabel(config),
       slots: slots.map((s) => ({ slot_id: s.slot_id, label: s.label })),
@@ -306,7 +307,8 @@ export class Functions {
     const { store, config, lead } = this.ctx;
     // Only the model's own wording is checked for booking claims; the software's fixed texts are written after a real booking.
     const booking = store.bookingForLead(lead.id);
-    return { booked: !!booking || this.ctx.writer !== 'model', booking: this.ctx.writer === 'model' ? booking : null, ownPhones: [config.business.phone] };
+    const model = this.ctx.writer === 'model';
+    return { model, offeredSlots: model && !booking ? this.ctx.calendarOffer || null : null, booked: !!booking || this.ctx.writer !== 'model', booking: this.ctx.writer === 'model' ? booking : null, ownPhones: [config.business.phone] };
   }
 
   // 4. send_reply

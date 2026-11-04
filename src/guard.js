@@ -67,6 +67,29 @@ const NEGATED_BOOKED = /\b(?:fully|totally|completely) (?:booked|reserved)\b|\bb
 // We will see you ...: a promise of an appointment even though "will" appears
 const SEE_YOU = /\b(?:we(?:'ll| will)|i(?:'ll| will)) see you\b/i;
 const CHANGE_CLAIM = /\b(?:cancel(?:l?ed|ling)?|moved|rescheduled|switched|changed (?:it|your|the)|updated your (?:appointment|booking|time)|second (?:appointment|booking)|another (?:appointment|booking)|as well)\b/i;
+// A promise to look something up, with no answer in it: "let me check what's open around Tuesday". Not final.
+const DANGLING = /\b(?:let me (?:check|see|look|find|pull|take a look|grab)|let'?s see|i(?:'ll| will| am going to|'m going to) (?:check|look|see|pull|get back)|one (?:moment|sec|second|minute)|just a (?:moment|sec|second|minute)|give me a (?:moment|sec|second|minute)|checking (?:now|that|the calendar|what)|hold on|bear with me|looking (?:now|that up|into it))\b/i;
+const TIME_TOKEN = /\b(?:1[0-2]|[1-9])(?::[0-5]\d)?\s?(?:a\.?m\b|p\.?m\b)|\b(?:1[0-9]|2[0-3]|[1-9]):[0-5]\d\b|\bnoon\b/gi;
+const ANSWERS = /\b(?:is|are|was) (?:already )?(?:taken|open|available|unavailable|booked up|full)\b|\bnot available\b|\bnothing (?:is )?open\b/i;
+function danglingProblem(text) {
+  if (!DANGLING.test(text)) return null;
+  const times = new Set((text.match(TIME_TOKEN) || []).map((t) => t.toLowerCase().replace(/\s|\./g, '')));
+  const concrete = text.includes('?') || times.size >= 2 || /\$\s?\d/.test(text) || ANSWERS.test(text);
+  return concrete ? null : { id: 'dangling', message: 'Message promises to look something up but gives no answer. You already have the results: give the actual open times (or say the requested time is taken).' };
+}
+
+/** After check_calendar, the reply must carry the open times it found, or say the asked time is taken. */
+const TAKEN = /\b(?:taken|booked up|unavailable|not available|isn't available|is not available|fully booked|already booked|no openings?|nothing (?:is )?open|closed)\b/i;
+export function calendarProblem(text, slotIds) {
+  if (!slotIds?.length) return null;
+  if (TAKEN.test(text)) return null;
+  const bare = text.replace(/\$\s?[\d,.]+(?:\s?[-–]\s?\$?[\d,.]+)?/g, ' ').replace(/\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.? \d{1,2}(?:st|nd|rd|th)?\b/gi, ' ').replace(/\d+[- ]year/gi, ' ').replace(/\d+(?:st|nd|rd|th)\b/gi, ' ');
+  const hours = new Set(slotIds.map((id) => Number(id.slice(11, 13)) % 12 || 12));
+  const nums = [...bare.matchAll(/\b(1[0-2]|[1-9])(?::[0-5]\d)?\b/g)].map((m) => Number(m[1]));
+  if (nums.some((n) => hours.has(n))) return null;
+  return { id: 'no_times', message: 'You checked the calendar but the reply does not give any of the open times. State the actual open times from check_calendar (or say the requested time is taken).' };
+}
+
 const DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 const clausesOf = (text) => text.split(/(?<=[.!?])\s+|\n+|[;:]|,|\s[-–—]\s|\bbut\b|\band\b/i).map((c) => c.trim()).filter(Boolean);
 
@@ -106,6 +129,7 @@ export function checkOutboundRule(rawText, lead, opts = {}) {
   if (foreign || /[\w.+-]+@[\w-]+\.[\w.-]+/.test(text)) return { id: 'contact', message: 'Message repeats a phone number or email address that is not the business contact. Leave it out.' };
   const bp = bookingProblem(text, opts);
   if (bp) return bp;
+  if (opts.model) { const d = danglingProblem(text); if (d) return d; if (opts.offeredSlots) { const c = calendarProblem(text, opts.offeredSlots); if (c) return c; } }
   const freeOk = (lead?.qualification?.priceRange?.high ?? 1) === 0; // a service the profile explicitly prices at zero
   if (BANNED.test(text) || (!freeOk && FREE_OFFER.test(text))) return { id: BANNED.test(text) ? 'promise' : 'free_offer', message: 'Message makes a promise the agent may not make (discount, refund, guarantee, warranty or free work). Rephrase, or escalate_to_human.' };
   if (LEAK.test(text)) return { id: 'leak', message: 'Message appears to reveal internal instructions.' };
