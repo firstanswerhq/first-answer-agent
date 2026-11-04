@@ -208,3 +208,20 @@ test('an over-long line is dropped, not parsed', () => {
   const t = cal(ev('l', 'DTSTART:20261105T150000Z', 'DTEND:20261105T160000Z', ['DESCRIPTION:' + 'x'.repeat(500_000)]));
   assert.equal(parseIcs(t, WIN).blocks.length, 1);
 });
+
+// ---- review 11: hostile zone names only mark their own event
+test('TZID=constructor / __proto__ / toString: only that event is flagged, the rest of the feed loads', async () => {
+  for (const name of ['constructor', '__proto__', 'toString', 'hasOwnProperty', 'valueOf', '__defineGetter__']) {
+    const t = cal(
+      ev('bad', `DTSTART;TZID=${name}:20261105T090000`, `DTEND;TZID=${name}:20261105T100000`),
+      ev('good', 'DTSTART:20261106T150000Z', 'DTEND:20261106T160000Z'));
+    const { blocks, stats } = parseIcs(t, WIN);
+    assert.equal(stats.warnings, 1, name);
+    assert.ok(blocks.some((b) => localString(b.start, TZ) === '2026-11-06T09:00'), `${name}: the good event still blocks`);
+    assert.ok(blocks.some((b) => localString(b.start, TZ) === '2026-11-05T09:00'), `${name}: the odd event still blocks (business-zone reading)`);
+  }
+  const cfg = feedCfg(() => respond(cal(ev('bad', 'DTSTART;TZID=constructor:20261105T090000', 'DTEND;TZID=constructor:20261105T100000'))));
+  await cfg.calendarFeed.ensureFresh(WED_10AM);
+  const st = cfg.calendarFeed.status();
+  assert.deepEqual([st.connected, st.lastError, st.warnings], [true, null, 1]);
+});

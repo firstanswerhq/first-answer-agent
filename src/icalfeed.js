@@ -60,7 +60,7 @@ function parseLine(line) {
 const DT_RE = /^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})?(Z)?)?$/;
 
 // Windows and legacy zone names that calendar programs (Outlook invitations) use, mapped to IANA names.
-const TZ_ALIASES = {
+const TZ_ALIASES = new Map(Object.entries({
   'eastern standard time': 'America/New_York', 'eastern daylight time': 'America/New_York', 'us/eastern': 'America/New_York', 'eastern time': 'America/New_York',
   'central standard time': 'America/Chicago', 'central daylight time': 'America/Chicago', 'us/central': 'America/Chicago', 'central time': 'America/Chicago',
   'mountain standard time': 'America/Denver', 'mountain daylight time': 'America/Denver', 'us/mountain': 'America/Denver', 'mountain time': 'America/Denver',
@@ -68,10 +68,10 @@ const TZ_ALIASES = {
   'pacific standard time': 'America/Los_Angeles', 'pacific daylight time': 'America/Los_Angeles', 'us/pacific': 'America/Los_Angeles', 'pacific time': 'America/Los_Angeles',
   'alaskan standard time': 'America/Anchorage', 'us/alaska': 'America/Anchorage', 'hawaiian standard time': 'Pacific/Honolulu', 'us/hawaii': 'Pacific/Honolulu',
   'utc': 'UTC', 'gmt': 'UTC', 'greenwich standard time': 'UTC', 'coordinated universal time': 'UTC',
-};
+}));
 function normTz(name) {
   const n = String(name).trim().replace(/^"|"$/g, '');
-  const alias = TZ_ALIASES[n.toLowerCase()];
+  const alias = TZ_ALIASES.get(n.toLowerCase());
   if (alias) return alias;
   return validTz(n) ? n : null;
 }
@@ -193,6 +193,7 @@ export function parseIcs(text, { tz, from, to, cpuMs = CPU_BUDGET_MS }) {
   let relevant = 0;
   for (const props of events) {
     if (Date.now() > deadline) throw new Error('too_complex');
+    try { // one odd event is skipped and counted; it can never take the whole feed down
     const get = (n) => props.find((p) => p.name === n);
     const all = (n) => props.filter((p) => p.name === n);
     const status = (get('STATUS')?.value || '').trim().toUpperCase();
@@ -236,6 +237,7 @@ export function parseIcs(text, { tz, from, to, cpuMs = CPU_BUDGET_MS }) {
       uid: (get('UID')?.value || '').trim(), cancelled: status === 'CANCELLED', free: transp === 'TRANSPARENT',
       start, len, allDay, ridKey, rule: rr ? parseRrule(rr.value) : null, exdates: ex,
     });
+    } catch (e) { if (e?.message === 'too_complex') throw e; stats.skipped += 1; }
   }
   if (events.length > 0 && stats.events === 0) throw new Error('parse_error');
 
@@ -253,6 +255,7 @@ export function parseIcs(text, { tz, from, to, cpuMs = CPU_BUDGET_MS }) {
   };
 
   for (const ev of parsed) {
+    try {
     if (ev.cancelled || ev.free) continue;
     const { start } = ev;
     const wallLen = ev.allDay ? Math.round(ev.len / DAY) * DAY : null;
@@ -353,6 +356,7 @@ export function parseIcs(text, { tz, from, to, cpuMs = CPU_BUDGET_MS }) {
         }
       }
     }
+    } catch (e) { if (e?.message === 'too_complex') throw e; stats.skipped += 1; }
   }
   blocks.sort((a, b) => a.start - b.start);
   return { blocks, stats };
@@ -409,7 +413,9 @@ export class CalendarFeed {
     try {
       const text = await this.#fetchText();
       const from = nowMs - 14 * DAY; const to = nowMs + 120 * DAY;
-      const { blocks, stats } = parseIcs(text, { tz: this.tz, from, to });
+      let parsedOut;
+      try { parsedOut = parseIcs(text, { tz: this.tz, from, to }); } catch (e) { throw new Error(FEED_ERRORS.has(e?.message) ? e.message : 'parse_error'); } // never mislabel a parser problem as a network one
+      const { blocks, stats } = parsedOut;
       this.blocks = mergeBlocks(blocks);
       this.window = { from, to };
       this.connected = true; this.stale = false; this.lastOk = nowMs; this.lastError = null; this.eventsLoaded = stats.events; this.unsupportedRules = stats.unsupported; this.warnings = stats.warnings;
