@@ -19,6 +19,11 @@ const server = app.listen(config.port, config.host, () => {
   console.log(`First Answer Agent listening on ${config.host}:${config.port} | ${st.label}${st.model ? ` | ${st.model}` : ''}`);
 });
 
+// One tiny test call, so /api/health reports modelVerified only after the model has really answered.
+if (process.env.PROBE_MODEL !== '0') {
+  agent.probeModel().then((ok) => { if (ok === true) console.log('Model check passed: the inference endpoint answered a test call.'); else if (ok === false) console.warn(`Model check FAILED: ${agent.status().lastError}. Running in offline rules mode.`); });
+}
+
 async function shutdown() {
   scheduler.stop();
   await store.flush();

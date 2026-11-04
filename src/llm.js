@@ -63,6 +63,15 @@ export class LlmClient {
     throw lastErr;
   }
 
+  /** One tiny call that proves the key, the URL and the model name work together. Never retried, never sends customer data. */
+  async ping() {
+    if (!this.configured) throw new LlmError('Inference is not configured');
+    const data = await this.request('/chat/completions', { model: this.model, messages: [{ role: 'user', content: 'Reply with the single word OK.' }], temperature: 0, max_tokens: 5 });
+    const msg = data?.choices?.[0]?.message;
+    if (!msg || typeof msg !== 'object') throw new LlmError('Inference returned no message');
+    return { model: typeof data.model === 'string' ? data.model : this.model };
+  }
+
   async listModels() {
     const data = await this.request('/models', null, 'GET');
     return (data?.data || []).map((m) => m.id).filter((x) => typeof x === 'string');

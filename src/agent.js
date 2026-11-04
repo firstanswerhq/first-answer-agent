@@ -95,8 +95,25 @@ export class Agent {
       configuredModel: this.llm?.configured ? this.llm.model : null,
       inferenceConfigured: !!this.llm?.configured,
       lastError: this.stats.lastError || null,
+      modelVerified: configured && this.stats.lastModelOk === true,
       modelRuns: this.stats.modelRuns, offlineRuns: this.stats.offlineRuns,
     };
+  }
+
+  /**
+   * Make one tiny test call so the badge and /api/health can say "verified" only after the model really answered.
+   * A key being present proves nothing (it can be mistyped). Does not count as a customer run.
+   */
+  async probeModel() {
+    if (!this.llm?.configured || this.config.forceOffline || typeof this.llm.ping !== 'function') return null;
+    try {
+      const r = await this.llm.ping();
+      this.stats.lastModelOk = true; this.stats.lastModel = r.model; this.stats.lastError = ''; this.stats.verifiedAt = this.now();
+      return true;
+    } catch (err) {
+      this.stats.lastModelOk = false; this.stats.lastError = String(err.message || err).slice(0, 160);
+      return false;
+    }
   }
 
   underHourlyCap() {

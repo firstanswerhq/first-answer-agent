@@ -244,7 +244,7 @@ test('deploy script: valid bash, no hard-coded secrets, firewall 22/80, 2-minute
   execFileSync('bash', ['-n', file]);
   const text = fs.readFileSync(file, 'utf8');
   assert.match(text, /REPO_URL="\$\{REPO_URL:-https:\/\/github\.com\/firstanswerhq\/first-answer-agent\}"/);
-  assert.match(text, /ufw allow 22\/tcp/);
+  assert.match(text, /ufw limit 22\/tcp/);
   assert.match(text, /ufw allow 80\/tcp/);
   assert.match(text, /OnUnitActiveSec=2min/);
   assert.match(text, /\/etc\/first-answer-agent\.env/);

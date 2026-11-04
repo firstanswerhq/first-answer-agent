@@ -7,9 +7,13 @@
 # the script writes secrets to /etc/first-answer-agent.env (root:root, mode 600) at install time.
 # systemd reads that file as root, so the app user never needs read access to it.
 #
-# Result: Node 22, the app as a systemd service on port 80, firewall allowing only 22 and 80,
-# and a systemd timer that git-pulls and restarts every 2 minutes (redeploy by pushing).
+# Result: Node 22, the app as a systemd service on port 80, firewall allowing only 22 (rate limited) and 80,
+# and a systemd timer that git-pulls and restarts every 2 minutes (redeploy by pushing). While judges are using the
+# demo, freeze it: AUTO_UPDATE=0 at install, or later `systemctl disable --now first-answer-agent-update.timer`, or pin a
+# release with REPO_PIN=<tag or commit> (see "Freeze the demo" in the README).
 set -euo pipefail
+# Vultr may run this from a directory the service user cannot enter (for example /root); start from /.
+cd /
 
 # ---- variables (edit here or pass in the environment) -------------------------------------------
 REPO_URL="${REPO_URL:-https://github.com/firstanswerhq/first-answer-agent}"
@@ -21,7 +25,12 @@ BUSINESS_PROFILE="${BUSINESS_PROFILE:-dental}"                # a file name in c
 BUSINESS_NAME="${BUSINESS_NAME:-}"                          # optional override of the name in the profile
 TRUST_PROXY="${TRUST_PROXY:-}"                              # set to 1 only if you put Caddy/nginx in front (see README)
 FOLLOWUP_SPEEDUP="${FOLLOWUP_SPEEDUP:-60}"                 # demo clock for follow-up timers (1 = real time)
+AUTO_UPDATE="${AUTO_UPDATE:-1}"                             # 0 = install the update timer but leave it switched off
+REPO_PIN="${REPO_PIN:-}"                                    # optional tag or commit to stay on; the update timer then never moves off it
 # --------------------------------------------------------------------------------------------------
+
+# A key pasted into a web form often carries a trailing newline or spaces; keys never contain whitespace.
+VULTR_INFERENCE_KEY="$(printf '%s' "$VULTR_INFERENCE_KEY" | tr -d '[:space:]')"
 
 APP_USER=agent
 APP_DIR=/opt/first-answer-agent
@@ -53,6 +62,11 @@ mkdir -p "$APP_DIR"
 chown "$APP_USER":"$APP_USER" "$APP_DIR"
 if [ ! -d "$APP_DIR/.git" ]; then
   as_app git clone --branch "$REPO_BRANCH" "$REPO_URL" "$APP_DIR"
+fi
+if [ -n "$REPO_PIN" ]; then
+  as_app git -C "$APP_DIR" fetch --quiet --tags origin
+  as_app git -C "$APP_DIR" checkout --quiet --detach "$REPO_PIN"
+  printf '%s\n' "$REPO_PIN" > /etc/first-answer-agent.pin
 fi
 if [ -f "$APP_DIR/package-lock.json" ]; then
   as_app npm --prefix "$APP_DIR" ci --omit=dev --ignore-scripts
@@ -125,6 +139,11 @@ APP_USER="$APP_USER"
 BRANCH="$REPO_BRANCH"
 UPDATE
 cat >> /usr/local/bin/first-answer-agent-update <<'UPDATE'
+cd /
+# To freeze the demo: put a tag or commit in this file (echo v1.0 | sudo tee /etc/first-answer-agent.pin). Remove the file to follow the branch again.
+PIN_FILE="${PIN_FILE:-/etc/first-answer-agent.pin}"
+PIN=""
+if [ -f "$PIN_FILE" ]; then PIN="$(tr -d '[:space:]' < "$PIN_FILE")"; fi
 as_app() { runuser -u "$APP_USER" -- env HOME="$APP_DIR" "$@"; }
 say() { echo "first-answer-agent-update: $*"; }
 trap 'echo "first-answer-agent-update: UPDATE FAILED at line $LINENO (see lines above); the running version was left in place or rolled back" >&2' ERR
@@ -146,13 +165,13 @@ rollback() {
   systemctl restart first-answer-agent.service || true
 }
 
-as_app git -C "$APP_DIR" fetch --quiet origin "$BRANCH"
+as_app git -C "$APP_DIR" fetch --quiet --tags origin "$BRANCH"
 LOCAL=$(as_app git -C "$APP_DIR" rev-parse HEAD)
-REMOTE=$(as_app git -C "$APP_DIR" rev-parse "origin/$BRANCH")
+if [ -n "$PIN" ]; then REMOTE=$(as_app git -C "$APP_DIR" rev-parse "$PIN^{commit}"); else REMOTE=$(as_app git -C "$APP_DIR" rev-parse "origin/$BRANCH"); fi
 if [ "$LOCAL" = "$REMOTE" ]; then exit 0; fi
 
 say "updating $LOCAL -> $REMOTE"
-as_app git -C "$APP_DIR" reset --hard "origin/$BRANCH"
+as_app git -C "$APP_DIR" reset --hard "$REMOTE"
 if ! install_deps; then
   say "npm install failed for $REMOTE" >&2
   rollback
@@ -191,23 +210,51 @@ Unit=first-answer-agent-update.service
 WantedBy=timers.target
 UNIT
 
-echo "[7/7] Firewall (22 and 80 only) and start"
+echo "[7/7] Firewall (22 rate limited, and 80) and start"
 ufw --force reset
 ufw default deny incoming
 ufw default allow outgoing
-ufw allow 22/tcp
+ufw limit 22/tcp
 ufw allow 80/tcp
 ufw --force enable
 
 systemctl daemon-reload
 systemctl enable --now first-answer-agent.service
-systemctl enable --now first-answer-agent-update.timer
+if [ "$AUTO_UPDATE" = "0" ]; then
+  echo "AUTO_UPDATE=0: the update timer is installed but switched off. Turn it on with: systemctl enable --now first-answer-agent-update.timer"
+else
+  systemctl enable --now first-answer-agent-update.timer
+fi
 
-sleep 3
-HEALTH=$(curl -fsS http://127.0.0.1/api/health) && echo "$HEALTH" && echo "First Answer Agent is up on port 80."
+# Wait for the app (the first start loads the sample data, which can take a moment on a small VM).
+HEALTH=""
+for _ in $(seq 1 45); do
+  if HEALTH=$(curl -fsS --max-time 3 http://127.0.0.1/api/health 2>/dev/null); then break; fi
+  HEALTH=""; sleep 2
+done
+if [ -z "$HEALTH" ]; then
+  echo "WARNING: the app did not answer on port 80 within 90 seconds. Check: journalctl -u first-answer-agent" >&2
+  exit 1
+fi
+echo "$HEALTH"
+echo "First Answer Agent is up on port 80."
 if [ -z "$VULTR_INFERENCE_KEY" ]; then
   echo "WARNING: no VULTR_INFERENCE_KEY was set, so this VM runs in OFFLINE RULES MODE, not the live model." >&2
-elif ! printf '%s' "$HEALTH" | grep -q '"mode":"model"'; then
-  echo "WARNING: /api/health does not report mode=model. Check the key and 'journalctl -u first-answer-agent'." >&2
+else
+  # A key being present proves nothing. The app makes one tiny test call to the model at start-up and reports the result
+  # in /api/health: modelVerified is true only after a real, successful call.
+  VERIFIED=0
+  for _ in $(seq 1 20); do
+    H=$(curl -fsS --max-time 3 http://127.0.0.1/api/health 2>/dev/null || true)
+    if printf '%s' "$H" | grep -q '"modelVerified":true'; then VERIFIED=1; break; fi
+    if printf '%s' "$H" | grep -q '"modelVerified":false'; then break; fi
+    sleep 2
+  done
+  if [ "$VERIFIED" = 1 ]; then
+    echo "MODEL VERIFIED: the Vultr inference endpoint answered a test call."
+  else
+    echo "WARNING: the inference key is set, but the model did not answer a test call, so the demo runs in offline rules mode." >&2
+    echo "         Last error: $(printf '%s' "${H:-}" | sed -n 's/.*"lastError":"\([^"]*\)".*/\1/p')  (check the key, the model name and 'journalctl -u first-answer-agent')" >&2
+  fi
 fi
 echo "Update log: journalctl -u first-answer-agent-update"

@@ -20,7 +20,8 @@ test('deploy script: apt lock wait, app-user git/npm, safe permissions, producti
   assert.match(script, /TRUST_PROXY=\$TRUST_PROXY/);
   assert.doesNotMatch(script, /safe\.directory/);
   assert.doesNotMatch(script, /chown -R "\$APP_USER"/);
-  assert.match(script, /ufw allow 22\/tcp/, 'SSH is left as it was');
+  assert.match(script, /ufw limit 22\/tcp/, 'SSH stays open but rate limited');
+  assert.doesNotMatch(script, /ufw allow 22/);
   assert.match(script, /OFFLINE RULES MODE/);
 });
 
@@ -100,4 +101,39 @@ test('update script: a failed health check after restart rolls back too', () => 
   assert.notEqual(r.status, 0);
   assert.match(r.stderr, /health check failed/);
   assert.equal(h.g(h.app, 'rev-parse', 'HEAD'), before);
+});
+
+test('deploy script: starts from /, trims the pasted key, retries the final health check and proves the model works', () => {
+  assert.match(script, /^cd \/$/m);
+  assert.match(script, /tr -d '\[:space:\]'/);
+  assert.match(script, /for _ in \$\(seq 1 45\)/, 'final health check retries');
+  assert.match(script, /"modelVerified":true/, 'a present key is not enough');
+  assert.doesNotMatch(script, /grep -q '"mode":"model"'/);
+  assert.match(script, /MODEL VERIFIED/);
+  assert.match(script, /AUTO_UPDATE/);
+  assert.match(script, /REPO_PIN/);
+  assert.match(script, /first-answer-agent-update\.timer/);
+});
+
+test('deploy script is valid bash', () => {
+  const r = spawnSync('bash', ['-n', path.join(cfgFor().root, 'deploy', 'cloud-init.sh')], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+});
+
+test('update script: a pinned release is never moved off, and removing the pin follows the branch again', () => {
+  const h = harness();
+  const pinned = h.g(h.app, 'rev-parse', 'HEAD');
+  const pinFile = path.join(h.dir, 'pin');
+  fs.writeFileSync(pinFile, `${pinned}\n`);
+  h.push('two');
+  const env = { ...process.env, PATH: `${path.join(h.dir, 'bin')}:${process.env.PATH}`, CALLS: h.log, APP_DIR: h.app, APP_USER: os.userInfo().username, PIN_FILE: pinFile };
+  const run = () => spawnSync('bash', [path.join(h.dir, 'update.sh')], { env, encoding: 'utf8' });
+  const r1 = run();
+  assert.equal(r1.status, 0, r1.stderr);
+  assert.equal(h.g(h.app, 'rev-parse', 'HEAD'), pinned, 'stays on the pinned commit');
+  assert.equal(h.calls().includes('systemctl restart'), false);
+  fs.rmSync(pinFile);
+  const r2 = run();
+  assert.equal(r2.status, 0, r2.stderr);
+  assert.notEqual(h.g(h.app, 'rev-parse', 'HEAD'), pinned, 'follows the branch again');
 });
