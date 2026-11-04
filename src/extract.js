@@ -58,10 +58,14 @@ export function wantsOutsideHours(text) {
   return /\b(tonight|right now|midnight|after hours|late night|(?:[6-9]|1[01])\s?(?:pm|p\.m\.)|(?:[0-6])\s?(?:am|a\.m\.))\b/i.test(text);
 }
 
+// Specific wording first; the bare words "one/two/three" last, so "the second one" is option 2, not option 1.
 const ORD = [
-  [/\b(first|1st|option 1|#1|number 1|one)\b/i, 0],
-  [/\b(second|2nd|option 2|#2|number 2|two)\b/i, 1],
-  [/\b(third|3rd|option 3|#3|number 3|three)\b/i, 2],
+  [/\b(first|1st|option 1|#1|number 1)\b/i, 0],
+  [/\b(second|2nd|option 2|#2|number 2)\b/i, 1],
+  [/\b(third|3rd|option 3|#3|number 3)\b/i, 2],
+  [/\bone\b/i, 0],
+  [/\btwo\b/i, 1],
+  [/\bthree\b/i, 2],
 ];
 const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 const MONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
@@ -129,6 +133,9 @@ export function pickSlot(text, slots) {
   const t = text.toLowerCase();
   if (!slots?.length) return null;
   const yes = /^(yes|yep|yeah|sure|ok|okay|that works|works for me|sounds good|perfect|book it|let'?s do it)\b/.test(t.trim());
+  // The offers are numbered "1) ... 2) ...", so a bare number picks that option: "2", "2)", "#2", "number 2", "I will take 2".
+  const num = /^\s*(?:#|no\.?\s*|number\s*|option\s*)?([1-9])\s*[.)]?\s*(?:please|pls|thanks|thank you)?\s*[.!]*\s*$/.exec(t) || /\b(?:take|pick|choose|want|go with|book)\s+(?:number\s+|option\s+|#)?([1-9])\b(?!\s*(?::|a\.?m|p\.?m))/.exec(t);
+  if (num && slots[Number(num[1]) - 1]) return slots[Number(num[1]) - 1];
   const candidates = slotCandidates(text, slots);
   if (candidates.length === 1) return slots[candidates[0]];
   if (candidates.length > 1) return null; // ambiguous: the caller asks which one
