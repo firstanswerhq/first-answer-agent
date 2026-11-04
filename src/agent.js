@@ -180,8 +180,16 @@ export class Agent {
       runInfo.mode = MODE_MODEL;
       step({ kind: 'mode', title: `Reasoning with model ${this.llm.model} on Vultr Serverless Inference` });
       try {
-        await this.modelLoop(ctx, fx, step);
+        const outcome = await this.modelLoop(ctx, fx, step);
         usedModel = true;
+        // The model answered in prose or never produced a customer reply: finish the job with the rules engine
+        // (same guarded functions) instead of treating a normal lead as an escalation.
+        if (!ctx.sentReply && lead.status !== 'human' && outcome !== 'guard_stop') {
+          runInfo.mode = MODE_OFFLINE;
+          step({ kind: 'mode', title: 'Model produced no customer reply; the rules engine finished the job', detail: 'Same guarded functions, deterministic path' });
+          this.stats.offlineRuns += 1;
+          await runRules(ctx, fx, trigger);
+        }
         this.stats.modelRuns += 1;
         this.stats.lastModelOk = true;
         this.stats.lastError = '';
@@ -229,18 +237,21 @@ export class Agent {
       this.stats.lastModel = model;
       const calls = Array.isArray(message.tool_calls) ? message.tool_calls.slice(0, 4) : [];
       step({ kind: 'model', title: calls.length ? `Model chose ${calls.length} function call${calls.length > 1 ? 's' : ''}` : 'Model finished', detail: calls.length ? calls.map((c) => c?.function?.name).join(', ') : String(message.content || '').slice(0, 120), ms: this.now() - t0 });
-      if (!calls.length) return;
+      if (!calls.length) return 'no_tool_calls';
       messages.push({ role: 'assistant', content: typeof message.content === 'string' ? message.content : '', tool_calls: calls });
       for (const c of calls) {
         let args = {};
         let parseErr = null;
-        try { args = JSON.parse(c?.function?.arguments || '{}'); } catch { parseErr = 'Arguments were not valid JSON'; }
+        const rawArgs = c?.function?.arguments;
+        if (rawArgs && typeof rawArgs === 'object') args = rawArgs; // some servers return parsed arguments
+        else { try { args = JSON.parse(rawArgs || '{}'); } catch { parseErr = 'Arguments were not valid JSON'; } }
         const result = parseErr ? { ok: false, error: parseErr } : await fx.call(String(c?.function?.name), args, 'model');
         messages.push({ role: 'tool', tool_call_id: String(c?.id || ''), content: JSON.stringify(result).slice(0, 4000) });
       }
-      if (ctx.guardRejects >= 3) { step({ kind: 'guard', title: 'Model repeatedly broke outbound guardrails; stopping the loop' }); return; }
+      if (ctx.guardRejects >= 3) { step({ kind: 'guard', title: 'Model repeatedly broke outbound guardrails; stopping the loop' }); return 'guard_stop'; }
     }
     step({ kind: 'guard', title: `Step cap of ${this.config.maxSteps} reached; stopping the loop` });
+    return 'step_cap';
   }
 
   /** Code-level guarantees that hold no matter what the model (or rules) did. */

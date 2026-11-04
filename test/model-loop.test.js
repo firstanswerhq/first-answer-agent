@@ -109,14 +109,15 @@ test('model loop: wrong argument types and enums are rejected by validation', as
   assert.equal(l.qualification, null);
 });
 
-test('model loop: the step cap stops a model that never finishes, and the lead still gets a reply', async () => {
+test('model loop: the step cap stops a model that never finishes, and the rules engine still gives the lead a real reply', async () => {
   const llm = fakeLlm([reply(call('check_calendar', {}))]); // repeats forever
   const env = makeEnv({ llm, config: cfgFor({ maxSteps: 3 }) });
   const l = await newLead(env);
   assert.equal(llm.fetchMock.state.calls.length, 3);
   assert.ok(l.timeline.some((t) => /Step cap/.test(t.title)));
-  assert.ok(agentTexts(l).length >= 1, 'safe holding message');
-  assert.equal(l.status, 'human');
+  assert.equal(agentTexts(l).length, 1);
+  assert.match(agentTexts(l)[0], /\$170-\$250/);
+  assert.equal(l.status, 'replied');
 });
 
 test('model loop: the model forgetting a required escalation is corrected in code', async () => {
@@ -143,12 +144,38 @@ test('model loop: a model that ignores an injection and books anyway still ends 
   assert.equal(l.status, 'human');
 });
 
-test('model loop: a model that sends nothing triggers the holding message and handoff', async () => {
+test('model loop: a model that answers in prose with no tool calls does not escalate a normal lead; rules finish it', async () => {
   const env = makeEnv({ llm: fakeLlm([reply()]) });
   const l = await newLead(env);
+  assert.equal(l.status, 'replied');
+  assert.equal(agentTexts(l).length, 1);
+  assert.match(agentTexts(l)[0], /\$170-\$250/);
+  assert.ok(l.timeline.some((t) => /rules engine finished the job/.test(t.title)));
+  assert.equal(l.lastRunMode, 'offline', 'honestly labeled: rules wrote the reply');
+  assert.equal(env.store.followups.filter((f) => f.status === 'pending').length, 1);
+});
+
+test('model loop: a model that only qualifies the lead and then stops still gets a reply from the rules', async () => {
+  const env = makeEnv({ llm: fakeLlm([reply(call('qualify_lead', { job_type: 'gutter_cleaning', urgency: 'routine', size: 'medium', location: 'Franklin 37064' })), reply()]) });
+  const l = await newLead(env);
+  assert.equal(l.status, 'replied');
+  assert.equal(agentTexts(l).length, 1);
+});
+
+test('model loop: tool-call arguments that arrive already parsed as an object are accepted', async () => {
+  const objArgs = (name, args) => ({ id: 'c1', type: 'function', function: { name, arguments: args } });
+  const env = makeEnv({ llm: fakeLlm([reply(objArgs('qualify_lead', { job_type: 'gutter_cleaning', urgency: 'routine', size: 'medium', location: 'Franklin 37064' })), reply()]) });
+  const l = await newLead(env);
+  assert.ok(fnNames(l).includes('qualify_lead'));
+  assert.equal(l.timeline.find((t) => t.fn === 'qualify_lead').ok, true);
+});
+
+test('model loop: a model that escalates without replying still gets the safe holding message', async () => {
+  const env = makeEnv({ llm: fakeLlm([reply(call('escalate_to_human', { reason: 'unsure' })), reply()]) });
+  const l = await newLead(env);
+  assert.equal(l.status, 'human');
   assert.equal(agentTexts(l).length, 1);
   assert.match(agentTexts(l)[0], /teammate will follow up/);
-  assert.equal(l.status, 'human');
 });
 
 test('model loop: HTTP 500s are retried with backoff and then succeed', async () => {

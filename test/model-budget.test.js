@@ -43,7 +43,15 @@ test('the visitor cap window slides: after an hour the visitor gets the model ag
 });
 
 test('the global cap is reserved when a run starts, so concurrent runs cannot overshoot it', async () => {
-  const llm = fakeLlm(Array.from({ length: 12 }, happy).flat());
+  // Stateless responder so interleaved concurrent runs each get a sensible answer.
+  const responder = (body) => {
+    const tool = body.messages.filter((m) => m.role === 'tool').map((m) => JSON.parse(m.content));
+    if (!tool.length) return reply(call('qualify_lead', { job_type: 'gutter_cleaning', urgency: 'routine', size: 'medium', location: 'Franklin 37064' }));
+    if (!tool.some((t) => t.slots)) return reply(call('check_calendar', { limit: 3 }));
+    if (tool.length < 3) return reply(call('send_reply', { text: `Gutter cleaning is typically $170-$250. I can come ${tool.find((t) => t.slots).slots[0].label}. Does that work?` }));
+    return reply();
+  };
+  const llm = fakeLlm([responder]);
   const env = makeEnv({ llm, config: inf({ maxRunsPerHour: 2 }) });
   const runs = Array.from({ length: 6 }, (_, i) => env.svc.createLead(lead({ name: `P${i}` }), { ipKey: `ip${i}` }));
   await Promise.all(runs.map((r) => r.done));
