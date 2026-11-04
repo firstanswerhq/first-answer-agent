@@ -11,6 +11,7 @@ import { localNow, isOpenNow } from './calendar.js';
 const ALERT_STEP = {
   sent: { ok: true, title: "Alert sent to the owner's phone" },
   failed: { ok: false, title: "Alert to the owner's phone could not be sent" },
+  simulated: { ok: true, title: 'Alert not sent (demo scenario, not a real customer)' },
   not_configured: { ok: true, title: 'Alert not configured (no owner phone alert is set up here)' },
   offline: { ok: true, title: 'Alert not sent (alerts are switched off in this mode)' },
   rate_limited: { ok: true, title: 'Alert not sent (hourly alert limit reached)' },
@@ -21,6 +22,17 @@ const comma = (n) => { const f = firstName(n); return f === 'there' ? '' : `, ${
 const nameLead = (n) => { const f = firstName(n); return f === 'there' ? '' : `${f}, `; };
 
 export const newSharedBudget = () => ({ modelRunStamps: [], ipRunStamps: new Map(), stats: { modelRuns: 0, offlineRuns: 0, lastModelOk: null, lastError: '', lastModel: '', lastRunMode: null } });
+
+// The alert category comes from the code's safety flags, never from model-written text.
+export function alertCategory(f = {}) {
+  if (f.medical) return 'Possible medical emergency';
+  if (f.emergency) return 'Urgent request (emergency wording)';
+  if (f.injection) return 'Message looked like an instruction attack';
+  if (f.complaint) return 'Angry customer';
+  if (f.handoff) return 'Customer asked for a person';
+  if (f.outOfScope) return 'Request outside our services';
+  return 'Needs a person';
+}
 
 export const MODE_MODEL = 'model';
 export const MODE_OFFLINE = 'offline';
@@ -90,13 +102,13 @@ export class Agent {
     this.shared = shared || newSharedBudget();
   }
 
-  /** Resolves when every owner alert started so far has finished (used by tests and shutdown; replies never wait for it). */
+  /** Resolves when every owner alert started so far has finished (used by tests; replies never wait for it). */
   async settled() { while (this.pendingAlerts.size) await Promise.allSettled([...this.pendingAlerts]); }
 
   /** Fire and forget: the customer reply never waits for the network. The timeline records what really happened. */
-  alertOwner(lead, step, a) {
+  alertOwner(lead, step, a, flags = {}) {
     if (!this.notifier) return;
-    const p = this.notifier.alert(lead, { reason: a.reason, priority: a.priority === 'urgent' || lead.priority === 'urgent' ? 'urgent' : 'normal', business: this.config.business.name })
+    const p = this.notifier.alert(lead, { category: alertCategory(flags), priority: a.priority === 'urgent' || lead.priority === 'urgent' || flags.emergency || flags.medical ? 'urgent' : 'normal', business: this.config.business.name })
       .then(({ status }) => { const s = ALERT_STEP[status]; if (s) { step({ kind: 'alert', ...s }); this.store.save(); } })
       .catch(() => {})
       .finally(() => this.pendingAlerts.delete(p));
@@ -220,7 +232,7 @@ export class Agent {
     if (nameFlags.injection && !flags.injection) { flags.injection = true; flags.reasons.push('The name field tries to give the agent instructions (possible prompt injection)'); flags.any = true; }
     const ipKey = opts.ipKey ?? lead.ipHash ?? null;
     const ctx = { store, config, now: this.now, lead, flags, step, run: runInfo, sentReply: false, guardRejects: 0, ipKey };
-    ctx.onEscalate = (a) => this.alertOwner(lead, step, a);
+    ctx.onEscalate = (a) => this.alertOwner(lead, step, a, flags);
 
     step({ kind: 'received', title: trigger === 'new_lead' ? `New inquiry received from ${lead.source}` : 'Customer replied', detail: (lastCustomer?.text || '').slice(0, 160) });
 
@@ -253,7 +265,7 @@ export class Agent {
     } else if (fastPath) {
       // Angry customers, urgent non-medical situations and instruction-injection attempts never wait for the model.
       handledInCode = true;
-      step({ kind: 'mode', title: 'Checked in code, no AI call needed: a safe reply is sent now and a person is alerted', detail: flags.reasons.join('; ') });
+      step({ kind: 'mode', title: 'Checked in code, handed to a person', detail: `No AI call needed; a safe reply is sent now. ${flags.reasons.join('; ')}` });
       await runRules(ctx, fx, trigger);
     } else if (!config.forceOffline && this.llm?.configured && globalOk && ipOk) {
       this.reserveModelRun(ipKey);

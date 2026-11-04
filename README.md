@@ -25,7 +25,7 @@ Demo data is fictional and no text or email is ever sent. Please use made-up det
 | Saved state (inquiries, bookings, follow-up timers, one JSON file with safe writes) | **Real** |
 | Follow-up timers | **Real** timers (shortened for the demo: 30 minutes becomes 30 seconds) |
 | Texts and emails to customers | **Simulated.** Nothing is texted or emailed to a customer; replies appear on the web page only. |
-| Handoff to a person | **Real phone alert plus dashboard status.** When an inquiry is handed to a person, the app sends a push notification to the owner's phone through [ntfy](https://ntfy.sh) (only if `NTFY_TOPIC` is set; see the environment table) and marks the inquiry "Needs a Human" in the dashboard. The alert carries the business name, the customer's first name and a one-line reason, never a phone number. |
+| Handoff to a person | **Real phone alert plus dashboard status.** When an inquiry is handed to a person, the app sends a push notification to the owner's phone through [ntfy](https://ntfy.sh) (only if `NTFY_TOPIC` is set; see the environment table) and marks the inquiry "Needs a Human" in the dashboard. The alert carries the business name, the customer's first name and a fixed category such as "Angry customer" built in code, never a phone number or any message text. |
 | Intake channels | The **website form is the only real intake channel.** Inquiries shown as "Text message" or "Phone call" are simulated examples and carry a "simulated source" tag in the dashboard. |
 | Customers and sample inquiries | **Simulated** (fictional names, 555 numbers) |
 | The calendar | **Demo calendar.** It is the app's own calendar, not a connection to any business's Google or Outlook calendar (no sync yet). |
@@ -170,11 +170,11 @@ Every inquiry is handled by a tool-calling loop. The model never touches saved d
 | `book_appointment` | Writes a booking. Refuses double booking (a synchronous check and write), times outside business hours or in the past, out-of-scope or out-of-area requests, and inquiries already flagged for a person. |
 | `send_reply` | Writes the outgoing message into the conversation. **Simulated send**: no text or email is sent to the customer; the reply shows on the web page. Passes the outgoing-message check first. |
 | `schedule_followup` | A real timer in the app. If the customer has not replied when it is due, the follow-up is posted; if they replied, booked or were handed to a person, it is cancelled. |
-| `escalate_to_human` | Flags the inquiry as needing a person with a reason and priority, cancels timers, and sends the owner a phone alert (one per inquiry, at most 20 an hour, only when `NTFY_TOPIC` is set). The timeline records "Alert sent to the owner's phone" only when the alert really went out. |
+| `escalate_to_human` | Flags the inquiry as needing a person with a reason and priority, cancels timers, and sends the owner a phone alert (one per inquiry, at most 3 an hour per visitor and 20 an hour in total, counted per process; never for demo-scenario buttons; only when `NTFY_TOPIC` is set). The timeline records "Alert sent to the owner's phone" only when the alert really went out. |
 
-Fast path: an angry customer, an urgent non-medical situation (for example a knocked-out tooth or a burst pipe, as the profile defines it) or a message that tries to give the assistant instructions never waits for the AI model. Code sends a safe holding reply at once, hands the inquiry to a person and sends the phone alert; the timeline says "Checked in code, no AI call needed". Possible medical emergencies keep their fixed 911 (or 988) reply, also sent by code. Normal inquiries use the model.
+Fast path: an angry customer, an urgent non-medical situation (for example a knocked-out tooth or a burst pipe, as the profile defines it) or a message that tries to give the assistant instructions never waits for the AI model. Code sends a safe holding reply at once, hands the inquiry to a person and sends the phone alert; the timeline says "Checked in code, handed to a person". Possible medical emergencies keep their fixed 911 (or 988) reply, also sent by code. Normal inquiries use the model.
 
-Cost: each inquiry typically uses about 12,000 to 15,000 input tokens, because the system prompt and the action definitions are sent again on every model call (several calls per inquiry). That is still roughly a cent or two per inquiry at the model's listed price.
+Cost: each inquiry typically uses about 12,000 to 15,000 input tokens, because the system prompt and the action definitions are sent again on every model call (several calls per inquiry). That is a small fraction of a dollar at list prices (see the deck's assumptions).
 
 Reliability and cost control: runs for the same inquiry never overlap, a cap on concurrent runs, a step cap per inquiry (default 8), a per-call timeout (default 20 s), one retry with backoff on 429 and 5xx, an hourly cap on AI model runs plus a per-visitor hourly cap (reserved when a run starts), and strict argument validation (types, allowed values, lengths, unknown keys dropped, control characters stripped). If the model answers in plain text or makes no actions, the built-in rules finish the inquiry through the same checked functions instead of escalating a normal request. At start-up the app makes one tiny test call to the model (no customer data, `PROBE_MODEL=0` turns it off) so `/api/health` can say honestly whether the model works.
 
@@ -211,16 +211,16 @@ export VULTR_INFERENCE_MODEL=glm-5.3-flash   # optional, this is the default
 npm start
 ```
 
-Useful environment variables are listed in [`.env.example`](.env.example). The owner phone alert uses two of them:
+Useful environment variables are listed in [`.env.example`](.env.example). `npm run seed` resets the data file and reloads the sample day. Follow-up delays run on a demo clock (`FOLLOWUP_SPEEDUP`, default 60, so 30 minutes fires in 30 seconds); set it to `1` for real time. Set `TRUST_PROXY=1` only when the app sits behind one reverse proxy (Caddy, nginx); it is off by default so rate limits key on the real socket address.
+
+The owner phone alert uses two more:
 
 | Variable | Meaning |
 | --- | --- |
 | `NTFY_TOPIC` | ntfy topic that receives the owner alert. Pick a long random name and subscribe to it in the ntfy phone app. Unset means no alerts. Never shown by the app or `/api/health`. |
-| `DASHBOARD_URL` | Optional. Link added to the alert so the owner can open the dashboard. |
+| `DASHBOARD_URL` | Optional, https only. Link added to the alert so the owner can open the dashboard. |
 
 `/api/health` shows `notify: { configured, alertsLastHour }` without the topic. Alerts are off in tests and when `FORCE_OFFLINE=1`.
-
- `npm run seed` resets the data file and reloads the sample day. Follow-up delays run on a demo clock (`FOLLOWUP_SPEEDUP`, default 60, so 30 minutes fires in 30 seconds); set it to `1` for real time. Set `TRUST_PROXY=1` only when the app sits behind one reverse proxy (Caddy, nginx); it is off by default so rate limits key on the real socket address.
 
 Public intake: open `/lead`, or `POST /api/leads` with JSON `{ "name", "phone", "message", "source" }`.
 

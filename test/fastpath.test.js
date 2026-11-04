@@ -23,7 +23,7 @@ for (const [name, message] of Object.entries(cases)) {
     assert.equal(l.status, 'human');
     assert.ok(agentTexts(l).length >= 1, 'a safe reply was sent');
     assert.ok(l.replyTimeSec < 1, `reply time ${l.replyTimeSec}`);
-    assert.ok(l.timeline.some((t) => t.kind === 'mode' && /Checked in code, no AI call needed/.test(t.title)));
+    assert.ok(l.timeline.some((t) => t.kind === 'mode' && /Checked in code, handed to a person/.test(t.title)));
     assert.ok(!l.timeline.some((t) => AI_CLAIM.test(t.title)), 'no timeline title claims an AI call');
     assert.ok(l.timeline.some((t) => t.fn === 'escalate_to_human' && t.ok));
     assert.equal(l.lastRunMode, 'offline');
@@ -37,7 +37,7 @@ test('fast path: normal inquiries still use the model', async () => {
   const l = await newLead(env, { message: 'I would like a checkup next week please' });
   assert.ok(llm.fetchMock.state.calls.length >= 1);
   assert.equal(l.lastRunMode, 'model');
-  assert.ok(!l.timeline.some((t) => /no AI call needed/.test(t.title || '')));
+  assert.ok(!l.timeline.some((t) => /Checked in code, handed to a person/.test(t.title || '')));
 });
 
 test('fast path: the 911 emergency path is unchanged', async () => {

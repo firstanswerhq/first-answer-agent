@@ -28,7 +28,7 @@ export async function runRules(ctx, fx, trigger) {
   if (lead.status === 'human') return;
   if (flags.medical) {
     // Fixed, safe wording for any business: call 911 (or 988), and bring a person in at once.
-    await reply(`Please call 911 right now if you or someone else is in danger or having a medical emergency. I am an automated assistant and cannot help with emergencies by text. I have alerted our team, and you can also reach us at ${phone}.${flags.selfHarm ? ' If you are thinking about harming yourself, you can call or text 988 at any time.' : ''}`);
+    await reply(`Please call 911 right now if you or someone else is in danger or having a medical emergency. I am an automated assistant and cannot help with emergencies by text. I have flagged this for our team, and you can also reach us at ${phone}.${flags.selfHarm ? ' If you are thinking about harming yourself, you can call or text 988 at any time.' : ''}`);
     await escalate('Possible medical or personal-safety emergency; the customer was told to call 911. A person should reach out now.', 'urgent');
     return;
   }
@@ -38,7 +38,7 @@ export async function runRules(ctx, fx, trigger) {
     return;
   }
   if (flags.complaint) {
-    await reply(`${addr('I am sorry about this experience. I am not the right one to fix it, so I have asked the owner to call you personally. If you would rather call us, we are at ' + phone + '.')}`);
+    await reply(`${addr('I am sorry about this experience. I am not the right one to fix it, so I have flagged this for our team and a person will follow up with you. If you would rather call us, we are at ' + phone + '.')}`);
     await escalate('Complaint or angry customer; the owner should call personally.');
     return;
   }
@@ -91,7 +91,7 @@ export async function runRules(ctx, fx, trigger) {
   // 3. Urgent situation that needs a person now: priority path. Hold the earliest time (when enabled) and bring in a person at once.
   if (level === 'emergency') {
     if (q.service_area_ok !== true) {
-      await reply(`${addr(urgency.safetyNote + ' I have marked this urgent and told our team. If you do not hear from us within 15 minutes, please call us at ' + phone + '.')}`);
+      await reply(`${addr(urgency.safetyNote + ' I have marked this urgent and flagged it for our team; a person will follow up. If you do not hear from us within 15 minutes, please call us at ' + phone + '.')}`);
       await escalate(`${urgency.handoffReason} (location unconfirmed)`, 'urgent');
       return;
     }
@@ -101,7 +101,7 @@ export async function runRules(ctx, fx, trigger) {
       const b = await fx.call('book_appointment', { slot_id: cal.slots[0].slot_id, note: urgency.holdNote });
       if (b.ok) held = b.label;
     }
-    await reply(`${addr('I am sorry you are dealing with this. ' + urgency.safetyNote + ' I have marked this urgent and told our team' + (held ? `, and held the earliest ${wording.appointment}: ${held}` : '') + '. If you do not hear from us within 15 minutes, please call us at ' + phone + '.')}`);
+    await reply(`${addr('I am sorry you are dealing with this. ' + urgency.safetyNote + ' I have marked this urgent and flagged it for our team' + (held ? `, and held the earliest ${wording.appointment}: ${held}` : '') + '. If you do not hear from us within 15 minutes, please call us at ' + phone + '.')}`);
     await escalate(urgency.handoffReason, 'urgent');
     return;
   }

@@ -59,3 +59,10 @@ test('cloud-init passes NTFY_TOPIC and DASHBOARD_URL through with no real values
   assert.match(t, /NTFY_TOPIC="\$\(q "\$NTFY_TOPIC"\)"/);
   assert.match(t, /DASHBOARD_URL="\$\(q "\$DASHBOARD_URL"\)"/);
 });
+
+test('README: no unverified price claim, and the seed command line is not a stray paragraph', () => {
+  const t = read('README.md');
+  assert.doesNotMatch(t, /cent or two/i);
+  assert.doesNotMatch(t, /\n `npm run seed`/);
+  assert.match(t, /small fraction of a dollar at list prices/);
+});

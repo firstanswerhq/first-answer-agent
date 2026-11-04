@@ -23,7 +23,7 @@ function build(notifierOpts, llm = null) {
   return { store, agent, svc, notifier, clock };
 }
 const angry = { message: 'This is the THIRD time I have called and I want a refund!!!', name: 'Pat Holloway', phone: '(615) 555-0118' };
-const run = async (env, over = angry) => { const { lead, done } = env.svc.createLead(leadInput(over)); await done; await env.agent.settled(); return lead; };
+const run = async (env, over = angry, opts = {}) => { const { lead, done } = env.svc.createLead(leadInput(over), opts); await done; await env.agent.settled(); return lead; };
 
 test('notify: posts to ntfy with title, priority, tags and a short body without the phone number', async () => {
   const transport = fakeTransport();
@@ -95,7 +95,7 @@ test('notify: at most one alert per lead, and at most 20 per hour overall', asyn
   const again = env.svc.addCustomerMessage(l.id, 'I want to speak to a manager now');
   await again.done; await env.agent.settled();
   assert.equal(transport.calls.length, 1);
-  for (let i = 0; i < MAX_ALERTS_PER_HOUR + 3; i += 1) await run(env, { ...angry, name: `Pat${i} Smith` });
+  for (let i = 0; i < MAX_ALERTS_PER_HOUR + 3; i += 1) await run(env, { ...angry, name: `Pat${i} Smith` }, { ipKey: `v${i}` });
   assert.equal(transport.calls.length, MAX_ALERTS_PER_HOUR);
   assert.equal(env.notifier.status().alertsLastHour, MAX_ALERTS_PER_HOUR);
   env.clock.advance(3_700_000);
@@ -121,4 +121,57 @@ test('notify: /api/health shows configured and alertsLastHour but never the topi
     assert.deepEqual(h.notify, { configured: true, alertsLastHour: 0 });
     assert.doesNotMatch(JSON.stringify(h), /my-secret-topic/);
   } finally { await s.stop(); }
+});
+
+test('notify: the alert never carries model-written text (email, street address) and only fixed category text', async () => {
+  const transport = fakeTransport();
+  const llm = fakeLlm([
+    reply(call('qualify_lead', { service: 'checkup', urgency: 'routine' })),
+    reply(call('escalate_to_human', { reason: 'Customer jane.doe@gmail.com at 123 Oak Street 37203 wants a custom plan', priority: 'normal' })),
+    reply(call('send_reply', { text: 'A teammate will follow up.' })), reply(),
+  ]);
+  const env = build({ topic: 't', transport }, llm);
+  await run(env, { message: 'I would like a checkup, reach me at jane.doe@gmail.com, 123 Oak Street', name: 'Jane Doe' });
+  assert.equal(transport.calls.length, 1);
+  const sent = JSON.stringify(transport.calls[0]);
+  assert.doesNotMatch(sent, /jane\.doe|gmail|Oak|37203|Doe/);
+  assert.match(transport.calls[0].opts.body, /Reason: Needs a person/);
+  assert.match(transport.calls[0].opts.body, /Jane needs a person/);
+});
+
+test('notify: per-visitor cap of 3 an hour, separate from the global cap of 20', async () => {
+  const transport = fakeTransport();
+  const env = build({ topic: 't', transport });
+  for (let i = 0; i < 5; i += 1) await run(env, { ...angry, name: `Pat${i} Smith` }, { ipKey: 'same-visitor' });
+  assert.equal(transport.calls.length, 3);
+  await run(env, angry, { ipKey: 'other-visitor' });
+  assert.equal(transport.calls.length, 4);
+  env.clock.advance(3_700_000);
+  await run(env, angry, { ipKey: 'same-visitor' });
+  assert.equal(transport.calls.length, 5);
+});
+
+test('notify: demo scenario (simulated) leads never send an alert and say so', async () => {
+  const transport = fakeTransport();
+  const env = build({ topic: 't', transport });
+  const { lead, done } = env.svc.createLead(leadInput(angry), { simulated: true, ipKey: 'v' });
+  await done; await env.agent.settled();
+  assert.equal(transport.calls.length, 0);
+  assert.ok(lead.timeline.some((t) => t.kind === 'alert' && /demo scenario/.test(t.title)));
+  assert.ok(!lead.timeline.some((t) => /Alert sent/.test(t.title)));
+});
+
+test('notify: DASHBOARD_URL must be https', async () => {
+  const transport = fakeTransport();
+  const env = build({ topic: 't', transport, dashboardUrl: 'http://insecure.example/x' });
+  await run(env);
+  assert.doesNotMatch(transport.calls[0].opts.body, /insecure/);
+});
+
+test('notify: the response body is cancelled', async () => {
+  let cancelled = false;
+  const transport = async () => ({ ok: true, status: 200, body: { cancel() { cancelled = true; } } });
+  const env = build({ topic: 't', transport });
+  await run(env);
+  assert.equal(cancelled, true);
 });

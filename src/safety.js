@@ -48,6 +48,9 @@ export function normalizeForSafety(text) {
 
 const test = (list, text) => list.some((re) => re.test(text));
 
+// A legal threat is strong on its own. Anything else needs two separate anger signals before the fast path fires.
+const LEGAL_THREAT = /\b(lawyer|attorney|lawsuit|sue you|\bsue\b|bbb|chargeback)\b/i;
+
 function shouting(text) {
   const letters = text.replace(/[^A-Za-z]/g, '');
   if (letters.length < 25) return false;
@@ -61,10 +64,14 @@ function shouting(text) {
  */
 export function classify(text, profile = null) {
   const t = normalizeForSafety(text);
+  // Count separate anger signals: one mild word ("terrible parking", "Thank you!!!") is not a complaint by itself.
+  const anger = COMPLAINT.reduce((n, re) => n + new Set([...t.matchAll(new RegExp(re.source, 'gi'))].map((m) => m[0].toLowerCase())).size, 0) + (shouting(t) ? 2 : 0); // a long all-caps message counts as two signals
+  const strong = LEGAL_THREAT.test(t) || anger >= 2;
   const topic = profile?.alwaysHuman?.find((x) => x.re?.test(t));
   const flags = {
     emergency: !!profile?.urgency?.emergencyRe?.test(t),
-    complaint: test(COMPLAINT, t) || shouting(t),
+    complaint: strong,
+    complaintWeak: !strong && anger >= 1,
     handoff: test(HANDOFF, t) || !!topic,
     outOfScope: !!profile?.outOfScopeRe?.test(t),
     injection: test(INJECTION, t),
@@ -76,6 +83,7 @@ export function classify(text, profile = null) {
   if (flags.medical) reasons.push('Possible medical or personal-safety emergency (the customer is told to call 911)');
   if (flags.emergency) reasons.push(`${profile.urgency.label} wording (urgent situation that needs a person now)`);
   if (flags.complaint) reasons.push('Complaint or angry customer');
+  else if (flags.complaintWeak) reasons.push('Mild complaint wording (one signal only; the assistant decides, no automatic handoff)');
   if (flags.handoff) reasons.push(topic ? `Customer raised ${topic.label}, which always goes to a person` : 'Customer needs a person (schedule change or asked for a human)');
   if (flags.outOfScope) reasons.push('Request is outside the services the agent schedules');
   if (flags.injection) reasons.push('Message tries to give the agent instructions (possible prompt injection)');

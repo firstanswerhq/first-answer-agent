@@ -5,10 +5,14 @@ import { firstName } from './util.js';
 
 export const ALERT_TIMEOUT_MS = 3000;
 export const MAX_ALERTS_PER_HOUR = 20;
+export const MAX_ALERTS_PER_VISITOR_PER_HOUR = 3;
 
 const ascii = (s) => String(s || '').replace(/[^\x20-\x7e]/g, ' ').replace(/\s+/g, ' ').trim();
-// A reason can come from the model, so keep it to one short line and never let a phone number through.
-const oneLine = (s, n) => ascii(s).replace(/\+?\d[\d\s().-]{6,}\d/g, '[number removed]').slice(0, n);
+const oneLine = (s, n) => ascii(s).slice(0, n);
+
+// The alert goes to a public relay, so it carries only fixed text built in code: the business name, the customer's
+// first name, a category from the safety flags and an optional https dashboard link. Never model or customer text.
+export const CATEGORIES = ['Possible medical emergency', 'Urgent request (emergency wording)', 'Message looked like an instruction attack', 'Angry customer', 'Customer asked for a person', 'Request outside our services', 'Needs a person'];
 
 export class Notifier {
   /**
@@ -17,13 +21,15 @@ export class Notifier {
    */
   constructor({ topic = '', dashboardUrl = '', transport = null, offline = false, now = Date.now, baseUrl = 'https://ntfy.sh', log = (m) => console.warn(m) } = {}) {
     this.topic = String(topic || '').trim();
-    this.dashboardUrl = String(dashboardUrl || '').trim();
+    const url = String(dashboardUrl || '').trim();
+    this.dashboardUrl = /^https:\/\/[^\s]+$/i.test(url) ? url : ''; // https only, so a typo cannot put arbitrary text in the push
     this.offline = !!offline;
     this.transport = transport || (offline ? null : (globalThis.fetch ? globalThis.fetch.bind(globalThis) : null));
     this.now = now;
     this.baseUrl = baseUrl.replace(/\/+$/, '');
     this.log = log;
     this.stamps = [];
+    this.visitorStamps = new Map();
   }
 
   get configured() { return !!this.topic; }
@@ -34,24 +40,34 @@ export class Notifier {
     return this.stamps.length;
   }
 
+  visitorCount(key) {
+    const cutoff = this.now() - 3_600_000;
+    const s = (this.visitorStamps.get(key) || []).filter((t) => t > cutoff);
+    if (s.length) this.visitorStamps.set(key, s); else this.visitorStamps.delete(key);
+    return s.length;
+  }
+
   status() { return { configured: this.configured, alertsLastHour: this.alertsLastHour() }; }
 
   /**
    * Alert the owner about a lead. Resolves to { status } where status is one of:
    * 'sent', 'failed', 'not_configured', 'offline', 'rate_limited', 'duplicate', 'skipped'. Never rejects.
    */
-  async alert(lead, { reason = '', priority = 'normal', business = '' } = {}) {
+  async alert(lead, { category = 'Needs a person', priority = 'normal', business = '' } = {}) {
     try {
       if (!lead || lead.seed) return { status: 'skipped' };
       if (lead.ownerAlertedAt) return { status: 'duplicate' };
+      if (lead.simulated) return { status: 'simulated' }; // demo scenario buttons never buzz the owner's phone
       if (!this.configured) return { status: 'not_configured' };
       if (!this.transport) return { status: 'offline' };
-      if (this.alertsLastHour() >= MAX_ALERTS_PER_HOUR) return { status: 'rate_limited' };
+      const vkey = lead.ipHash || 'unknown';
+      if (this.alertsLastHour() >= MAX_ALERTS_PER_HOUR || this.visitorCount(vkey) >= MAX_ALERTS_PER_VISITOR_PER_HOUR) return { status: 'rate_limited' };
+      this.visitorStamps.set(vkey, [...(this.visitorStamps.get(vkey) || []), this.now()]);
       lead.ownerAlertedAt = this.now(); // max one alert per lead, reserved before the request starts
       this.stamps.push(this.now());
       const urgent = priority === 'urgent';
       const body = [`${oneLine(business, 60)}: ${firstName(lead.name) === 'there' ? 'A customer' : oneLine(firstName(lead.name), 30)} needs a person.`,
-        `Reason: ${oneLine(reason, 140) || 'needs a person'}`, this.dashboardUrl ? this.dashboardUrl : ''].filter(Boolean).join('\n');
+        `Reason: ${CATEGORIES.includes(category) ? category : 'Needs a person'}`, this.dashboardUrl ? this.dashboardUrl : ''].filter(Boolean).join('\n');
       const ctl = new AbortController();
       const timer = setTimeout(() => ctl.abort(), ALERT_TIMEOUT_MS);
       try {
@@ -62,6 +78,7 @@ export class Notifier {
           signal: ctl.signal,
         });
         if (!res || res.ok === false) throw new Error(`HTTP ${res?.status ?? '?'}`);
+        try { res.body?.cancel?.(); } catch { /* ignore */ }
         return { status: 'sent' };
       } finally { clearTimeout(timer); }
     } catch (err) {

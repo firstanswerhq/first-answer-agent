@@ -1,5 +1,6 @@
 // First Answer Agent dashboard. Plain JS, no build step.
 // Every dynamic string goes through esc(): customer text is untrusted.
+import { isWorking } from './status.js';
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 class Raw { constructor(s) { this.s = s; } }
@@ -213,7 +214,7 @@ async function renderDetail(id, first) {
     });
     $('#composer').addEventListener('click', (e) => { const q = e.target.closest('[data-q]'); if (q) { $('#replyText').value = q.dataset.q; $('#replyText').focus(); } });
   }
-  const working = l.status === 'new' || (l.timeline.length && l.timeline.at(-1).kind !== 'done' && l.timeline.at(-1).kind !== 'followup' && l.timeline.at(-1).kind !== 'info');
+  const working = isWorking(l);
   $('#dEyebrow').textContent = `Inquiry detail / ${l.qualification?.serviceLabel || 'Not yet sorted'}`;
   $('#dSub').textContent = `${STATUS[l.status][0]} · ${l.source}${l.sourceSimulated ? ' (simulated source)' : ''} · Received ${fmtStamp(l.createdAt)}${l.seed ? ' · sample data' : ''}`;
   $('#dJob').textContent = `${l.qualification?.serviceLabel || 'Unclassified'}${l.qualification?.location ? ' · ' + l.qualification.location : ''}`;
@@ -381,7 +382,7 @@ function renderGuardrails() {
         <li><b>Follow instructions hidden in a customer message.</b> If a message tells the assistant to ignore its rules (a "prompt injection"), it is flagged and handed to a person.</li></ul></div></div>
       <div class="card"><div class="card-head"><h2>Always handed to a person</h2></div><div class="card-body"><ul class="rules">
         <li><b>${c.urgency.label}:</b> flagged urgent for a person to call. The customer is told: "${c.urgency.safetyNote}"</li>
-        <li><b>Possible medical emergencies</b> in any business: the customer is told to call 911, and a person is alerted.</li>
+        <li><b>Possible medical emergencies</b> in any business: the customer is told to call 911, and the inquiry is flagged for a person.</li>
         <li><b>Complaints and angry ${c.business.customerWord}s.</b></li>
         ${c.alwaysHuman.map((t) => R(html`<li><b>${upper1(t.replace(/\.$/, ''))}.</b></li>`))}
         <li><b>Schedule changes</b> to an existing booking, or anyone asking for a person.</li>
