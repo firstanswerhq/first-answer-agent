@@ -284,11 +284,13 @@ export class Agent {
     } else if (fastPath) {
       // Angry customers, urgent non-medical situations and instruction-injection attempts never wait for the model.
       handledInCode = true;
+      ctx.writer = 'safety';
       step({ kind: 'mode', title: 'Checked in code, handed to a person', detail: `No AI call needed; a safe reply is sent now. ${flags.reasons.join('; ')}` });
       await runRules(ctx, fx, trigger);
     } else if (!config.forceOffline && this.llm?.configured && globalOk && ipOk) {
       this.reserveModelRun(ipKey);
       runInfo.mode = MODE_MODEL;
+      ctx.writer = 'model';
       step({ kind: 'mode', title: `Answering with the AI model ${this.llm.model} on Vultr` });
       try {
         const outcome = await this.modelLoop(ctx, fx, step);
@@ -297,6 +299,7 @@ export class Agent {
         // (same guarded functions) instead of treating a normal lead as an escalation.
         if (!ctx.sentReply && lead.status !== 'human' && outcome !== 'guard_stop') {
           runInfo.mode = MODE_OFFLINE;
+          ctx.writer = 'rules';
           step({ kind: 'mode', title: 'The AI model sent no reply, so the built-in rules finished the job', detail: 'Same steps and the same safety checks' });
           this.stats.offlineRuns += 1;
           await runRules(ctx, fx, trigger);
@@ -309,6 +312,7 @@ export class Agent {
         this.stats.lastError = String(err.message || err).slice(0, 160);
         modelNote = this.stats.lastError;
         runInfo.mode = MODE_OFFLINE;
+        ctx.writer = 'rules';
         step({ kind: 'mode', ok: false, title: 'The AI model call failed, so the built-in rules took over', detail: modelNote });
       }
     } else {
@@ -324,9 +328,11 @@ export class Agent {
       this.stats.lastRunMode = MODE_MODEL;
     }
 
+    ctx.writer = ctx.writer === 'safety' ? 'safety' : (runInfo.mode === MODE_MODEL && ctx.sentReply ? 'model' : 'rules');
     await this.enforce(ctx, fx, step);
 
     lead.lastRunMode = runInfo.mode;
+    { const last = [...lead.messages].reverse().find((m) => m.from === 'agent'); lead.lastReplyBy = last?.by || (runInfo.mode === MODE_MODEL ? 'model' : 'rules'); }
     lead.lastRunAt = this.now();
     lead.runCount = (lead.runCount || 0) + 1;
     step({

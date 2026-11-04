@@ -326,7 +326,7 @@ export class Functions {
     // Messages the software writes itself (holding notes, handoff notes) pass the same outbound guard as the model's.
     if (checkOutbound(text, lead)) text = `A teammate will follow up with you shortly. - ${config.business.agentName} (AI)`;
     const ts = this.ctx.now();
-    const msg = { id: rid('M'), ts, from: 'agent', text, simulated: true, ...extra };
+    const msg = { id: rid('M'), ts, from: 'agent', text, simulated: true, by: this.ctx.writer || 'rules', ...extra };
     lead.messages.push(msg);
     lead.awaitingCustomer = true;
     if (!lead.firstReplyAt) {

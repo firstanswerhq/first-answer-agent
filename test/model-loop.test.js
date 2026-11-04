@@ -335,3 +335,21 @@ test('model loop: if the forced retry also fails, the rules write the reply (onc
   assert.equal(l.lastRunMode, 'offline');
   assert.equal(llm.fetchMock.state.bodies.length, 2);
 });
+
+test('who wrote the reply is recorded per message and shown honestly: model, rules or safety', async () => {
+  const { summary } = await import('../src/service.js');
+  // model wrote it
+  let env = makeEnv({ llm: fakeLlm([textOnly('Thanks for reaching out! We can fit a checkup this week, which day works best for you?')]) });
+  let l = await newLead(env);
+  assert.equal(l.lastReplyBy, 'model');
+  assert.equal(summary(l, env.store).answeredBy, 'model');
+  // model produced nothing, so the rules wrote it
+  env = makeEnv({ llm: fakeLlm([textOnly('')]) });
+  l = await newLead(env);
+  assert.equal(l.lastReplyBy, 'rules');
+  assert.ok(l.messages.filter((m) => m.from === 'agent').every((m) => m.by === 'rules'));
+  // safety fast path
+  env = makeEnv({ llm: fakeLlm([textOnly('This should never be called for a complaint, honestly.')]) });
+  l = await newLead(env, { message: 'I want a refund, this service was terrible' });
+  assert.equal(l.lastReplyBy, 'safety');
+});

@@ -242,7 +242,7 @@ export async function createApp({ config, store = new Store({ file: config.dataF
     try {
       const { store, agent } = req.t;
       const lead = publicLead(req);
-      res.json({ id: lead.id, name: lead.name, replyTimeSec: lead.replyTimeSec ?? null, messages: lead.messages.map((m) => ({ from: m.from, text: m.text, ts: m.ts })), handedToHuman: lead.status === 'human', booked: !!store.bookingForLead(lead.id), mode: agent.status().label, appointment: appointmentOf(req, lead) });
+      res.json({ id: lead.id, name: lead.name, replyTimeSec: lead.replyTimeSec ?? null, messages: lead.messages.map((m) => ({ from: m.from, text: m.text, ts: m.ts })), handedToHuman: lead.status === 'human', booked: !!store.bookingForLead(lead.id), mode: lead.lastReplyBy ? ({ model: 'AI model', safety: 'Safety rules' }[lead.lastReplyBy] || 'Built-in rules') : agent.status().label, appointment: appointmentOf(req, lead) });
     } catch (e) { next(e); }
   });
   app.post('/api/public/leads/:id/messages', replyGate, (req, res, next) => {
