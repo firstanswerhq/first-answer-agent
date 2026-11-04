@@ -199,3 +199,8 @@ html{background:#070b18}
 
 .event.busyfeed{background:#8791b21f;border:1px dashed #8791b266;color:#c3c8dc;pointer-events:none}.event.busyfeed small{color:#9aa1bb}
 #calBadge{white-space:normal;max-width:100%}
+
+/* Long unbroken customer text (emails, links, tokens) must wrap inside its card instead of widening the page. */
+.card,.card-head>*,.msg,.timeline-item,.timeline-item *,.heading>*,.detail-grid>*,.inbox-grid>*,.composer,.composer .row,.facts,.facts *,.sub,.note,.kv,.kv *{min-width:0;overflow-wrap:anywhere}
+.conversation,.timeline,.content{min-width:0;max-width:100%}
+details.raw pre{overflow-wrap:anywhere;max-width:100%}

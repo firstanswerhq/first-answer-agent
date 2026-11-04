@@ -40,3 +40,8 @@ test('app.js inserts these pieces with R()', () => {
   for (const f of ['calendarBadge', 'calendarNotices', 'calendarLegend']) assert.ok(src.includes(`R(${f}(c))`), f);
   assert.match(src, /import \{ calendarBadge, calendarNotices, calendarLegend \} from '\.\/calnotes\.js';/, 'the helpers are imported (a missing import broke the page once)');
 });
+
+test('css: long unbroken customer text wraps inside the cards (review 12; checked in a real browser at 390 px)', () => {
+  const css = fs.readFileSync(path.join(import.meta.dirname, '..', 'public', 'app.css'), 'utf8');
+  assert.match(css, /\.msg,[^{]*\.timeline-item[^{]*\{min-width:0;overflow-wrap:anywhere\}/);
+});
