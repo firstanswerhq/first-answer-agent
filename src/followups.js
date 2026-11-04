@@ -10,6 +10,8 @@ export class FollowupScheduler {
   }
   stop() { clearInterval(this.timer); this.timer = null; }
   async tick() {
+    const ttl = this.agent?.config?.limits?.liveBookingTtlMs;
+    if (ttl) this.store.releaseExpired(this.now(), ttl);
     const due = this.store.followups.filter((f) => f.status === 'pending' && f.dueAt <= this.now());
     for (const f of due) await this.agent.queueFollowup(f);
     return due.length;

@@ -91,9 +91,9 @@ export class Agent {
   }
 
   /** Queue a run for a lead. Runs for the same lead never overlap; total concurrency is capped. */
-  enqueue(leadId, trigger) {
+  enqueue(leadId, trigger, opts = {}) {
     const prev = this.chains.get(leadId) || Promise.resolve();
-    const p = prev.then(() => this.limited(() => this.run(leadId, trigger))).catch(() => {});
+    const p = prev.then(() => this.limited(() => this.run(leadId, trigger, opts))).catch(() => {});
     this.chains.set(leadId, p);
     p.then(() => { if (this.chains.get(leadId) === p) this.chains.delete(leadId); });
     return p;
@@ -128,7 +128,7 @@ export class Agent {
     };
   }
 
-  async run(leadId, trigger = 'new_lead') {
+  async run(leadId, trigger = 'new_lead', opts = {}) {
     const { store, config } = this;
     const lead = store.getLead(leadId);
     if (!lead) return;

@@ -61,14 +61,36 @@ export class Store {
 
   addLead(lead, maxLeads = 300) {
     this.state.leads.unshift(lead);
-    // Keep the file bounded: drop the oldest leads (and their bookings) past the cap.
+    // Keep the file bounded: drop the oldest NON-sample leads (and their bookings) past the cap.
+    // Sample leads are the demo's baseline and are never evicted.
     while (this.state.leads.length > maxLeads) {
-      const old = this.state.leads.pop();
+      let idx = -1;
+      for (let i = this.state.leads.length - 1; i >= 0; i -= 1) if (!this.state.leads[i].seed) { idx = i; break; }
+      if (idx < 0) break;
+      const [old] = this.state.leads.splice(idx, 1);
       this.state.bookings = this.state.bookings.filter((b) => b.leadId !== old.id);
       this.state.followups = this.state.followups.filter((f) => f.leadId !== old.id);
     }
     this.save();
     return lead;
+  }
+
+  /** Bookings made by visitors (not the original sample day) that are still holding a slot. */
+  liveBookings() { return this.state.bookings.filter((b) => b.status === 'confirmed' && !b.sample); }
+
+  /** Free slots held by visitor bookings older than ttlMs. Returns how many were released. */
+  releaseExpired(nowMs, ttlMs) {
+    let n = 0;
+    for (const b of this.state.bookings) {
+      if (b.status === 'confirmed' && !b.sample && nowMs - b.createdAt > ttlMs) {
+        b.status = 'released'; b.releasedAt = nowMs; n += 1;
+        const lead = b.leadId ? this.getLead(b.leadId) : null;
+        if (lead && lead.status === 'booked') lead.status = 'replied';
+        if (lead) lead.bookingReleasedAt = nowMs;
+      }
+    }
+    if (n) this.save();
+    return n;
   }
 
   reset() { this.state = empty(); this.save(); }

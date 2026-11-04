@@ -271,6 +271,12 @@ export class Functions {
     const nowL = localNow(this.ctx.now(), config.business.tz);
     if (!isBookableNow(a.slot_id, nowL, config)) return { ok: false, error: 'That window is in the past or too soon (2 hours notice required).' };
     if (store.bookingForSlot(a.slot_id)) return { ok: false, error: 'That slot was just taken. Call check_calendar again.' };
+    if (flags?.emergency && !config.limits.emergencyHolds && !lead.seed) return { ok: false, error: 'Emergency leads are flagged for a person instead of holding a calendar slot. Call escalate_to_human with priority urgent.' };
+    if (!lead.seed) {
+      // Public-demo protection: visitors' bookings are capped overall and per visitor, and expire (see releaseExpired).
+      if (store.liveBookings().length >= config.limits.maxLiveBookings) return { ok: false, error: 'The demo calendar is at its limit for visitor bookings right now. Escalate to a human to confirm a time.' };
+      if (lead.ipHash && store.liveBookings().filter((b) => store.getLead(b.leadId)?.ipHash === lead.ipHash).length >= config.limits.maxBookingsPerVisitor) return { ok: false, error: 'This visitor already holds a demo booking. Escalate to a human for any further visits.' };
+    }
     // Synchronous check-and-write: atomic with respect to other runs in this process.
     const booking = {
       id: rid('B'), slot_id: a.slot_id, leadId: lead.id, name: lead.name, job_type: q.jobType, jobLabel: q.jobLabel,

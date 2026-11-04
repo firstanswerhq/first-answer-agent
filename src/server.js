@@ -13,6 +13,7 @@ import { SCENARIOS } from './scenarios.js';
 import { seedSample } from './seed.js';
 import { priceRangeFor } from './functions.js';
 import { safeEqual } from './util.js';
+import crypto from 'node:crypto';
 
 const LEAD_ID = /^L-[0-9a-f]{8}$/;
 
@@ -37,9 +38,16 @@ export async function createApp({ config, store = new Store({ file: config.dataF
   });
   app.use(express.json({ limit: config.limits.bodyBytes }));
 
+  // A non-reversible per-process visitor key, used only for per-visitor caps (never shown or sent anywhere).
+  const ipSalt = crypto.randomBytes(16);
+  const ipKey = (req) => crypto.createHmac('sha256', ipSalt).update(String(req.ip)).digest('hex').slice(0, 16);
+
   const readLimit = rateLimiter(config.limits.readRate, 'read', now);
   const leadLimit = rateLimiter(config.limits.leadRate, 'lead', now);
   const replyLimit = rateLimiter(config.limits.replyRate, 'reply', now);
+  const leadHourLimit = rateLimiter(config.limits.leadRateHour, 'lead-hour', now);
+  const replyHourLimit = rateLimiter(config.limits.replyRateHour, 'reply-hour', now);
+  const resetLimit = rateLimiter(config.limits.resetRate, 'reset', now);
 
   app.get('/api/health', (_req, res) => {
     const st = agent.status();
@@ -74,31 +82,31 @@ export async function createApp({ config, store = new Store({ file: config.dataF
   });
 
   // Public intake: the customer-facing form and any website can post here.
-  app.post('/api/leads', leadLimit, (req, res, next) => {
+  app.post('/api/leads', leadLimit, leadHourLimit, (req, res, next) => {
     try {
       const input = validateLeadInput(req.body, config.limits);
-      const { lead } = svc.createLead(input);
+      const { lead } = svc.createLead(input, { ipKey: ipKey(req) });
       res.status(202).json({ id: lead.id, token: lead.token, status: lead.status, receivedAt: lead.createdAt });
     } catch (e) { next(e); }
   });
 
-  app.post('/api/simulate', leadLimit, (req, res, next) => {
+  app.post('/api/simulate', leadLimit, leadHourLimit, (req, res, next) => {
     try {
       const sc = SCENARIOS.find((s) => s.id === req.body?.scenario);
       if (!sc) throw new InputError('Unknown scenario.');
-      const { lead } = svc.createLead(sc.lead, { simulated: true });
+      const { lead } = svc.createLead(sc.lead, { simulated: true, ipKey: ipKey(req) });
       res.status(202).json({ id: lead.id, token: lead.token, status: lead.status });
     } catch (e) { next(e); }
   });
 
   // Dashboard role-play: type as the customer. Needs the per-lead token like every other write.
   // Simulated leads hand their token to the browser that created them; sample leads expose a demo token in their detail.
-  app.post('/api/leads/:id/customer-reply', replyLimit, (req, res, next) => {
+  app.post('/api/leads/:id/customer-reply', replyLimit, replyHourLimit, (req, res, next) => {
     try {
       const target = LEAD_ID.test(req.params.id) ? store.getLead(req.params.id) : null;
       const tok = String(req.get('x-lead-token') || req.body?.token || '');
       if (!target || !tok || !safeEqual(tok, target.token)) throw new InputError('Lead not found.', 404);
-      const { lead } = svc.addCustomerMessage(req.params.id, req.body?.text);
+      const { lead } = svc.addCustomerMessage(req.params.id, req.body?.text, { ipKey: ipKey(req) });
       res.status(202).json({ id: lead.id });
     } catch (e) { next(e); }
   });
@@ -116,12 +124,27 @@ export async function createApp({ config, store = new Store({ file: config.dataF
       res.json({ id: lead.id, name: lead.name, replyTimeSec: lead.replyTimeSec ?? null, messages: lead.messages.map((m) => ({ from: m.from, text: m.text, ts: m.ts })), handedToHuman: lead.status === 'human', booked: !!store.bookingForLead(lead.id), mode: agent.status().label });
     } catch (e) { next(e); }
   });
-  app.post('/api/public/leads/:id/messages', replyLimit, (req, res, next) => {
+  app.post('/api/public/leads/:id/messages', replyLimit, replyHourLimit, (req, res, next) => {
     try {
       const lead = publicLead(req);
-      svc.addCustomerMessage(lead.id, req.body?.text);
+      svc.addCustomerMessage(lead.id, req.body?.text, { ipKey: ipKey(req) });
       res.status(202).json({ id: lead.id });
     } catch (e) { next(e); }
+  });
+
+  // Reset the demo: drops every visitor lead and booking and reloads the fictional sample day. The sample day is
+  // produced by the offline rules engine on a separate agent, so this never spends or touches the live model budget.
+  let lastReset = 0;
+  app.post('/api/demo/reset', resetLimit, async (_req, res, next) => {
+    try {
+      if (now() - lastReset < config.limits.resetCooldownMs) {
+        res.set('Retry-After', String(Math.ceil(config.limits.resetCooldownMs / 1000)));
+        return res.status(429).json({ error: 'The demo was reset a moment ago. Try again shortly.' });
+      }
+      lastReset = now();
+      await seedSample(store, config, { force: true, realNow: now() });
+      return res.json({ ok: true, leads: store.leads.length, bookings: store.bookings.length });
+    } catch (e) { return next(e); }
   });
 
   app.get('/api/calendar', readLimit, (req, res) => {

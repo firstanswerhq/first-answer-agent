@@ -107,6 +107,16 @@ export function loadConfig(env = process.env, over = {}) {
       replyRate: { windowMs: 60_000, max: int(env.RATE_REPLIES_PER_MIN, 30) },
       readRate: { windowMs: 60_000, max: int(env.RATE_READS_PER_MIN, 300) },
       maxMessagesPerLead: 40,
+      leadRateHour: { windowMs: 3_600_000, max: int(env.RATE_LEADS_PER_HOUR, 12) },
+      replyRateHour: { windowMs: 3_600_000, max: int(env.RATE_REPLIES_PER_HOUR, 40) },
+      resetRate: { windowMs: 3_600_000, max: int(env.RATE_RESETS_PER_HOUR, 3) },
+      resetCooldownMs: 30_000,
+      // Public-demo protection: bookings made by visitors are temporary and capped, so one visitor cannot fill the calendar.
+      liveBookingTtlMs: int(env.LIVE_BOOKING_TTL_MINUTES, 120) * 60_000,
+      maxLiveBookings: int(env.MAX_LIVE_BOOKINGS, 8),
+      maxBookingsPerVisitor: int(env.MAX_BOOKINGS_PER_VISITOR, 1),
+      // Emergency leads from the public form are flagged and handed off, not given a calendar hold, unless this is on.
+      emergencyHolds: env.EMERGENCY_HOLDS === '1',
     },
     seedOnEmpty: env.SEED_ON_EMPTY !== '0',
     ...over,

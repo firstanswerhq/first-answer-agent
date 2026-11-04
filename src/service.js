@@ -29,20 +29,20 @@ export class LeadService {
     Object.assign(this, { store, agent, config, now });
   }
 
-  createLead(input, { simulated = false, seed = false, run = true } = {}) {
+  createLead(input, { simulated = false, seed = false, run = true, ipKey = null } = {}) {
     const ts = this.now();
     const lead = {
       id: 'L-' + rid('x').slice(2), name: input.name, phone: input.phone, source: input.source, createdAt: ts,
-      status: 'new', priority: 'normal', simulated, seed, token: token(),
+      status: 'new', priority: 'normal', simulated, seed, token: token(), ipHash: ipKey || undefined,
       messages: [{ id: rid('M'), ts, from: 'customer', text: input.message }],
       timeline: [], qualification: null, offeredSlots: [], awaitingCustomer: false,
     };
     this.store.addLead(lead, this.config.limits.maxLeads);
-    const done = run ? this.agent.enqueue(lead.id, 'new_lead') : Promise.resolve();
+    const done = run ? this.agent.enqueue(lead.id, 'new_lead', { ipKey }) : Promise.resolve();
     return { lead, done };
   }
 
-  addCustomerMessage(leadId, text) {
+  addCustomerMessage(leadId, text, { ipKey = null } = {}) {
     const lead = this.store.getLead(leadId);
     if (!lead) throw new InputError('Lead not found.', 404);
     const clean = cleanText(text, this.config.limits.message + 1);
@@ -57,7 +57,7 @@ export class LeadService {
       if (f.leadId === lead.id && f.status === 'pending') { f.status = 'cancelled'; f.reason = 'customer replied'; f.endedAt = ts; }
     }
     this.store.save();
-    return { lead, done: this.agent.enqueue(lead.id, 'customer_reply') };
+    return { lead, done: this.agent.enqueue(lead.id, 'customer_reply', { ipKey: ipKey || lead.ipHash || null }) };
   }
 }
 

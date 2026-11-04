@@ -61,12 +61,21 @@ test('offline: asking for other days offers later windows', async () => {
   assert.ok(l.offeredSlots[0] > before.at(-1));
 });
 
-test('offline: roof-leak emergency gets priority, an earliest hold and a human flag', async () => {
-  const env = makeEnv();
+test('offline: roof-leak emergency gets priority, an earliest hold and a human flag (holds enabled)', async () => {
+  const env = makeEnv({ config: cfgFor({ limits: { ...cfgFor().limits, emergencyHolds: true } }) });
   const l = await newLead(env, { message: 'Water is coming through my living room ceiling right now. Active leak! 37206 East Nashville' });
   assert.equal(l.status, 'human');
   assert.equal(l.priority, 'urgent');
   assert.equal(env.store.bookingForLead(l.id).kind, 'emergency_hold');
+  assert.match(agentTexts(l)[0], /911/);
+});
+
+test('offline: by default a public emergency lead is flagged and handed off without taking a calendar slot', async () => {
+  const env = makeEnv();
+  const l = await newLead(env, { message: 'Water is coming through my living room ceiling right now. Active leak! 37206 East Nashville' });
+  assert.equal(l.status, 'human');
+  assert.equal(l.priority, 'urgent');
+  assert.equal(env.store.bookingForLead(l.id), null);
   assert.match(agentTexts(l)[0], /911/);
 });
 

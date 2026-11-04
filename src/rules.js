@@ -76,7 +76,7 @@ export async function runRules(ctx, fx, trigger) {
     }
     const cal = await fx.call('check_calendar', { days: 7, limit: 2 });
     let held = null;
-    if (cal.ok && cal.slots.length) {
+    if (cal.ok && cal.slots.length && (config.limits.emergencyHolds || lead.seed)) {
       const b = await fx.call('book_job', { slot_id: cal.slots[0].slot_id, note: 'Emergency hold: confirm by phone' });
       if (b.ok) held = b.label;
     }

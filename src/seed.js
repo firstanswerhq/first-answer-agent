@@ -37,7 +37,7 @@ export async function seedSample(store, config, { force = false, realNow = Date.
   let t = realNow;
   let seedState = 7;
   const clock = () => { seedState = (seedState * 1103515245 + 12345) & 0x7fffffff; t += 240 + (seedState % 420); return t; };
-  const cfg = { ...config, followupSpeedup: 60, forceOffline: false };
+  const cfg = { ...config, followupSpeedup: 60, forceOffline: false, limits: { ...config.limits, emergencyHolds: true, maxLiveBookings: 999 } };
   const agent = new Agent({ store, config: cfg, llm: null, now: clock });
   const svc = new LeadService({ store, agent, config: cfg, now: clock });
 
@@ -62,9 +62,10 @@ export async function seedSample(store, config, { force = false, realNow = Date.
     const starts = config.hours.starts[dow(date)];
     const slot = `${date}T${starts[slotIdx % starts.length]}`;
     if (!store.bookingForSlot(slot)) {
-      store.bookings.push({ id: `B-seed${i}`, slot_id: slot, leadId: null, name, jobLabel, job_type: 'other', kind: 'existing', status: 'confirmed', createdAt: realNow - 86_400_000 });
+      store.bookings.push({ id: `B-seed${i}`, slot_id: slot, leadId: null, name, jobLabel, job_type: 'other', kind: 'existing', status: 'confirmed', sample: true, createdAt: realNow - 86_400_000 });
     }
   });
+  for (const b of store.bookings) b.sample = true; // original sample day: never expires
   store.state.meta.seeded = true;
   store.save();
   return true;
