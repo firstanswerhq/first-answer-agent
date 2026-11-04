@@ -1,7 +1,7 @@
 // Lead lifecycle operations shared by the API, the seed script and the tests.
 import { cleanText, rid, token, maskPhone } from './util.js';
 
-export const SOURCES = ['Website form', 'Google Ads', 'Facebook', 'Referral', 'Text message', 'Phone call', 'Other'];
+export const SOURCES = ['Website form', 'Google search', 'Google Ads', 'Facebook', 'Friend or family', 'Referral', 'Text message', 'Phone call', 'Other'];
 
 export class InputError extends Error {
   constructor(msg, status = 400) { super(msg); this.status = status; }

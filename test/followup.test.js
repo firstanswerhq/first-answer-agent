@@ -17,7 +17,7 @@ test('follow-up timer really fires and posts a message when the customer stays q
   assert.match(msgs[1], /still want me to hold/);
   assert.equal(l.messages.at(-1).followup, true);
   assert.equal(env.store.followups[0].status, 'fired');
-  assert.ok(l.timeline.some((t) => t.kind === 'followup' && /fired/.test(t.title)));
+  assert.ok(l.timeline.some((t) => t.kind === 'followup' && /Follow-up sent/.test(t.title)));
 });
 
 test('follow-up is cancelled when the customer replies first', async () => {

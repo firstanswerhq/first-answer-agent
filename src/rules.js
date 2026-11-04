@@ -196,13 +196,13 @@ export async function runRules(ctx, fx, trigger) {
   else price = wording.noQuote;
   const closedNow = !isOpenNow(localNow(ctx.now(), config.business.tz), config.hours);
   const intro = wantsOutsideHours(customerText)
-    ? `We only schedule ${wording.appointment}s during business hours (${config.hours.text}), so I cannot book that time. `
+    ? `We only schedule ${wording.appointment}s during business hours: ${config.hours.text}. I cannot book that time, but here is what is open. `
     : closedNow ? 'We are closed right now, but I can already hold a time. ' : '';
   let dayNote = '';
   if (reqDay) {
     const dayName = dateLabel(reqDay.date, true).split(',')[0];
     const onThatDay = cal.slots.some((sl) => sl.slot_id.slice(0, 10) === reqDay.date);
-    dayNote = onThatDay ? `Here is what is open on ${dayName}. ` : `I do not have an opening on ${reqDay.weekday ? dayName : dateLabel(reqDay.date)} (we are open ${config.hours.text}), so here are the nearest times. `;
+    dayNote = onThatDay ? `Here is what is open on ${dayName}. ` : `I do not have an opening on ${reqDay.weekday ? dayName : dateLabel(reqDay.date)}. We are open ${config.hours.text}, so here are the nearest times. `;
   } else if (wantsNextWeek && cal.slots.every((sl) => sl.slot_id.slice(0, 10) >= nextMonday)) dayNote = 'Here is what is open next week. ';
   const inLoc = loc.needed && loc.text ? ` in ${loc.text}` : '';
   const body = q.price_range ? `${price.replace(/ usually runs/, inLoc + ' usually runs')}` : `${q.service_label}${inLoc}: ${price}`;

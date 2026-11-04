@@ -7,7 +7,7 @@ const raw = (s) => new Raw(s);
 const html = (strings, ...vals) => strings.reduce((out, s, i) => out + s + (i < vals.length ? (vals[i] instanceof Raw ? vals[i].s : Array.isArray(vals[i]) ? vals[i].map((x) => (x instanceof Raw ? x.s : esc(x))).join('') : esc(vals[i])) : ''), '');
 const R = (s) => raw(s);
 
-const state = { calStart: '', calSig: '', failures: 0, cfg: null, leads: [], agent: null, today: '', filter: 'all', query: '', timer: null, tz: 'America/Chicago', view: '' };
+const state = { calStart: '', calSig: '', failures: 0, cfg: null, leads: [], agent: null, today: '', filter: 'all', query: '', timer: null, tz: 'UTC', view: '' };
 
 async function api(path, opts) {
   const res = await fetch(path, opts && opts.body ? { ...opts, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(opts.body) } : opts);
@@ -23,6 +23,8 @@ function rememberToken(id, tok) { try { const m = JSON.parse(sessionStorage.getI
 const fmtTime = (ts, secs = false) => new Intl.DateTimeFormat('en-US', { timeZone: state.tz, hour: 'numeric', minute: '2-digit', ...(secs ? { second: '2-digit' } : {}) }).format(new Date(ts));
 const fmtDay = (iso) => { const [y, m, d] = iso.split('-').map(Number); return new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', weekday: 'long', month: 'long', day: 'numeric' }).format(new Date(Date.UTC(y, m - 1, d))); };
 // Durations under a second are shown in milliseconds, never as "0.0 s".
+const tzName = (tz) => { try { return new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'longGeneric' }).formatToParts(new Date()).find((p) => p.type === 'timeZoneName')?.value || tz; } catch { return tz; } };
+const fmtSlot = (id) => { const [d, t] = id.split('T'); const [y, m, dd] = d.split('-').map(Number); const day = new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', weekday: 'short', month: 'short', day: 'numeric' }).format(new Date(Date.UTC(y, m - 1, dd))); const h = Number(t.slice(0, 2)); return `${day}, ${h % 12 || 12}:${t.slice(3, 5)} ${h >= 12 ? 'PM' : 'AM'}`; };
 const secs = (n) => (n == null ? '—' : n < 1 ? `${Math.round(n * 1000)} ms` : `${n.toFixed(1)} s`);
 // A reply from the built-in rules that took under a second reads "instant (rules)"; a model reply keeps its real time.
 const replyText = (sec, mode) => (sec == null ? 'Waiting' : sec < 1 && mode !== 'model' ? 'instant (rules)' : secs(sec));
@@ -31,7 +33,7 @@ const dayKey = (ts) => new Intl.DateTimeFormat('en-CA', { timeZone: state.tz }).
 // Time of day for today, and the date plus time for anything older (a 3-day-old item must not look like it is from today).
 const fmtStamp = (ts) => (dayKey(ts) === state.today || !state.today ? fmtTime(ts) : new Intl.DateTimeFormat('en-US', { timeZone: state.tz, weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(ts)));
 const initials = (n) => n.split(/\s+/).map((p) => p[0]).slice(0, 2).join('').toUpperCase();
-const STATUS = { new: ['New', 'new'], replied: ['Replied', 'replied'], booked: ['Booked', 'booked'], human: ['Needs a Human', 'human'] };
+const STATUS = { new: ['New', 'new'], replied: ['Replied', 'replied'], booked: ['Booked', 'booked'], human: ['Needs a person', 'human'] };
 const chip = (s) => html`<span class="chip ${STATUS[s][1]}">${STATUS[s][0]}</span>`;
 
 function toast(msg) {
@@ -50,16 +52,16 @@ function paintShell() {
   const down = a.inferenceConfigured && !online;
   badge.className = `badge ${online ? '' : down ? 'down' : 'offline'}`;
   badge.innerHTML = html`<i class="live-dot"></i><span>${a.label}${a.model ? ` · ${a.model}` : ''}</span>`;
-  $('#footTitle').textContent = online ? `Live model: ${a.model}` : a.inferenceConfigured ? a.label : 'Offline rules mode (no inference key)';
+  $('#footTitle').textContent = online ? `AI model: ${a.model}` : 'Backup mode: built-in rules';
   $('#footDot').className = `live-dot ${online ? '' : 'off'}`;
-  $('#footText').innerHTML = html`${online ? 'Reasoning on Vultr Serverless Inference' : a.inferenceConfigured ? 'Deterministic rules are answering until the model is available' : 'Deterministic rules, no model is running'}`;
+  $('#footText').innerHTML = html`${online ? 'Replies come from the AI model running on Vultr.' : a.inferenceConfigured ? 'The AI model is not available right now, so built-in rules are answering.' : 'The AI model is not connected, so built-in rules are answering.'}`;
   const needs = state.leads.filter((l) => l.status === 'human' || l.status === 'new').length;
   $('#navCount').hidden = !needs;
   $('#navCount').textContent = needs;
   if (state.cfg) {
     $('#bizName').textContent = state.cfg.business.name;
     document.documentElement.style.setProperty('--accent', state.cfg.business.accent);
-    document.title = `${state.cfg.business.name} | AI front desk`;
+    document.title = `${state.cfg.business.name} - AI front desk`;
   }
 }
 
@@ -97,17 +99,17 @@ async function renderInbox(first) {
   if (first) {
     const sc = await api('/api/scenarios');
     $('#view').innerHTML = html`
-      <div class="heading"><div><div class="eyebrow" id="today"></div><h1>Live Inbox</h1><p class="sub">An AI front desk for small service teams: the sales-ops and customer-support work an office coordinator does. Every new lead gets a fast, helpful first answer.</p></div>
+      <div class="heading"><div><div class="eyebrow" id="today"></div><h1>Live Inbox</h1><p class="sub">Every new inquiry gets a fast, helpful first answer.</p></div>
         <div class="actions">
-          <div class="menu"><button class="btn" id="simBtn" aria-haspopup="true" aria-expanded="false">+ Simulate a new lead</button>
+          <div class="menu"><button class="btn" id="simBtn" aria-haspopup="true" aria-expanded="false">+ Simulate a new inquiry</button>
             <div class="menu-list" id="simMenu" hidden role="menu">${sc.map((s) => R(html`<button role="menuitem" data-sc="${s.id}"><strong>${s.title}</strong><span>${s.blurb}</span></button>`))}</div></div>
           <a class="btn ghost" href="/lead" target="_blank" rel="noopener">Open lead form</a>
           <button class="btn ghost" id="resetBtn" title="Reload the fictional sample data. Your own conversations are kept.">Reset demo</button>
         </div></div>
       <div class="inbox-grid">
-        <div class="card"><div class="card-head"><div><h2>New and active leads</h2><p class="sub" style="margin-top:4px" id="inboxSub"></p></div>
-          <select class="btn ghost" id="statusFilter" aria-label="Filter by status"><option value="all">All statuses</option><option value="new">New</option><option value="replied">Replied</option><option value="booked">Booked</option><option value="human">Needs a Human</option></select></div>
-          <table class="table"><thead><tr><th>Lead</th><th>Source</th><th>Reply time</th><th>Status</th><th>Received</th></tr></thead><tbody id="rows"></tbody></table></div>
+        <div class="card"><div class="card-head"><div><h2>New and active inquiries</h2><p class="sub" style="margin-top:4px" id="inboxSub"></p></div>
+          <select class="btn ghost" id="statusFilter" aria-label="Filter by status"><option value="all">All statuses</option><option value="new">New</option><option value="replied">Replied</option><option value="booked">Booked</option><option value="human">Needs a person</option></select></div>
+          <table class="table"><thead><tr><th>Customer</th><th>Source</th><th>Reply time</th><th>Status</th><th>Received</th></tr></thead><tbody id="rows"></tbody></table></div>
         <aside class="card side-card" id="sideCard"></aside>
       </div>
       <p class="foot">Demo data is fictional; messages are simulated. No real texts or emails are sent.</p>`;
@@ -137,17 +139,17 @@ function paintInbox(m) {
   if (m) state.metrics = m; else m = state.metrics;
   const list = inboxFilterList();
   $('#today').textContent = state.today ? fmtDay(state.today) : '';
-  $('#rows').innerHTML = list.length ? list.map(rowHtml).join('') : '<tr><td colspan="5" class="empty">No leads match.</td></tr>';
+  $('#rows').innerHTML = list.length ? list.map(rowHtml).join('') : '<tr><td colspan="5" class="empty">No inquiries match.</td></tr>';
   const waiting = state.leads.filter((l) => l.status === 'new' || l.status === 'human').length;
-  $('#inboxSub').textContent = `${state.leads.length} leads · ${waiting} need attention`;
+  $('#inboxSub').textContent = `${state.leads.length} inquiries · ${waiting} need attention`;
   const a = state.agent; const t = m.today; const ms = m.measured;
   $('#sideCard').innerHTML = html`<h3>Agent activity</h3>
-    <div class="agent-card"><span class="agent-orb"></span><div><strong style="font-size:14px">${state.cfg?.agent?.name || 'Answer Agent'}</strong><small style="display:block">${a.label}${a.model ? ' · ' + a.model : ''}</small></div></div>
-    <div class="activity"><span>Live leads answered today</span><strong>${t.answered}</strong></div>
-    <div class="activity"><span>Median reply, live runs</span><strong>${ms.medianSec == null ? '—' : secs(ms.medianSec)}</strong></div>
-    <div class="activity"><span>Booked today</span><strong>${t.booked}</strong></div>
-    <div class="activity"><span>Handed to team</span><strong>${t.human}</strong></div>
-    <div class="note">${ms.answered ? `Measured over ${ms.answered} live run${ms.answered === 1 ? '' : 's'} (${ms.model.answered} model, ${ms.rules.answered} rules). ` : 'No live runs yet: simulate a lead or send one from the lead form. '}Sample-day leads are simulated and not counted. Messages are simulated; nothing is really sent.${a.mode !== 'model' ? ' Offline rules mode: same path, deterministic rules instead of a model.' : ''}</div>`;
+    <div class="agent-card"><span class="agent-orb"></span><div><strong style="font-size:14px">${state.cfg?.business?.agentName || 'Assistant'}</strong><small style="display:block">${a.label}${a.model ? ' · ' + a.model : ''}</small></div></div>
+    <div class="activity"><span>Inquiries answered (this session)</span><strong>${t.answered}</strong></div>
+    <div class="activity"><span>Typical reply time</span><strong>${ms.medianSec == null ? '—' : replyText(ms.medianSec, ms.model.answered && !ms.rules.answered ? 'model' : 'rules')}</strong></div>
+    <div class="activity"><span>Booked</span><strong>${t.booked}</strong></div>
+    <div class="activity"><span>Need a person</span><strong>${t.human}</strong></div>
+    <div class="note">${ms.answered ? `${ms.answered} repl${ms.answered === 1 ? 'y' : 'ies'} measured${ms.model.answered ? `: ${ms.model.answered} by the AI model, ${ms.rules.answered} by built-in rules` : ', all from built-in rules (no AI model connected)'}. ` : 'No replies measured yet. Simulate an inquiry or send one from the contact form. '}Sample inquiries are fictional. No texts or emails are sent.</div>`;
 }
 
 // ---------- Lead Detail ----------
@@ -164,13 +166,13 @@ async function renderDetail(id, first) {
         <div class="card"><div class="card-head"><div class="lead-meta"><span class="initials">${initials(l.name)}</span><div><h2>Conversation</h2><p class="sub" id="dJob"></p></div></div><span class="sub">${l.phone}</span></div>
           <div class="conversation" id="conv" tabindex="0" aria-label="Conversation"></div>
           <form class="composer" id="composer">
-            <p class="hint">Role-play the customer: type a reply and the agent will answer. Messages are simulated.</p>
+            <p class="hint">Try it as the customer: type a reply and the assistant will answer. Messages are simulated.</p>
             <div class="quick"><button type="button" data-q="The first one works for me.">The first one works</button><button type="button" data-q="None of those times work, anything next week?">Another day?</button><button type="button" data-q="Can I speak to a manager?">Ask for a human</button></div>
-            <div class="row"><textarea id="replyText" maxlength="1000" rows="2" placeholder="Reply as ${esc(l.name.split(' ')[0])}…" aria-label="Customer reply"></textarea><button class="btn" id="sendBtn" type="submit">Send</button></div>
+            <div class="row"><textarea id="replyText" maxlength="1000" rows="2" placeholder="Reply as ${esc(l.name.split(' ')[0])}..." aria-label="Customer reply"></textarea><button class="btn" id="sendBtn" type="submit">Send</button></div>
           </form></div>
         <div style="display:grid;gap:18px;align-content:start">
-          <aside class="card"><div class="card-head"><h2>What the agent did</h2><span class="badge" id="dBadge"></span></div><div class="timeline" id="tl"></div></aside>
-          <aside class="card"><div class="card-head"><h2>Lead facts</h2></div><dl class="facts" id="facts"></dl></aside>
+          <aside class="card"><div class="card-head"><h2>What the assistant did</h2><span class="badge" id="dBadge"></span></div><div class="timeline" id="tl"></div></aside>
+          <aside class="card"><div class="card-head"><h2>Details</h2></div><dl class="facts" id="facts"></dl></aside>
         </div>
       </div>
       <p class="foot">Demo data is fictional; messages are simulated. No real texts or emails are sent.</p>`;
@@ -178,21 +180,21 @@ async function renderDetail(id, first) {
       e.preventDefault();
       const ta = $('#replyText'); const text = ta.value.trim(); if (!text) return;
       const tok = leadToken(id);
-      if (!tok) { toast('Role-play needs the lead\'s private link. Use a sample lead or one you simulated in this browser.'); return; }
+      if (!tok) { toast('Replying as the customer needs this inquiry\'s private link. Use a sample inquiry or one you started in this browser.'); return; }
       $('#sendBtn').disabled = true;
       try { await api(`/api/leads/${id}/customer-reply`, { method: 'POST', body: { text, token: tok } }); ta.value = ''; await renderDetail(id, false); } catch (err) { toast(err.message); } finally { $('#sendBtn').disabled = false; }
     });
     $('#composer').addEventListener('click', (e) => { const q = e.target.closest('[data-q]'); if (q) { $('#replyText').value = q.dataset.q; $('#replyText').focus(); } });
   }
   const working = l.status === 'new' || (l.timeline.length && l.timeline.at(-1).kind !== 'done' && l.timeline.at(-1).kind !== 'followup' && l.timeline.at(-1).kind !== 'info');
-  $('#dEyebrow').textContent = `Lead detail / ${l.qualification?.serviceLabel || 'Not yet qualified'}`;
+  $('#dEyebrow').textContent = `Inquiry detail / ${l.qualification?.serviceLabel || 'Not yet sorted'}`;
   $('#dSub').textContent = `${STATUS[l.status][0]} · ${l.source} · Received ${fmtStamp(l.createdAt)}${l.seed ? ' · sample data' : ''}`;
   $('#dJob').textContent = `${l.qualification?.serviceLabel || 'Unclassified'}${l.qualification?.location ? ' · ' + l.qualification.location : ''}`;
   $('#dChips').innerHTML = html`${R(chip(l.status))}${l.priority === 'urgent' ? R('<span class="chip urgent">Urgent</span>') : ''}`;
   const conv = $('#conv');
   const atEnd = conv.scrollTop + conv.clientHeight >= conv.scrollHeight - 40;
   const sig = l.messages.length + ':' + (working ? 1 : 0);
-  conv.innerHTML = l.messages.map((m) => html`<div class="msg ${m.followup ? 'system' : m.from}">${m.text}<span class="time">${fmtStamp(m.ts)} · ${m.from === 'customer' ? 'Customer (role-play)' : m.followup ? 'Automatic follow-up, simulated send' : 'Answer Agent, simulated send'}</span></div>`).join('') + (working ? '<div class="msg system">Agent is working…</div>' : '');
+  conv.innerHTML = l.messages.map((m) => html`<div class="msg ${m.followup ? 'system' : m.from}">${m.text}<span class="time">${fmtStamp(m.ts)} · ${m.from === 'customer' ? 'Customer (demo)' : m.followup ? 'Automatic follow-up, simulated send' : m.note ? 'Demo note' : `${state.cfg?.business?.agentName || 'Assistant'}, simulated send`}</span></div>`).join('') + (working ? '<div class="msg system">The assistant is working...</div>' : '');
   if (atEnd || conv.dataset.sig !== sig) conv.scrollTop = conv.scrollHeight;
   conv.dataset.sig = sig;
   const badge = $('#dBadge'); badge.className = `badge ${working ? 'offline' : ''}`;
@@ -224,16 +226,17 @@ function factsHtml(l, speedup) {
   const q = l.qualification; const rows = [];
   const add = (k, v) => rows.push(html`<dt>${k}</dt><dd>${v}</dd>`);
   add('First reply', l.replyTimeSec == null ? 'Not yet' : `${replyText(l.replyTimeSec, l.lastRunMode)}${l.seed ? ' (simulated)' : ' (measured)'}`);
-  add('Run mode', l.lastRunMode === 'model' ? 'Live model' : l.lastRunMode === 'offline' ? 'Offline rules' : 'Pending');
+  add('Answered by', l.lastRunMode === 'model' ? 'AI model' : l.lastRunMode === 'offline' ? 'Built-in rules' : 'Pending');
   if (q) {
-    add('Service', `${q.serviceLabel}, ${q.urgency}`);
+    add('Service', q.serviceLabel);
+    add('Priority', q.urgency);
     if (state.cfg?.serviceArea) add('Service area', q.serviceAreaOk === true ? `In area (${q.areaMatch})` : q.serviceAreaOk === false ? `Outside area (${q.areaMatch})` : 'Not confirmed');
-    add('Price book range', q.priceRange ? `$${q.priceRange.low.toLocaleString()}–$${q.priceRange.high.toLocaleString()}` : 'No quote, cost confirmed in person');
+    if (q.urgency !== 'emergency') add('Price range we may quote', q.priceRange ? `$${q.priceRange.low.toLocaleString()}–$${q.priceRange.high.toLocaleString()}` : 'No quote, cost confirmed in person');
   }
-  if (l.booking) add('Booking', `${l.booking.slot_id.replace('T', ' ')} · ${l.booking.kind === 'emergency_hold' ? 'emergency hold' : 'confirmed'}`);
+  if (l.booking) add('Booking', `${fmtSlot(l.booking.slot_id)} · ${l.booking.kind === 'emergency_hold' ? 'priority hold' : 'confirmed'}`);
   const fu = l.followups.at(-1);
-  if (fu) add('Follow-up', fu.status === 'pending' ? `Pending, fires at ${fmtTime(fu.dueAt, true)} (demo clock ${speedup}x: ${fu.delayMinutes} min → ${Math.round((fu.dueAt - fu.createdAt) / 1000)} s)` : fu.status === 'fired' ? `Fired at ${fmtTime(fu.firedAt, true)}` : `Cancelled (${fu.reason})`);
-  if (l.humanReason) add('Why a human', l.humanReason);
+  if (fu) add('Follow-up', fu.status === 'pending' ? `Due at ${fmtTime(fu.dueAt, true)} (${fu.delayMinutes} minutes in real life, shortened to ${Math.round((fu.dueAt - fu.createdAt) / 1000)} seconds for the demo)` : fu.status === 'fired' ? `Sent at ${fmtTime(fu.firedAt, true)}` : `Cancelled (${fu.reason})`);
+  if (l.humanReason) add('Why a person is needed', l.humanReason);
   return rows.join('');
 }
 
@@ -275,14 +278,14 @@ async function renderCalendar(start, { quiet = false } = {}) {
   const hours = Array.from({ length: H1 - H0 }, (_, i) => `<div class="hlabel">${clock(String(H0 + i).padStart(2, '0'))}</div>`).join('');
   const agenda = cols.map((day) => `<h3>${esc(dname(day.date))} ${esc(label(day.date))}${day.today ? ' (today)' : ''}</h3>` + (day.slots.length ? '' : '<div class="row past"><span>Closed</span><span></span></div>') + day.slots.map((s) => `<div class="row ${s.status === 'open' ? 'free' : s.status === 'past' ? 'past' : ''}"><span>${esc(clock(s.start))}–${esc(clock(s.end))}</span><span>${s.status === 'booked' ? esc(s.booking.serviceLabel + ' · ' + s.booking.name) : s.status === 'open' ? 'Open' : s.date < c.today ? 'Past' : 'Too soon'}</span></div>`).join('')).join('');
   $('#view').innerHTML = html`
-    <div class="heading"><div><div class="eyebrow">Your week at a glance</div><h1>Calendar</h1><p class="sub">Booked and open appointment times. The agent can only book what you see here.</p></div>
+    <div class="heading"><div><div class="eyebrow">Your week at a glance</div><h1>Calendar</h1><p class="sub">Booked and open appointment times. The assistant books only the open times shown here.</p></div>
       <div class="actions"><button class="btn ghost small" data-week="${c.prev}" aria-label="Previous week">‹ Prev</button><span class="btn ghost small" style="pointer-events:none">${label(cols[0].date)} – ${label(cols[5].date)}, ${cols[0].date.slice(0, 4)}</span><button class="btn ghost small" data-week="${c.next}" aria-label="Next week">Next ›</button></div></div>
     <div class="card" style="padding:15px">
       <div class="week-wrap"><div class="week"><div></div>${R(cols.map((d) => html`<div class="dayhead ${d.today ? 'today' : ''}">${dname(d.date)}<small>${label(d.date)}</small></div>`).join(''))}
         <div class="hourcol">${R(hours)}</div>${R(cols.map(colHtml).join(''))}</div></div>
       <div class="agenda">${R(agenda)}</div>
     </div>
-    <div class="legend-row"><span>● Booked by the agent</span><span style="color:#8791b2">● Existing clients (sample)</span><span style="margin-left:auto">All times ${state.cfg.business.tz.replace('_', ' ')} · Appointments are ${WH} hour${WH === 1 ? '' : 's'} · ${state.cfg.hoursText}</span></div>
+    <div class="legend-row"><span>● Booked by the assistant</span><span style="color:#8791b2">● Existing ${state.cfg.business.customerWord}s (sample)</span><span style="margin-left:auto">All times ${tzName(state.cfg.business.tz)} · Appointments are ${WH} hour${WH === 1 ? '' : 's'} · ${state.cfg.hoursText}</span></div>
     <p class="foot">Demo data is fictional; messages are simulated.</p>`;
   $('#view').onclick = (e) => {
     const w = e.target.closest('[data-week]'); if (w) { renderCalendar(w.dataset.week); return; }
@@ -297,24 +300,24 @@ async function renderResults(scope = 'live') {
   const bars = chartSvg(m.chart);
   const withSample = m.scope === 'all';
   $('#view').innerHTML = html`
-    <div class="heading"><div><div class="eyebrow">${withSample ? 'Live runs plus the simulated sample day' : 'Live agent runs only'}</div><h1>Results</h1><p class="sub">Numbers are computed from the leads stored in this app. Reply times are measured on the server clock for live runs. The sample day is simulated and labeled as such.</p></div>
-      <select class="btn ghost" id="scope" aria-label="Data scope"><option value="live">Live runs only (measured)</option><option value="all">Include simulated sample data</option></select></div>
+    <div class="heading"><div><div class="eyebrow">${withSample ? 'Live replies plus the fictional sample day' : 'Live replies only'}</div><h1>Results</h1><p class="sub">Numbers come from the inquiries stored in this app. The dashboard shows how long each reply actually took. The sample day is fictional and labeled as such.</p></div>
+      <select class="btn ghost" id="scope" aria-label="Data scope"><option value="live">Live replies only (measured)</option><option value="all">Include simulated sample data</option></select></div>
     <div class="stat-grid">
-      <div class="card stat"><label>Measured median reply time (live runs)</label><strong>${ms.medianSec == null ? '—' : secs(ms.medianSec)}</strong><small class="dim">${ms.answered ? `n = ${ms.answered} live run${ms.answered === 1 ? '' : 's'} · model ${ms.model.answered ? secs(ms.model.medianSec) + ' (n=' + ms.model.answered + ')' : 'none yet'} · rules ${ms.rules.answered ? secs(ms.rules.medianSec) + ' (n=' + ms.rules.answered + ')' : 'none yet'}` : 'No live runs yet'}</small></div>
-      <div class="card stat"><label>Leads answered</label><strong>${m.answered}</strong><small class="dim">of ${m.totalLeads} received${withSample ? ' (includes simulated sample)' : ''}</small></div>
-      <div class="card stat"><label>Appointments booked</label><strong>${m.booked}</strong><small>${m.bookedRate == null ? 'No data yet' : m.bookedRate + '% of answered leads' + (withSample ? ' (sample is simulated)' : '')}</small></div>
-      <div class="card stat"><label>Handed to a human</label><strong>${m.human}</strong><small class="dim">${m.humanRate == null ? 'No data yet' : m.humanRate + '% for judgment or follow-up'}</small></div>
+      <div class="card stat"><label>Typical reply time${ms.answered ? ` (median of ${ms.answered} live repl${ms.answered === 1 ? 'y' : 'ies'})` : ''}</label><strong>${ms.medianSec == null ? '—' : replyText(ms.medianSec, ms.model.answered && !ms.rules.answered ? 'model' : 'rules')}</strong><small class="dim">${ms.answered ? `AI model ${ms.model.answered ? secs(ms.model.medianSec) + ' (' + ms.model.answered + ')' : 'none yet'} · built-in rules ${ms.rules.answered ? replyText(ms.rules.medianSec, 'rules') + ' (' + ms.rules.answered + ')' : 'none yet'}` : 'No live replies yet'}</small></div>
+      <div class="card stat"><label>Inquiries answered</label><strong>${m.answered}</strong><small class="dim">of ${m.totalLeads} received${withSample ? ' (includes the fictional sample)' : ''}</small></div>
+      <div class="card stat"><label>Appointments booked</label><strong>${m.booked}</strong><small>${m.bookedRate == null ? 'No data yet' : m.bookedRate + '% of answered inquiries' + (withSample ? ' (sample is fictional)' : '')}</small></div>
+      <div class="card stat"><label>Needs a person</label><strong>${m.human}</strong><small class="dim">${m.humanRate == null ? 'No data yet' : m.humanRate + '% need judgment or a follow-up call'}</small></div>
     </div>
-    <div class="card chart"><div class="chart-head"><div><h2>Reply time per lead</h2><p class="sub" style="margin-top:4px">Seconds from the lead arriving to the agent's first reply · latest ${m.chart.length} answered leads</p></div>
-      <div class="legend"><span><i></i>Offline rules (live run)</span><span><i class="l2"></i>Live model</span>${withSample ? R('<span><i class="l4"></i>Simulated sample</span>') : ''}</div></div>
+    <div class="card chart"><div class="chart-head"><div><h2>Reply time per inquiry</h2><p class="sub" style="margin-top:4px">Time from the inquiry arriving to the first reply · latest ${m.chart.length} answered</p></div>
+      <div class="legend"><span><i></i>Built-in rules</span><span><i class="l2"></i>AI model</span>${withSample ? R('<span><i class="l4"></i>Fictional sample</span>') : ''}</div></div>
       ${R(bars)}</div>
-    <p class="foot">${m.liveLeads} live lead${m.liveLeads === 1 ? '' : 's'} and ${sk} simulated sample lead${sk === 1 ? '' : 's'} in this workspace. Sample leads were generated by the offline rules engine on a simulated clock, so their times are not measurements. Messages are simulated; nothing is really sent.</p>`;
+    <p class="foot">${m.liveLeads} live inquir${m.liveLeads === 1 ? 'y' : 'ies'} and ${sk} fictional sample inquir${sk === 1 ? 'y' : 'ies'} in this workspace. The sample inquiries were generated by the built-in rules on a simulated clock, so their times are not measurements. Nothing is really sent.</p>`;
   $('#scope').value = scope;
   $('#scope').addEventListener('change', (e) => renderResults(e.target.value));
 }
 
 function chartSvg(data) {
-  if (!data.length) return '<div class="empty">No answered leads yet. Simulate a lead from the Live Inbox and it will appear here.</div>';
+  if (!data.length) return '<div class="empty">No answered inquiries yet. Simulate one from the Live Inbox and it will appear here.</div>';
   const narrow = window.innerWidth < 600;
   const d = narrow ? data.slice(-7) : data;
   const W = 760; const H = 280; const L = 44; const T = 22; const B = 36; const iw = W - L - 10; const ih = H - T - B;
@@ -323,7 +326,7 @@ function chartSvg(data) {
   const max = inMs ? Math.max(0.005, Math.ceil(top * 1000 / 5) * 5 / 1000) : Math.max(5, Math.ceil(top / 5) * 5);
   const bw = Math.min(34, (iw / d.length) * 0.55);
   const y = (v) => T + ih - (v / max) * ih;
-  let out = `<svg class="chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Bar chart of reply time in seconds for the latest ${d.length} leads. ">`;
+  let out = `<svg class="chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Bar chart of reply time for the latest ${d.length} inquiries. ">`;
   for (let i = 0; i <= 4; i += 1) { const v = (max / 4) * i; out += `<line x1="${L}" x2="${W - 10}" y1="${y(v)}" y2="${y(v)}" stroke="#ffffff14"/><text x="${L - 8}" y="${y(v) + 4}" text-anchor="end">${inMs ? Math.round(v * 1000) + ' ms' : Number.isInteger(v) ? v : v.toFixed(1)}</text>`; }
   d.forEach((x, i) => {
     const cx = L + (iw / d.length) * (i + 0.5); const live = x.mode === 'model'; const sim = x.seed;
@@ -341,25 +344,26 @@ function renderGuardrails() {
   const priced = c.services.filter((x) => x.price);
   const quote = c.services.filter((x) => !x.price).map((x) => x.label);
   $('#view').innerHTML = html`
-    <div class="heading"><div><div class="eyebrow">Safety</div><h1>Guardrails</h1><p class="sub">Enforced in code before and after every model call, for ${c.business.name}. Customer text is treated as data, and the checks below run in software after the model, so they hold even if the model misbehaves.</p></div></div>
+    <div class="heading"><div><div class="eyebrow">Safety</div><h1>Guardrails</h1><p class="sub">These checks run in software for ${c.business.name}, so they still apply if the AI model gets something wrong. Customer text is treated as data, never as instructions.</p></div></div>
     <div class="grid2">
       <div class="card"><div class="card-head"><h2>What the agent is blocked from doing</h2></div><div class="card-body"><ul class="rules">
-        <li><b>Book outside business hours.</b> ${c.hoursText}. Times come only from the calendar store.</li>
+        <li><b>Book outside business hours.</b> ${c.hoursText}. Times come only from the business's calendar.</li>
         <li><b>Double book.</b> A taken time is refused at write time.</li>
-        <li><b>Quote beyond the price book.</b> Any dollar amount outside the configured range is blocked; otherwise it offers a range or says the cost is confirmed in person.</li>
+        <li><b>Quote a price outside the approved range.</b> Any dollar amount outside the range set for the service is blocked; otherwise the assistant gives the range or says the cost is confirmed in person.</li>
         <li><b>Promise discounts, refunds, guarantees or free work,</b> or send links.</li>
-        <li><b>Follow instructions inside customer text.</b> Customer messages are data. Injection attempts are flagged and handed to a human.</li></ul></div></div>
-      <div class="card"><div class="card-head"><h2>Always handed to a human</h2></div><div class="card-body"><ul class="rules">
-        <li><b>${c.urgency.label}:</b> flagged urgent for a person to call. ${c.urgency.safetyNote}</li>
+        <li><b>Follow instructions hidden in a customer message.</b> If a message tells the assistant to ignore its rules (a "prompt injection"), it is flagged and handed to a person.</li></ul></div></div>
+      <div class="card"><div class="card-head"><h2>Always handed to a person</h2></div><div class="card-body"><ul class="rules">
+        <li><b>${c.urgency.label}:</b> flagged urgent for a person to call. The customer is told: "${c.urgency.safetyNote}"</li>
+        <li><b>Possible medical emergencies</b> in any business: the customer is told to call 911, and a person is alerted.</li>
         <li><b>Complaints and angry ${c.business.customerWord}s.</b></li>
         ${c.alwaysHuman.map((t) => R(html`<li><b>${upper1(t.replace(/\.$/, ''))}.</b></li>`))}
         <li><b>Schedule changes</b> to an existing booking, or anyone asking for a person.</li>
-        <li><b>Out of scope${c.serviceArea ? ' or out of area' : ''}</b> requests, and unclear leads after two questions.</li>
-        <li><b>Repeated guardrail violations</b> by the model.</li></ul></div></div>
+        <li><b>Out of scope${c.serviceArea ? ' or out of area' : ''}</b> requests, and unclear requests after two questions.</li>
+        <li><b>If the AI repeatedly tries something not allowed.</b></li></ul></div></div>
       ${c.serviceArea ? R(html`<div class="card"><div class="card-head"><h2>Service area</h2></div><div class="card-body"><div class="pillbox">${c.serviceArea.cities.map((x) => R(html`<span>${x}</span>`))}</div></div></div>`) : ''}
-      <div class="card"><div class="card-head"><h2>Price book</h2></div><div class="card-body" style="padding:0"><table class="table"><thead><tr><th>Service</th><th>Price range</th></tr></thead><tbody>${priced.map((p) => R(html`<tr><td>${p.label}</td><td>$${p.price.low.toLocaleString()}–$${p.price.high.toLocaleString()}</td></tr>`))}</tbody></table><p class="sub" style="padding:12px 16px">${quote.length ? `No quote from the agent: ${quote.join(', ')}. ${c.wording.noQuote}` : 'Every service has a configured range.'}</p></div></div>
+      <div class="card"><div class="card-head"><h2>Approved price ranges</h2></div><div class="card-body" style="padding:0"><table class="table"><thead><tr><th>Service</th><th>Price range</th></tr></thead><tbody>${priced.map((p) => R(html`<tr><td>${p.label}</td><td>$${p.price.low.toLocaleString()}–$${p.price.high.toLocaleString()}</td></tr>`))}</tbody></table><p class="sub" style="padding:12px 16px">${quote.length ? `No quote from the agent: ${quote.join(', ')}. ${c.wording.noQuote}` : 'Every service has a configured range.'}</p></div></div>
     </div>
-    <p class="foot">Demo data is fictional; messages are simulated. Follow-up timers run on a ${c.followupSpeedup}x demo clock so you can watch one fire. All of this comes from the business profile "${c.profile}".</p>`;
+    <p class="foot">Demo data is fictional; messages are simulated. Follow-ups normally wait 30 minutes; the demo shortens that to ${Math.max(1, Math.round(1800 / c.followupSpeedup))} seconds so you can watch one. All of this comes from the business profile "${c.profile}".</p>`;
 }
 
 // ---------- router ----------
@@ -369,7 +373,7 @@ async function route() {
   const view = `${name}/${arg || ''}`;
   const first = state.view !== view; state.view = view;
   setNav(name === 'lead' ? 'inbox' : name);
-  $('#crumb').textContent = { inbox: 'Live Inbox', lead: 'Lead Detail', calendar: 'Calendar', results: 'Results', guardrails: 'Guardrails' }[name] || 'Live Inbox';
+  $('#crumb').textContent = { inbox: 'Live Inbox', lead: 'Inquiry Detail', calendar: 'Calendar', results: 'Results', guardrails: 'Guardrails' }[name] || 'Live Inbox';
   $('.search').hidden = name !== 'inbox';
   let again = 3000;
   try {

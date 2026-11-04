@@ -16,7 +16,7 @@ test('offline: first contact qualifies, checks the calendar, replies with a pric
 test('offline: the run is labeled offline rules mode in the timeline and status', async () => {
   const env = makeEnv();
   const l = await newLead(env);
-  assert.ok(l.timeline.some((t) => t.kind === 'mode' && /Offline rules mode/.test(t.title)));
+  assert.ok(l.timeline.some((t) => t.kind === 'mode' && /Backup mode/.test(t.title)));
   assert.equal(l.lastRunMode, 'offline');
   const st = env.agent.status();
   assert.equal(st.mode, 'offline');
@@ -213,7 +213,7 @@ test('offline: every lead gets a reply even if a rule path forgets one (guardrai
 test('forced offline mode is labeled as forced', async () => {
   const env = makeEnv({ config: cfgFor({ forceOffline: true }) });
   const l = await newLead(env);
-  assert.ok(l.timeline.some((t) => /forced/.test(t.title)));
+  assert.ok(l.timeline.some((t) => /switched off/.test(t.title)));
 });
 
 test('ZIP detection: only real ZIP-looking numbers count, never prices or sizes', async () => {

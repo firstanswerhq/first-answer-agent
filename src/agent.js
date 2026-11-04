@@ -81,11 +81,11 @@ export class Agent {
     const configured = !!(this.llm?.configured) && !this.config.forceOffline;
     let mode = configured ? MODE_MODEL : MODE_OFFLINE;
     let label;
-    if (this.config.forceOffline) label = 'Offline rules mode (forced)';
-    else if (!this.llm?.configured) label = 'Offline rules mode';
-    else if (!this.underHourlyCap()) { mode = MODE_OFFLINE; label = 'Offline rules mode (hourly model quota reached)'; }
-    else if (this.stats.lastModelOk === false) { mode = MODE_OFFLINE; label = 'Offline rules mode (model unreachable)'; }
-    else label = 'Live model';
+    if (this.config.forceOffline) label = 'Backup mode: built-in rules';
+    else if (!this.llm?.configured) label = 'Backup mode: built-in rules (AI model not connected)';
+    else if (!this.underHourlyCap()) { mode = MODE_OFFLINE; label = 'Backup mode: built-in rules (hourly AI limit reached)'; }
+    else if (this.stats.lastModelOk === false) { mode = MODE_OFFLINE; label = 'Backup mode: built-in rules (AI model unreachable)'; }
+    else label = 'AI model';
     return {
       mode, label,
       model: mode === MODE_MODEL ? (this.stats.lastModel || this.llm.model) : null,
@@ -189,22 +189,22 @@ export class Agent {
     const ipKey = opts.ipKey ?? lead.ipHash ?? null;
     const ctx = { store, config, now: this.now, lead, flags, step, run: runInfo, sentReply: false, guardRejects: 0, ipKey };
 
-    step({ kind: 'received', title: trigger === 'new_lead' ? `New lead received from ${lead.source}` : 'Customer replied', detail: (lastCustomer?.text || '').slice(0, 160) });
+    step({ kind: 'received', title: trigger === 'new_lead' ? `New inquiry received from ${lead.source}` : 'Customer replied', detail: (lastCustomer?.text || '').slice(0, 160) });
 
     if (lead.status === 'human') {
       if (trigger === 'customer_reply' && !lead.handoffAckSent) {
         // One short holding message per handoff, so the customer is not left staring at a silent page.
         lead.handoffAckSent = true;
         new Functions(ctx).deliver(`Thanks${comma(lead.name)}. A teammate has your message and will reply here soon. ${config.profile.urgency.safetyNote} You can also call us at ${config.business.phone}. - ${config.business.agentName} (AI)`);
-        step({ kind: 'info', title: 'Lead is with a human; the agent sent one short holding message and will not reply further', detail: lead.humanReason || '' });
+        step({ kind: 'info', title: 'This inquiry is with a person; the assistant sent one short holding message and will not reply further', detail: lead.humanReason || '' });
       } else {
-        step({ kind: 'info', title: 'Lead is with a human; the agent held back and did not reply', detail: lead.humanReason || '' });
+        step({ kind: 'info', title: 'This inquiry is with a person; the assistant held back and did not reply', detail: lead.humanReason || '' });
       }
       lead.lastRunAt = this.now();
       store.save();
       return;
     }
-    if (flags.any) step({ kind: 'guard', title: `Safety check flagged: ${flags.reasons.join('; ')}`, detail: 'Enforced in code before any model call' });
+    if (flags.any) step({ kind: 'guard', title: `Safety check flagged: ${flags.reasons.join('; ')}`, detail: 'Checked in code before any AI call' });
 
     const fx = new Functions(ctx);
     let usedModel = false;
@@ -214,11 +214,11 @@ export class Agent {
     const ipOk = this.underIpCap(ipKey);
     if (flags.medical) {
       // A possible medical emergency is never left to the model: the fixed 911 wording is sent by software.
-      step({ kind: 'mode', title: 'Medical emergency wording: the fixed 911 reply is sent by software, not the model', detail: 'Enforced in code before any model call' });
+      step({ kind: 'mode', title: 'Possible medical emergency: the fixed 911 reply is sent by software, not the AI model', detail: 'Checked in code before any AI call' });
     } else if (!config.forceOffline && this.llm?.configured && globalOk && ipOk) {
       this.reserveModelRun(ipKey);
       runInfo.mode = MODE_MODEL;
-      step({ kind: 'mode', title: `Reasoning with model ${this.llm.model} on Vultr Serverless Inference` });
+      step({ kind: 'mode', title: `Answering with the AI model ${this.llm.model} on Vultr` });
       try {
         const outcome = await this.modelLoop(ctx, fx, step);
         usedModel = true;
@@ -226,7 +226,7 @@ export class Agent {
         // (same guarded functions) instead of treating a normal lead as an escalation.
         if (!ctx.sentReply && lead.status !== 'human' && outcome !== 'guard_stop') {
           runInfo.mode = MODE_OFFLINE;
-          step({ kind: 'mode', title: 'Model produced no customer reply; the rules engine finished the job', detail: 'Same guarded functions, deterministic path' });
+          step({ kind: 'mode', title: 'The AI model sent no reply, so the built-in rules finished the job', detail: 'Same steps and the same safety checks' });
           this.stats.offlineRuns += 1;
           await runRules(ctx, fx, trigger);
         }
@@ -238,11 +238,11 @@ export class Agent {
         this.stats.lastError = String(err.message || err).slice(0, 160);
         modelNote = this.stats.lastError;
         runInfo.mode = MODE_OFFLINE;
-        step({ kind: 'mode', ok: false, title: 'Model call failed; finishing in offline rules mode', detail: modelNote });
+        step({ kind: 'mode', ok: false, title: 'The AI model call failed, so the built-in rules took over', detail: modelNote });
       }
     } else {
-      const why = config.forceOffline ? 'forced by FORCE_OFFLINE' : !this.llm?.configured ? 'no inference key configured' : !globalOk ? 'hourly model-call cap reached' : 'per-visitor hourly model-call cap reached';
-      step({ kind: 'mode', title: `Offline rules mode (${why})`, detail: 'Deterministic rules follow the same path and call the same guarded functions' });
+      const why = config.forceOffline ? 'the AI model is switched off' : !this.llm?.configured ? 'the AI model is not connected' : !globalOk ? 'the hourly AI limit was reached' : 'this visitor reached the hourly AI limit';
+      step({ kind: 'mode', title: `Backup mode: built-in rules (${why})`, detail: 'The built-in rules follow the same steps and use the same safety checks as the AI model' });
     }
 
     if (!usedModel) {
@@ -259,7 +259,7 @@ export class Agent {
     lead.lastRunAt = this.now();
     lead.runCount = (lead.runCount || 0) + 1;
     step({
-      kind: 'done', title: lead.firstReplyAt && !lead.replyDoneLogged ? `Done. First reply in ${lead.replyTimeSec < 1 ? Math.round(lead.replyTimeSec * 1000) + ' ms' : lead.replyTimeSec + ' s'}` : 'Done',
+      kind: 'done', title: lead.firstReplyAt && !lead.replyDoneLogged ? `Done. ${lead.replyTimeSec < 1 && runInfo.mode !== MODE_MODEL ? 'Reply sent instantly (built-in rules)' : `First reply in ${lead.replyTimeSec < 1 ? Math.round(lead.replyTimeSec * 1000) + ' ms' : lead.replyTimeSec + ' s'}`}` : 'Done',
       detail: `Status: ${lead.status}`,
     });
     lead.replyDoneLogged = true;
@@ -321,7 +321,7 @@ export class Agent {
     const lastCustomer = [...lead.messages].reverse().find((m) => m.from === 'customer');
     if (lead.status === 'human' || store.bookingForLead(lead.id) || (lastCustomer && lastCustomer.ts > fu.createdAt)) {
       fu.status = 'cancelled'; fu.reason = 'customer replied or lead was resolved'; fu.endedAt = this.now();
-      step({ kind: 'followup', title: 'Follow-up timer cancelled: the customer replied or the lead was resolved' });
+      step({ kind: 'followup', title: 'Follow-up cancelled: the customer replied or the inquiry was resolved' });
       store.save();
       return;
     }
@@ -329,7 +329,7 @@ export class Agent {
     const fx = new Functions(ctx);
     const r = fx.deliver(fu.text, { followup: true });
     fu.status = 'fired'; fu.firedAt = this.now();
-    step({ kind: 'followup', ok: r.ok, title: `Follow-up fired after ${fu.delayMinutes} min of silence (demo clock ${this.config.followupSpeedup}x): message posted (simulated)`, detail: fu.text.slice(0, 160) });
+    step({ kind: 'followup', ok: r.ok, title: `Follow-up sent because the customer stayed quiet (${fu.delayMinutes} minutes in real life, shortened for the demo; simulated send)`, detail: fu.text.slice(0, 160) });
     store.save();
   }
 }

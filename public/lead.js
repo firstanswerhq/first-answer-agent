@@ -1,5 +1,5 @@
 const $ = (s) => document.querySelector(s);
-let agentName = 'Booking assistant'; let leadId = null; let token = null; let timer = null;
+let agentName = 'Booking assistant'; let bizName = 'our team'; let leadId = null; let token = null; let timer = null;
 try { const saved = JSON.parse(sessionStorage.getItem('fa-lead') || 'null'); if (saved) { leadId = saved.id; token = saved.token; } } catch { /* storage unavailable */ }
 
 const fmt = (ts) => new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit' }).format(new Date(ts));
@@ -13,12 +13,18 @@ async function post(path, body) {
 $('#leadForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = new FormData(e.target); $('#err').textContent = ''; $('#submit').disabled = true;
+  e.target.querySelectorAll('input,textarea').forEach((el) => el.removeAttribute('aria-invalid'));
   try {
     const r = await post('/api/leads', Object.fromEntries(f));
     leadId = r.id; token = r.token;
     try { sessionStorage.setItem('fa-lead', JSON.stringify({ id: leadId, token })); } catch { /* ignore */ }
     show();
-  } catch (err) { $('#err').textContent = err.message; } finally { $('#submit').disabled = false; }
+  } catch (err) {
+    $('#err').textContent = err.message;
+    // Mark the field that needs attention.
+    const bad = /name/i.test(err.message) && !/phone/i.test(err.message) ? '#name' : /phone/i.test(err.message) ? '#phone' : /message/i.test(err.message) ? '#message' : null;
+    if (bad) { $(bad).setAttribute('aria-invalid', 'true'); $(bad).focus(); }
+  } finally { $('#submit').disabled = false; }
 });
 
 $('#replyForm').addEventListener('submit', async (e) => {
@@ -49,17 +55,18 @@ async function poll(now) {
       div.append(document.createTextNode(m.text));
       const t = document.createElement('span'); t.className = 'time'; t.textContent = `${fmt(m.ts)} · ${m.from === 'customer' ? 'You' : `${agentName}, simulated`}`; div.append(t); conv.append(div);
     }
-    $('#status').textContent = d.replyTimeSec == null ? 'Waiting for the first reply…' : `The agent replied in ${d.replyTimeSec < 1 ? Math.round(d.replyTimeSec * 1000) + ' milliseconds' : d.replyTimeSec.toFixed(1) + ' seconds'}${d.handedToHuman ? ' and handed you to a teammate' : d.booked ? ' and booked your appointment' : ''}.`;
-    $('#mode').innerHTML = '<i class="live-dot"></i>'; $('#mode').append(document.createTextNode(d.mode));
+    // Customer-facing wording only: no timings, no internal modes.
+    $('#status').textContent = d.replyTimeSec == null ? 'Waiting for the first reply...' : d.handedToHuman ? `We got your message. A person from ${bizName} will follow up.` : d.booked ? 'Your appointment is booked.' : 'You have a reply below.';
+    $('#mode').textContent = 'Demo';
     conv.scrollTop = conv.scrollHeight;
     timer = setTimeout(poll, d.replyTimeSec == null ? 800 : 3000);
   } catch { timer = setTimeout(poll, 4000); }
   void now;
 }
 fetch('/api/config').then((r) => r.json()).then((c) => {
-  agentName = c.business.agentName;
+  agentName = c.business.agentName; bizName = c.business.name;
   document.documentElement.style.setProperty('--accent', c.business.accent);
-  document.title = `${c.business.name} | contact us`;
+  document.title = `${c.business.name} - Contact us`;
   $('#biz').textContent = c.business.name;
   const small = document.createElement('small'); small.textContent = c.business.tagline; $('#biz').append(small);
   $('#formEyebrow').textContent = c.wording.formEyebrow; $('#formTitle').textContent = c.wording.formTitle; $('#formIntro').textContent = c.wording.formIntro;

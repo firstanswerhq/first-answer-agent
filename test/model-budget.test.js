@@ -22,7 +22,7 @@ test('per-visitor model cap: one visitor gets rules after their quota, another v
     const { lead: l, done } = env.svc.createLead(lead({ name: `Greedy ${i}` }), { ipKey: 'greedy' });
     await done;
     modes.push(l.lastRunMode);
-    if (i === 2) assert.ok(l.timeline.some((t) => /per-visitor hourly model-call cap/.test(t.title)));
+    if (i === 2) assert.ok(l.timeline.some((t) => /this visitor reached the hourly AI limit/.test(t.title)));
   }
   assert.deepEqual(modes, ['model', 'model', 'offline']);
   const { lead: other, done } = env.svc.createLead(lead({ name: 'Other' }), { ipKey: 'someone-else' });
@@ -59,16 +59,16 @@ test('the global cap is reserved when a run starts, so concurrent runs cannot ov
   assert.equal(modelRuns, 2);
 });
 
-test('when the global cap is reached the badge and health say so instead of "Live model"', async () => {
+test('when the global cap is reached the badge and health say so instead of "AI model"', async () => {
   const llm = fakeLlm(Array.from({ length: 6 }, happy).flat());
   const env = makeEnv({ llm, config: inf({ maxRunsPerHour: 1 }) });
-  assert.equal(env.agent.status().label, 'Live model');
+  assert.equal(env.agent.status().label, 'AI model');
   const a = env.svc.createLead(lead()); await a.done;
   const st = env.agent.status();
   assert.equal(st.mode, 'offline');
   assert.equal(st.model, null);
   assert.equal(st.quotaReached, true);
-  assert.match(st.label, /quota reached/);
+  assert.match(st.label, /hourly AI limit/);
   env.clock.advance(3_600_001);
-  assert.equal(env.agent.status().label, 'Live model');
+  assert.equal(env.agent.status().label, 'AI model');
 });

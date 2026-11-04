@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>First Answer Agent</title>
-<meta name="description" content="An AI front desk for small service teams: answers new leads, books appointments, follows up, and hands off to a person when unsure.">
+<meta name="description" content="A virtual front desk for a small business: answers new inquiries, books appointments, follows up, and hands anything unsure to a person.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%23a95aff'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="/design-base.css">
 <link rel="stylesheet" href="/app.css">
@@ -12,7 +12,7 @@
 <body>
 <div class="app" id="app">
   <aside class="sidebar">
-    <div class="sidebrand"><span class="orbmini"></span><span>First Answer<small style="display:block;font-weight:500;font-size:10.5px;color:#8a93b3;margin-top:2px">AI front desk for small teams</small></span></div>
+    <div class="sidebrand"><span class="orbmini"></span><span>First Answer<small style="display:block;font-weight:500;font-size:10.5px;color:#8a93b3;margin-top:2px">AI front desk for small businesses</small></span></div>
     <div class="side-label">Workspace</div>
     <nav class="nav" aria-label="Main">
       <a href="#/inbox" data-nav="inbox"><svg viewBox="0 0 24 24"><path d="M4 13l3-8h10l3 8v6H4z"/><path d="M4 13h5l1 2h4l1-2h5"/></svg>Live Inbox<span class="count" id="navCount" hidden></span></a>
@@ -22,10 +22,10 @@
     <div class="side-label" style="margin-top:22px">Manage</div>
     <nav class="nav" aria-label="Manage">
       <a href="#/guardrails" data-nav="guardrails"><svg viewBox="0 0 24 24"><path d="M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6z"/></svg>Guardrails</a>
-      <a href="/lead" target="_blank" rel="noopener"><svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5H5V6h5"/></svg>Customer lead form</a>
+      <a href="/lead" target="_blank" rel="noopener"><svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5H5V6h5"/></svg>Customer contact form</a>
     </nav>
     <div class="sidebar-foot">
-      <strong><i class="live-dot" id="footDot"></i><span id="footTitle">Checking agent mode</span></strong>
+      <strong><i class="live-dot" id="footDot"></i><span id="footTitle">Checking status</span></strong>
       <p id="footText">&nbsp;</p>
     </div>
   </aside>
@@ -33,7 +33,7 @@
     <div class="topbar">
       <div class="crumb"><span id="bizName">Your business</span> <span style="color:#65708e">/</span> <span id="crumb">Live Inbox</span></div>
       <div class="top-actions">
-        <label class="search" aria-label="Search leads"><span aria-hidden="true">&#8981;</span><input id="search" type="search" placeholder="Search leads" autocomplete="off"></label>
+        <label class="search" aria-label="Search inquiries"><span aria-hidden="true">&#8981;</span><input id="search" type="search" placeholder="Search inquiries" autocomplete="off"></label>
         <span class="badge" id="modeBadge" role="status"><i class="live-dot"></i><span>Loading</span></span>
       </div>
     </div>

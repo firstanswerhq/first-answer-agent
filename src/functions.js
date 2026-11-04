@@ -379,9 +379,9 @@ function describeCall(name, args, result, config) {
     }
     case 'check_calendar': return `Checked the calendar: ${result.slots.length} open window${result.slots.length === 1 ? '' : 's'} found`;
     case 'book_appointment': return `Booked ${result.label}`;
-    case 'send_reply': return 'Sent a reply to the customer (simulated)';
-    case 'schedule_followup': return `Scheduled a follow-up in ${args.delay_minutes} min if the customer goes quiet`;
-    case 'escalate_to_human': return `Flagged Needs a Human${result.priority === 'urgent' ? ' (urgent)' : ''}`;
+    case 'send_reply': return 'Sent a reply to the customer (simulated, nothing is really sent)';
+    case 'schedule_followup': return `Scheduled a follow-up in ${args.delay_minutes} minutes in case the customer goes quiet`;
+    case 'escalate_to_human': return `Flagged as needing a person${result.priority === 'urgent' ? ' (urgent)' : ''}`;
     default: return name;
   }
 }

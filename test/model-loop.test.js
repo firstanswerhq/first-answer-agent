@@ -150,7 +150,7 @@ test('model loop: a model that answers in prose with no tool calls does not esca
   assert.equal(l.status, 'replied');
   assert.equal(agentTexts(l).length, 1);
   assert.match(agentTexts(l)[0], /\$110-\$190/);
-  assert.ok(l.timeline.some((t) => /rules engine finished the job/.test(t.title)));
+  assert.ok(l.timeline.some((t) => /built-in rules finished the job/.test(t.title)));
   assert.equal(l.lastRunMode, 'offline', 'honestly labeled: rules wrote the reply');
   assert.equal(env.store.followups.filter((f) => f.status === 'pending').length, 1);
 });
@@ -192,7 +192,7 @@ test('model loop: persistent failures fall back to offline rules and say so hone
   const env = makeEnv({ llm });
   const l = await newLead(env);
   assert.equal(l.lastRunMode, 'offline');
-  assert.ok(l.timeline.some((t) => /Model call failed; finishing in offline rules mode/.test(t.title)));
+  assert.ok(l.timeline.some((t) => /The AI model call failed/.test(t.title)));
   assert.equal(l.status, 'replied', 'the lead still got a full answer');
   const st = env.agent.status();
   assert.equal(st.mode, 'offline');
@@ -220,7 +220,7 @@ test('model loop: the hourly model-call cap sends overflow to offline rules, lab
   const env = makeEnv({ llm, config: cfgFor({ inference: { ...cfgFor().inference, maxRunsPerHour: 0 } }) });
   const l = await newLead(env);
   assert.equal(l.lastRunMode, 'offline');
-  assert.ok(l.timeline.some((t) => /hourly model-call cap/.test(t.title)));
+  assert.ok(l.timeline.some((t) => /hourly AI limit/.test(t.title)));
   assert.equal(llm.fetchMock.state.calls.length, 0);
 });
 
