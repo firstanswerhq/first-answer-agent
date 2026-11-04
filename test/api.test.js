@@ -91,15 +91,15 @@ test('customer-reply continues the conversation and books through the API', asyn
   try {
     const { body } = await j(await post(s.base, '/api/leads', lead()));
     await settle(s);
-    const r = await post(s.base, `/api/leads/${body.id}/customer-reply`, { text: 'The first one works' });
+    const r = await post(s.base, `/api/leads/${body.id}/customer-reply`, { text: 'The first one works', token: body.token });
     assert.equal(r.status, 202);
     await settle(s);
     const d = await j(await fetch(`${s.base}/api/leads/${body.id}`));
     assert.equal(d.body.lead.status, 'booked');
     assert.ok(d.body.lead.booking);
-    assert.equal((await post(s.base, `/api/leads/${body.id}/customer-reply`, { text: '' })).status, 400);
-    assert.equal((await post(s.base, '/api/leads/L-deadbeef/customer-reply', { text: 'hi' })).status, 404);
-    assert.equal((await post(s.base, '/api/leads/not-an-id/customer-reply', { text: 'hi' })).status, 404);
+    assert.equal((await post(s.base, `/api/leads/${body.id}/customer-reply`, { text: '', token: body.token })).status, 400);
+    assert.equal((await post(s.base, '/api/leads/L-deadbeef/customer-reply', { text: 'hi', token: 'x'.repeat(32) })).status, 404);
+    assert.equal((await post(s.base, '/api/leads/not-an-id/customer-reply', { text: 'hi', token: 'x'.repeat(32) })).status, 404);
   } finally { await s.stop(); }
 });
 
@@ -147,7 +147,7 @@ test('GET /api/calendar shows real bookings and open slots for a week (Mon-Sat)'
   try {
     const { body } = await j(await post(s.base, '/api/leads', lead()));
     await settle(s);
-    await post(s.base, `/api/leads/${body.id}/customer-reply`, { text: 'first' });
+    await post(s.base, `/api/leads/${body.id}/customer-reply`, { text: 'first', token: body.token });
     await settle(s);
     const cal = await j(await fetch(s.base + '/api/calendar'));
     assert.equal(cal.body.start, '2026-11-02');
@@ -259,4 +259,55 @@ test('no secrets or env files are tracked or present in the repo tree', () => {
   assert.match(gi, /^\.env/m);
   assert.match(gi, /^data\//m);
   for (const f of ['.env', '.env.local']) assert.equal(fs.existsSync(path.join(root, f)), false);
+});
+
+test('customer-reply requires the per-lead token; wrong or missing token is a 404 and changes nothing', async () => {
+  const s = await startServer();
+  try {
+    const { body } = await j(await post(s.base, '/api/leads', lead()));
+    await settle(s);
+    const before = s.store.getLead(body.id).messages.length;
+    assert.equal((await post(s.base, `/api/leads/${body.id}/customer-reply`, { text: 'hijack' })).status, 404);
+    assert.equal((await post(s.base, `/api/leads/${body.id}/customer-reply`, { text: 'hijack', token: 'wrong' })).status, 404);
+    assert.equal(s.store.getLead(body.id).messages.length, before);
+    const viaHeader = await post(s.base, `/api/leads/${body.id}/customer-reply`, { text: 'first one' }, { 'X-Lead-Token': body.token });
+    assert.equal(viaHeader.status, 202);
+  } finally { await s.stop(); }
+});
+
+test('lead list and detail mask phone numbers for live leads; sample leads and the demo token stay open', async () => {
+  const clock = makeClock(WED_10AM);
+  const store = new Store();
+  const config = cfgFor();
+  await seedSample(store, config, { realNow: clock.now() });
+  const s = await startServer({ store, config, now: clock.now });
+  try {
+    const { body } = await j(await post(s.base, '/api/leads', lead({ phone: '(615) 555-0188' })));
+    await settle(s);
+    const list = (await j(await fetch(s.base + '/api/leads'))).body.leads;
+    const live = list.find((l) => l.id === body.id);
+    assert.equal(live.phone, '(***) ***-0188');
+    assert.ok(!JSON.stringify(list.filter((l) => !l.seed)).includes('555-0188'));
+    const det = (await j(await fetch(`${s.base}/api/leads/${body.id}`))).body.lead;
+    assert.equal(det.phone, '(***) ***-0188');
+    assert.equal(det.demoToken, undefined);
+    assert.equal(det.token, undefined);
+    const seedLead = list.find((l) => l.seed);
+    assert.match(seedLead.phone, /^\(615\) 555-01/);
+    const seedDet = (await j(await fetch(`${s.base}/api/leads/${seedLead.id}`))).body.lead;
+    assert.ok(seedDet.demoToken);
+    const r = await post(s.base, `/api/leads/${seedLead.id}/customer-reply`, { text: 'Thanks', token: seedDet.demoToken });
+    assert.equal(r.status, 202);
+  } finally { await s.stop(); }
+});
+
+test('simulate returns a token that unlocks role-play for that simulated lead only', async () => {
+  const s = await startServer();
+  try {
+    const a = await j(await post(s.base, '/api/simulate', { scenario: 'gutter_quote' }));
+    const b = await j(await post(s.base, '/api/simulate', { scenario: 'gutter_quote' }));
+    await settle(s);
+    assert.equal((await post(s.base, `/api/leads/${a.body.id}/customer-reply`, { text: 'first', token: b.body.token })).status, 404);
+    assert.equal((await post(s.base, `/api/leads/${a.body.id}/customer-reply`, { text: 'first', token: a.body.token })).status, 202);
+  } finally { await s.stop(); }
 });

@@ -16,6 +16,10 @@ async function api(path, opts) {
   return data;
 }
 
+// Per-lead tokens live only in this browser tab's session storage.
+function leadToken(id) { try { return JSON.parse(sessionStorage.getItem('fa-tokens') || '{}')[id] || ''; } catch { return ''; } }
+function rememberToken(id, tok) { try { const m = JSON.parse(sessionStorage.getItem('fa-tokens') || '{}'); m[id] = tok; sessionStorage.setItem('fa-tokens', JSON.stringify(m)); } catch { /* storage unavailable */ } }
+
 const fmtTime = (ts, secs = false) => new Intl.DateTimeFormat('en-US', { timeZone: state.tz, hour: 'numeric', minute: '2-digit', ...(secs ? { second: '2-digit' } : {}) }).format(new Date(ts));
 const fmtDay = (iso) => { const [y, m, d] = iso.split('-').map(Number); return new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', weekday: 'long', month: 'long', day: 'numeric' }).format(new Date(Date.UTC(y, m - 1, d))); };
 const secs = (n) => (n == null ? '—' : `${n.toFixed(1)} s`);
@@ -102,7 +106,7 @@ async function renderInbox(first) {
     menu.addEventListener('click', async (e) => {
       const b = e.target.closest('[data-sc]'); if (!b) return;
       menu.hidden = true; btn.disabled = true;
-      try { const r = await api('/api/simulate', { method: 'POST', body: { scenario: b.dataset.sc } }); location.hash = `#/lead/${r.id}`; } catch (err) { toast(err.message); } finally { btn.disabled = false; }
+      try { const r = await api('/api/simulate', { method: 'POST', body: { scenario: b.dataset.sc } }); rememberToken(r.id, r.token); location.hash = `#/lead/${r.id}`; } catch (err) { toast(err.message); } finally { btn.disabled = false; }
     });
     $('#rows').addEventListener('click', (e) => { const tr = e.target.closest('tr[data-id]'); if (tr) location.hash = `#/lead/${tr.dataset.id}`; });
     $('#rows').addEventListener('keydown', (e) => { if (e.key === 'Enter') { const tr = e.target.closest('tr[data-id]'); if (tr) location.hash = `#/lead/${tr.dataset.id}`; } });
@@ -136,6 +140,7 @@ async function renderDetail(id, first) {
   const d = await api(`/api/leads/${id}`);
   state.agent = d.agent; paintShell();
   const l = d.lead;
+  if (l.demoToken) rememberToken(id, l.demoToken);
   if (first || !$('#conv')) {
     $('#view').innerHTML = html`
       <a class="back" href="#/inbox">&larr; Back to Live Inbox</a>
@@ -157,8 +162,10 @@ async function renderDetail(id, first) {
     $('#composer').addEventListener('submit', async (e) => {
       e.preventDefault();
       const ta = $('#replyText'); const text = ta.value.trim(); if (!text) return;
+      const tok = leadToken(id);
+      if (!tok) { toast('Role-play needs the lead\'s private link. Use a sample lead or one you simulated in this browser.'); return; }
       $('#sendBtn').disabled = true;
-      try { await api(`/api/leads/${id}/customer-reply`, { method: 'POST', body: { text } }); ta.value = ''; await renderDetail(id, false); } catch (err) { toast(err.message); } finally { $('#sendBtn').disabled = false; }
+      try { await api(`/api/leads/${id}/customer-reply`, { method: 'POST', body: { text, token: tok } }); ta.value = ''; await renderDetail(id, false); } catch (err) { toast(err.message); } finally { $('#sendBtn').disabled = false; }
     });
     $('#composer').addEventListener('click', (e) => { const q = e.target.closest('[data-q]'); if (q) { $('#replyText').value = q.dataset.q; $('#replyText').focus(); } });
   }

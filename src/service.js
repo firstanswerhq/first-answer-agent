@@ -1,5 +1,5 @@
 // Lead lifecycle operations shared by the API, the seed script and the tests.
-import { cleanText, rid, token } from './util.js';
+import { cleanText, rid, token, maskPhone } from './util.js';
 
 export const SOURCES = ['Website form', 'Google Ads', 'Facebook', 'Referral', 'Text message', 'Phone call', 'Other'];
 
@@ -65,7 +65,7 @@ export function summary(lead, store) {
   const q = lead.qualification;
   const fu = store.followups.find((f) => f.leadId === lead.id && f.status === 'pending');
   return {
-    id: lead.id, name: lead.name, phone: lead.phone, source: lead.source, status: lead.status, priority: lead.priority,
+    id: lead.id, name: lead.name, phone: lead.seed ? lead.phone : maskPhone(lead.phone), source: lead.source, status: lead.status, priority: lead.priority,
     createdAt: lead.createdAt, replyTimeSec: lead.replyTimeSec ?? null, jobLabel: q?.jobLabel || null,
     location: q?.location || '', lastRunMode: lead.lastRunMode || null, simulated: !!lead.simulated, seed: !!lead.seed,
     snippet: lead.messages[0]?.text.slice(0, 110) || '', humanReason: lead.humanReason || null,
@@ -76,6 +76,7 @@ export function summary(lead, store) {
 export function detail(lead, store) {
   const booking = store.bookingForLead(lead.id);
   const fus = store.followups.filter((f) => f.leadId === lead.id);
-  const { token: _t, ...rest } = lead; // the public token is never sent to the dashboard
-  return { ...rest, booking, followups: fus.slice(-4) };
+  const { token: _t, ipHash: _ip, ...rest } = lead; // the secret token and IP hash are never sent to the dashboard
+  // Fictional sample leads are open for role-play, so their token goes to the dashboard. Every other lead's token stays private.
+  return { ...rest, phone: lead.seed ? lead.phone : maskPhone(lead.phone), demoToken: lead.seed ? lead.token : undefined, booking, followups: fus.slice(-4) };
 }

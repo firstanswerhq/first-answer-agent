@@ -12,6 +12,7 @@ import { rateLimiter } from './ratelimit.js';
 import { SCENARIOS } from './scenarios.js';
 import { seedSample } from './seed.js';
 import { priceRangeFor } from './functions.js';
+import { safeEqual } from './util.js';
 
 const LEAD_ID = /^L-[0-9a-f]{8}$/;
 
@@ -86,14 +87,17 @@ export async function createApp({ config, store = new Store({ file: config.dataF
       const sc = SCENARIOS.find((s) => s.id === req.body?.scenario);
       if (!sc) throw new InputError('Unknown scenario.');
       const { lead } = svc.createLead(sc.lead, { simulated: true });
-      res.status(202).json({ id: lead.id, status: lead.status });
+      res.status(202).json({ id: lead.id, token: lead.token, status: lead.status });
     } catch (e) { next(e); }
   });
 
-  // Dashboard role-play: type as the customer.
+  // Dashboard role-play: type as the customer. Needs the per-lead token like every other write.
+  // Simulated leads hand their token to the browser that created them; sample leads expose a demo token in their detail.
   app.post('/api/leads/:id/customer-reply', replyLimit, (req, res, next) => {
     try {
-      if (!LEAD_ID.test(req.params.id)) throw new InputError('Lead not found.', 404);
+      const target = LEAD_ID.test(req.params.id) ? store.getLead(req.params.id) : null;
+      const tok = String(req.get('x-lead-token') || req.body?.token || '');
+      if (!target || !tok || !safeEqual(tok, target.token)) throw new InputError('Lead not found.', 404);
       const { lead } = svc.addCustomerMessage(req.params.id, req.body?.text);
       res.status(202).json({ id: lead.id });
     } catch (e) { next(e); }
@@ -103,7 +107,7 @@ export async function createApp({ config, store = new Store({ file: config.dataF
   const publicLead = (req) => {
     const lead = LEAD_ID.test(req.params.id) ? store.getLead(req.params.id) : null;
     const tok = String(req.query.token || req.body?.token || '');
-    if (!lead || !tok || tok !== lead.token) throw new InputError('Lead not found.', 404);
+    if (!lead || !tok || !safeEqual(tok, lead.token)) throw new InputError('Lead not found.', 404);
     return lead;
   };
   app.get('/api/public/leads/:id', readLimit, (req, res, next) => {

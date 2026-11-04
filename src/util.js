@@ -29,3 +29,16 @@ export const token = () => crypto.randomBytes(16).toString('hex');
 export function round2(n) {
   return Math.round(n * 100) / 100;
 }
+
+/** Mask a phone number to its last four digits, e.g. "(***) ***-0111". */
+export function maskPhone(phone) {
+  const d = String(phone || '').replace(/\D/g, '');
+  return d.length >= 4 ? `(***) ***-${d.slice(-4)}` : '(hidden)';
+}
+
+/** Constant-time string comparison for secrets. */
+export function safeEqual(a, b) {
+  const x = Buffer.from(String(a));
+  const y = Buffer.from(String(b));
+  return x.length === y.length && crypto.timingSafeEqual(x, y);
+}
