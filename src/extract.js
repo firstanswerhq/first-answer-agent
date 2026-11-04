@@ -58,15 +58,21 @@ export function wantsOutsideHours(text) {
   return /\b(tonight|right now|midnight|after hours|late night|(?:[6-9]|1[01])\s?(?:pm|p\.m\.)|(?:[0-6])\s?(?:am|a\.m\.))\b/i.test(text);
 }
 
-// Specific wording first; the bare words "one/two/three" last, so "the second one" is option 2, not option 1.
-const ORD = [
-  [/\b(first|1st|option 1|#1|number 1)\b/i, 0],
-  [/\b(second|2nd|option 2|#2|number 2)\b/i, 1],
-  [/\b(third|3rd|option 3|#3|number 3)\b/i, 2],
-  [/\bone\b/i, 0],
-  [/\btwo\b/i, 1],
-  [/\bthree\b/i, 2],
-];
+// Which offered option a reply names, 0-based, or -1. Ordinals count only when they are clearly a choice ("the second one",
+// "option 2", "second option", or the whole reply). "the 2nd", "November 2nd", "my 2nd child", "a second opinion" and
+// "wait a second" are not choices.
+const WORDN = { first: 0, second: 1, third: 2, one: 0, two: 1, three: 2, 1: 0, 2: 1, 3: 2 };
+function ordIndex(t) {
+  const x = t.trim();
+  let m = /\b(?:option|number|choice|slot)\s*#?\s*(1|2|3|one|two|three)\b/.exec(x) || /(?:^|\s)#\s*(1|2|3)\b/.exec(x);
+  if (m) return WORDN[m[1]];
+  m = /\b(first|second|third)\s+(?:one|option|choice|slot)\b/.exec(x);
+  if (m) return WORDN[m[1]];
+  m = /^\W*(?:the\s+|my\s+)?(first|second|third)\W*(?:please|pls|thanks)?\W*$/.exec(x)
+    || /^\W*(?:i(?:'ll|\s+will)?\s+)?(?:take|pick|choose|want|go\s+with)\s+(?:the\s+)?(first|second|third)\W*$/.exec(x)
+    || /^\W*(one|two|three)\W*$/.exec(x);
+  return m ? WORDN[m[1]] : -1;
+}
 const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 const MONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
 
@@ -140,7 +146,8 @@ export function pickSlot(text, slots) {
   if (candidates.length === 1) return slots[candidates[0]];
   if (candidates.length > 1) return null; // ambiguous: the caller asks which one
   if (WEEKDAYS.some((_, i) => namesWeekday(t, i))) return null; // a day that was not offered: never guess a different one
-  for (const [re, idx] of ORD) if (re.test(t) && slots[idx]) return slots[idx];
+  const oi = ordIndex(t);
+  if (oi >= 0 && slots[oi]) return slots[oi];
   if (yes) return slots[0];
   return null;
 }

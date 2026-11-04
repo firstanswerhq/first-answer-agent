@@ -30,3 +30,12 @@ test('end to end: replying "2" books the second offered time', async () => {
   assert.ok(b, 'a booking exists');
   assert.equal(b.slot_id, offered[1]);
 });
+
+test('ordinals that are dates, children or phrases are not choices; clear choices still are', () => {
+  for (const t of ['the 2nd', 'November 2nd', 'Are you open on the 2nd?', 'my 2nd child', 'my second child', 'a second opinion', 'wait a second', 'Is the second floor accessible?',
+    'the 1st', 'my 1st visit', 'it is my first time', 'the 3rd of December', 'I have a third child', 'give me one second', 'I have two kids']) {
+    assert.equal(id(t), null, t);
+  }
+  const cases = [['the first one', 0], ['first option', 0], ['option 1', 0], ['the second one', 1], ['second option', 1], ['option two', 1], ['#2', 1], ['number 2', 1], ['I will take 2', 1], ['the third one', 2], ['third option', 2], ['3', 2], ['second', 1], ['I will take the third', 2], ['one', 0], ['The first one works for me', 0]];
+  for (const [t, i] of cases) assert.equal(id(t), slots[i], t);
+});
