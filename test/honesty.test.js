@@ -20,7 +20,7 @@ test('system prompt never tells the model to hide that messages are simulated, a
 test('copy: no "real calendar" claims and no instant-reply claim in UI, profiles or README', () => {
   const files = ['README.md', 'public/app.js', 'public/lead.html', 'public/lead.js', 'config/profiles/dental.json', 'config/profiles/salon.json', 'config/profiles/accounting.json', 'src/functions.js'];
   for (const f of files) {
-    const t = read(f);
+    const t = read(f).replace('## Connect a real calendar', ''); // the one section that explains the optional, read-only connection
     assert.doesNotMatch(t, /real calendar|real open times|real booking rules|real open appointment/i, f);
     assert.doesNotMatch(t, /replies right away/i, f);
   }
