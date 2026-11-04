@@ -53,17 +53,18 @@ export class Notifier {
    * Alert the owner about a lead. Resolves to { status } where status is one of:
    * 'sent', 'failed', 'not_configured', 'offline', 'rate_limited', 'duplicate', 'skipped'. Never rejects.
    */
-  async alert(lead, { category = 'Needs a person', priority = 'normal', business = '' } = {}) {
+  async alert(lead, { category = 'Needs a person', priority = 'normal', business = '', again = false } = {}) {
     try {
       if (!lead || lead.seed) return { status: 'skipped' };
-      if (lead.ownerAlertedAt) return { status: 'duplicate' };
+      // One alert per lead, plus one more if a NEW emergency-level message arrives after a non-urgent alert.
+      if (lead.ownerAlertedAt && !(again && priority === 'urgent' && !lead.ownerAlertedUrgent)) return { status: 'duplicate' };
       if (lead.simulated) return { status: 'simulated' }; // demo scenario buttons never buzz the owner's phone
       if (!this.configured) return { status: 'not_configured' };
       if (!this.transport) return { status: 'offline' };
       const vkey = lead.ipHash || 'unknown';
       if (this.alertsLastHour() >= MAX_ALERTS_PER_HOUR || this.visitorCount(vkey) >= MAX_ALERTS_PER_VISITOR_PER_HOUR) return { status: 'rate_limited' };
       this.visitorStamps.set(vkey, [...(this.visitorStamps.get(vkey) || []), this.now()]);
-      lead.ownerAlertedAt = this.now(); // max one alert per lead, reserved before the request starts
+      lead.ownerAlertedAt = this.now(); if (priority === 'urgent') lead.ownerAlertedUrgent = true; // max one alert per lead, reserved before the request starts
       this.stamps.push(this.now());
       const urgent = priority === 'urgent';
       const body = [`${oneLine(business, 60)}: ${firstName(lead.name) === 'there' ? 'A customer' : oneLine(firstName(lead.name), 30)} needs a person.`,

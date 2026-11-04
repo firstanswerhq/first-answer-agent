@@ -206,7 +206,7 @@ async function renderDetail(id, first) {
       <p class="foot">Demo data is fictional; messages are simulated. No real texts or emails are sent.</p>`;
     $('#composer').addEventListener('submit', async (e) => {
       e.preventDefault();
-      const ta = $('#replyText'); const text = ta.value.trim(); if (!text) return;
+      const ta = $('#replyText'); const text = ta.value.trim(); if (!text) { toast('Type a message first.'); return; }
       const tok = leadToken(id);
       if (!tok) { toast('Replying as the customer needs this inquiry\'s private link. Use a sample inquiry or one you started in this browser.'); return; }
       $('#sendBtn').disabled = true;

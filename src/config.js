@@ -78,7 +78,12 @@ export function loadConfig(env = process.env, over = {}) {
       replyRate: { windowMs: 60_000, max: int(env.RATE_REPLIES_PER_MIN, 30) },
       readRate: { windowMs: 60_000, max: int(env.RATE_READS_PER_MIN, 1200) },
       maxMessagesPerLead: 40,
-      leadRateHour: { windowMs: 3_600_000, max: int(env.RATE_LEADS_PER_HOUR, 12) },
+      // Real inquiries: counted only when accepted. Per visitor (address + browser) and per address, per business profile.
+      leadRateHour: { windowMs: 3_600_000, max: int(env.RATE_LEADS_PER_HOUR, 20) },
+      leadIpHour: { windowMs: 3_600_000, max: int(env.RATE_LEADS_PER_IP_HOUR, 60) },
+      // Demo scenario buttons have their own small allowance so they never use up the real-inquiry allowance.
+      simRate: { windowMs: 60_000, max: int(env.RATE_SIM_PER_MIN, 10) },
+      simRateHour: { windowMs: 3_600_000, max: int(env.RATE_SIM_PER_HOUR, 15) },
       replyRateHour: { windowMs: 3_600_000, max: int(env.RATE_REPLIES_PER_HOUR, 40) },
       resetRate: { windowMs: 3_600_000, max: int(env.RATE_RESETS_PER_HOUR, 3) },
       resetCooldownMs: 30_000,

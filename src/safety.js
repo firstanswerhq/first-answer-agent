@@ -90,6 +90,9 @@ export function classify(text, profile = null) {
   return { ...flags, reasons, any: reasons.length > 0 };
 }
 
+// Wording that asks to change or cancel something already booked. Only used once a booking exists.
+export const CHANGE_REQUEST = /\b(reschedul\w*|cancel\w*|change (it|that|this|the|my|our|to)|move (it|that|this|the|my|our)|push (it|that) back|switch (it|that|to))\b/i;
+
 // Which flags force a human, regardless of what a model decides.
 export function mustEscalate(f) {
   return f.complaint || f.handoff || f.outOfScope || f.injection || f.emergency || f.medical;

@@ -9,7 +9,7 @@ import { LeadService, validateLeadInput, summary, detail, InputError, SOURCES } 
 import { FollowupScheduler } from './followups.js';
 import { computeMetrics } from './metrics.js';
 import { listSlots, mondayOf, localNow, dateOf, addDays, isValidDate, isOpenNow } from './calendar.js';
-import { rateLimiter } from './ratelimit.js';
+import { rateLimiter, acceptCounter, gate } from './ratelimit.js';
 import { seedSample, sampleIsStale } from './seed.js';
 import { loadProfile, SHIPPED_PROFILES } from './profile.js';
 import { safeEqual } from './util.js';
@@ -88,10 +88,25 @@ export async function createApp({ config, store = new Store({ file: config.dataF
   const ipKey = (req) => crypto.createHmac('sha256', ipSalt).update(String(req.ip)).digest('hex').slice(0, 16);
 
   const readLimit = rateLimiter(config.limits.readRate, 'read', now);
-  const leadLimit = rateLimiter(config.limits.leadRate, 'lead', now);
-  const replyLimit = rateLimiter(config.limits.replyRate, 'reply', now);
-  const leadHourLimit = rateLimiter(config.limits.leadRateHour, 'lead-hour', now);
-  const replyHourLimit = rateLimiter(config.limits.replyRateHour, 'reply-hour', now);
+  // Accepted-only counters (invalid submissions never count). Keys include the business profile, so the three example
+  // businesses each have their own allowance. "visitor" = address + browser; "ip" = address only (an office behind one NAT).
+  const visitorOf = (req) => crypto.createHash('sha256').update(`${req.ip}|${req.get('user-agent') || ''}`).digest('hex').slice(0, 16);
+  const K = {
+    visitor: (req) => `${req.t.id}:${visitorOf(req)}`,
+    ip: (req) => `${req.t.id}:${req.ip}`,
+    ipAll: (req) => String(req.ip),
+  };
+  const cLeadMin = acceptCounter(config.limits.leadRate, now);
+  const cLeadHour = acceptCounter(config.limits.leadRateHour, now);
+  const cLeadIp = acceptCounter(config.limits.leadIpHour, now);
+  const cSimMin = acceptCounter(config.limits.simRate, now);
+  const cSimHour = acceptCounter(config.limits.simRateHour, now);
+  const cReplyMin = acceptCounter(config.limits.replyRate, now);
+  const cReplyHour = acceptCounter(config.limits.replyRateHour, now);
+  const leadGate = gate([{ counter: cLeadMin, key: K.ip }, { counter: cLeadHour, key: K.visitor }, { counter: cLeadIp, key: K.ip }]);
+  const simGate = gate([{ counter: cSimMin, key: K.ipAll }, { counter: cSimHour, key: K.visitor }]);
+  const replyGate = gate([{ counter: cReplyMin, key: K.ip }, { counter: cReplyHour, key: K.visitor }]);
+  const hitAll = (req, list) => list.forEach(([c, k]) => c.hit(K[k](req)));
   const resetLimit = rateLimiter(config.limits.resetRate, 'reset', now);
 
   // Which business this request is for: the x-profile header or ?profile= query, looked up in a fixed list. No header means
@@ -150,34 +165,37 @@ export async function createApp({ config, store = new Store({ file: config.dataF
   });
 
   // Public intake: the customer-facing form and any website can post here.
-  app.post('/api/leads', leadLimit, leadHourLimit, (req, res, next) => {
+  app.post('/api/leads', leadGate, (req, res, next) => {
     try {
       const { config, svc } = req.t;
       const input = validateLeadInput(req.body, config.limits);
       const { lead } = svc.createLead(input, { ipKey: ipKey(req) });
+      hitAll(req, [[cLeadMin, 'ip'], [cLeadHour, 'visitor'], [cLeadIp, 'ip']]);
       res.status(202).json({ id: lead.id, token: lead.token, status: lead.status, receivedAt: lead.createdAt });
     } catch (e) { next(e); }
   });
 
-  app.post('/api/simulate', leadLimit, leadHourLimit, (req, res, next) => {
+  app.post('/api/simulate', simGate, (req, res, next) => {
     try {
       const { config, svc } = req.t;
       const sc = SCENARIOS_OF(config).find((s) => s.id === req.body?.scenario);
       if (!sc) throw new InputError('Unknown scenario.');
       const { lead } = svc.createLead(sc.lead, { simulated: true, ipKey: ipKey(req) });
+      hitAll(req, [[cSimMin, 'ipAll'], [cSimHour, 'visitor']]);
       res.status(202).json({ id: lead.id, token: lead.token, status: lead.status });
     } catch (e) { next(e); }
   });
 
   // Dashboard role-play: type as the customer. Needs the per-lead token like every other write.
   // Simulated leads hand their token to the browser that created them; sample leads expose a demo token in their detail.
-  app.post('/api/leads/:id/customer-reply', replyLimit, replyHourLimit, (req, res, next) => {
+  app.post('/api/leads/:id/customer-reply', replyGate, (req, res, next) => {
     try {
       const { store, svc } = req.t;
       const target = LEAD_ID.test(req.params.id) ? store.getLead(req.params.id) : null;
       const tok = String(req.get('x-lead-token') || req.body?.token || '');
       if (!target || !tok || !safeEqual(tok, target.token)) throw new InputError('Lead not found.', 404);
       const { lead } = svc.addCustomerMessage(req.params.id, req.body?.text, { ipKey: ipKey(req) });
+      hitAll(req, [[cReplyMin, 'ip'], [cReplyHour, 'visitor']]);
       res.status(202).json({ id: lead.id });
     } catch (e) { next(e); }
   });
@@ -197,11 +215,12 @@ export async function createApp({ config, store = new Store({ file: config.dataF
       res.json({ id: lead.id, name: lead.name, replyTimeSec: lead.replyTimeSec ?? null, messages: lead.messages.map((m) => ({ from: m.from, text: m.text, ts: m.ts })), handedToHuman: lead.status === 'human', booked: !!store.bookingForLead(lead.id), mode: agent.status().label });
     } catch (e) { next(e); }
   });
-  app.post('/api/public/leads/:id/messages', replyLimit, replyHourLimit, (req, res, next) => {
+  app.post('/api/public/leads/:id/messages', replyGate, (req, res, next) => {
     try {
       const { svc } = req.t;
       const lead = publicLead(req);
       svc.addCustomerMessage(lead.id, req.body?.text, { ipKey: ipKey(req) });
+      hitAll(req, [[cReplyMin, 'ip'], [cReplyHour, 'visitor']]);
       res.status(202).json({ id: lead.id });
     } catch (e) { next(e); }
   });

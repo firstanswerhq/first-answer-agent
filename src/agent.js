@@ -2,8 +2,8 @@
 // (Vultr Serverless Inference) and falls back to a deterministic rules engine that
 // follows the same path. Guardrails are enforced here in code, not by the prompt.
 import { Functions, toolDefs } from './functions.js';
-import { classify, mustEscalate } from './safety.js';
-import { runRules } from './rules.js';
+import { classify, mustEscalate, CHANGE_REQUEST } from './safety.js';
+import { runRules, medicalText } from './rules.js';
 import { LlmError } from './llm.js';
 import { rid, firstName } from './util.js';
 import { localNow, isOpenNow } from './calendar.js';
@@ -106,9 +106,9 @@ export class Agent {
   async settled() { while (this.pendingAlerts.size) await Promise.allSettled([...this.pendingAlerts]); }
 
   /** Fire and forget: the customer reply never waits for the network. The timeline records what really happened. */
-  alertOwner(lead, step, a, flags = {}) {
+  alertOwner(lead, step, a, flags = {}, again = false) {
     if (!this.notifier) return;
-    const p = this.notifier.alert(lead, { category: alertCategory(flags), priority: a.priority === 'urgent' || lead.priority === 'urgent' || flags.emergency || flags.medical ? 'urgent' : 'normal', business: this.config.business.name })
+    const p = this.notifier.alert(lead, { category: alertCategory(flags), priority: a.priority === 'urgent' || lead.priority === 'urgent' || flags.emergency || flags.medical ? 'urgent' : 'normal', business: this.config.business.name, again })
       .then(({ status }) => { const s = ALERT_STEP[status]; if (s) { step({ kind: 'alert', ...s }); this.store.save(); } })
       .catch(() => {})
       .finally(() => this.pendingAlerts.delete(p));
@@ -230,6 +230,10 @@ export class Agent {
     // The name field is customer text too: instructions hidden in it are treated like instructions in a message.
     const nameFlags = classify(lead.name, null);
     if (nameFlags.injection && !flags.injection) { flags.injection = true; flags.reasons.push('The name field tries to give the agent instructions (possible prompt injection)'); flags.any = true; }
+    // A change or cancel request after a booking is a request for a person: this assistant cannot change bookings.
+    if (!flags.handoff && store.bookingForLead(lead.id) && CHANGE_REQUEST.test(lastCustomer?.text || '')) {
+      flags.handoff = true; flags.reasons.push('Customer wants to change or cancel an existing booking'); flags.any = true;
+    }
     const ipKey = opts.ipKey ?? lead.ipHash ?? null;
     const ctx = { store, config, now: this.now, lead, flags, step, run: runInfo, sentReply: false, guardRejects: 0, ipKey };
     ctx.onEscalate = (a) => this.alertOwner(lead, step, a, flags);
@@ -237,11 +241,24 @@ export class Agent {
     step({ kind: 'received', title: trigger === 'new_lead' ? `New inquiry received from ${lead.source}` : 'Customer replied', detail: (lastCustomer?.text || '').slice(0, 160) });
 
     if (lead.status === 'human') {
-      if (trigger === 'customer_reply' && !lead.handoffAckSent) {
-        // One short holding message per handoff, so the customer is not left staring at a silent page.
-        lead.handoffAckSent = true;
-        new Functions(ctx).deliver(`Thanks${comma(lead.name)}. A teammate has your message and will reply here soon. ${config.profile.urgency.safetyNote} You can also call us at ${config.business.phone}. - ${config.business.agentName} (AI)`);
-        step({ kind: 'info', title: 'This inquiry is with a person; the assistant sent one short holding message and will not reply further', detail: lead.humanReason || '' });
+      // The inquiry is already with a person, but every new customer message is still checked by the safety code.
+      if (trigger === 'customer_reply') {
+        const fxh = new Functions(ctx);
+        const phone = config.business.phone;
+        if (flags.medical) {
+          fxh.deliver(medicalText(config, flags));
+          lead.priority = 'urgent';
+          step({ kind: 'guard', title: 'New message after handoff: possible medical emergency, so the fixed 911 reply was shown and the inquiry marked urgent', detail: 'Checked in code' });
+          this.alertOwner(lead, step, { priority: 'urgent' }, flags, true);
+        } else if (flags.emergency) {
+          fxh.deliver(`${nameLead(lead.name)}this sounds urgent. ${config.profile.urgency.safetyNote} I have marked it urgent for our team and a person will follow up. You can also call us at ${phone}. - ${config.business.agentName} (AI)`);
+          lead.priority = 'urgent';
+          step({ kind: 'guard', title: 'New message after handoff: urgent wording, so the inquiry was marked urgent', detail: flags.reasons.join('; ') });
+          this.alertOwner(lead, step, { priority: 'urgent' }, flags, true);
+        } else {
+          fxh.deliver(`Thanks${comma(lead.name)}. A teammate has this and will follow up. You can also call us at ${phone}. - ${config.business.agentName} (AI)`);
+          step({ kind: 'info', title: 'This inquiry is with a person; the customer wrote again, so the assistant sent a short holding reply and did not try to answer', detail: (lastCustomer?.text || '').slice(0, 160) });
+        }
       } else {
         step({ kind: 'info', title: 'This inquiry is with a person; the assistant held back and did not reply', detail: lead.humanReason || '' });
       }

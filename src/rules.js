@@ -3,12 +3,18 @@
 // guarded functions. Deterministic, no network.
 import { detectService, detectServices, detectLocation, wantsOutsideHours, pickSlot, slotCandidates, declinesSlots, requestedDay, slotOnDay } from './extract.js';
 import { firstName, money } from './util.js';
+import { CHANGE_REQUEST } from './safety.js';
 import { slotLabel, addDays, dateOf, localNow, isOpenNow, dateLabel } from './calendar.js';
 
 const SIGN = (config) => ` - ${config.business.agentName} (AI)`;
 const lc = (label) => (/^[A-Z][A-Z]/.test(label) ? label : label.charAt(0).toLowerCase() + label.slice(1));
 const aOrAn = (w) => (/^[aeiou]/i.test(w) ? 'an' : 'a');
 const upper1 = (t) => t.charAt(0).toUpperCase() + t.slice(1);
+
+/** Fixed safe wording for a possible medical or personal-safety emergency (also used for later messages after a handoff). */
+export function medicalText(config, flags) {
+  return `Please call 911 right now if you or someone else is in danger or having a medical emergency. I am an automated assistant and cannot help with emergencies by text. I have flagged this for our team, and you can also reach us at ${config.business.phone}.${flags.selfHarm ? ' If you are thinking about harming yourself, you can call or text 988 at any time.' : ''}`;
+}
 
 export async function runRules(ctx, fx, trigger) {
   const { lead, config, flags } = ctx;
@@ -28,7 +34,7 @@ export async function runRules(ctx, fx, trigger) {
   if (lead.status === 'human') return;
   if (flags.medical) {
     // Fixed, safe wording for any business: call 911 (or 988), and bring a person in at once.
-    await reply(`Please call 911 right now if you or someone else is in danger or having a medical emergency. I am an automated assistant and cannot help with emergencies by text. I have flagged this for our team, and you can also reach us at ${phone}.${flags.selfHarm ? ' If you are thinking about harming yourself, you can call or text 988 at any time.' : ''}`);
+    await reply(medicalText(config, flags));
     await escalate('Possible medical or personal-safety emergency; the customer was told to call 911. A person should reach out now.', 'urgent');
     return;
   }
@@ -55,8 +61,8 @@ export async function runRules(ctx, fx, trigger) {
   // Booked leads: only acknowledge; changes go to a person.
   if (lead.status === 'booked' || ctx.store.bookingForLead(lead.id)) {
     if (flags.handoff) {
-      const change = /\b(cancel|reschedule|move|change)\b/i.test(latest);
-      await reply(change ? 'I have passed your request to a teammate, who will confirm the change with you directly.' : 'I have asked a teammate to follow up with you directly.');
+      const change = CHANGE_REQUEST.test(latest);
+      await reply(change ? 'I cannot change a booked appointment myself, so I have flagged this for our team and a person will follow up with you.' : 'I have asked a teammate to follow up with you directly.');
       await escalate(change ? 'Customer wants to change or cancel an existing booking.' : 'Customer asked for a person after booking.');
     } else {
       await reply('You are all set. Reply here if anything changes and a teammate will help.');

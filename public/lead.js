@@ -20,8 +20,14 @@ $('#leadForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = new FormData(e.target); $('#err').textContent = ''; $('#submit').disabled = true;
   e.target.querySelectorAll('input,textarea').forEach((el) => el.removeAttribute('aria-invalid'));
+  // Check the form here first, so a blank or invalid click never reaches the server (and never uses up the visitor's allowance).
+  const v = Object.fromEntries(f);
+  const problem = !String(v.name || '').trim() ? ['Name is required.', '#name']
+    : String(v.phone || '').replace(/\D/g, '').length < 10 || !/^[+(\d][\d\s().+-]{6,}$/.test(String(v.phone || '').trim()) ? ['Enter a valid phone number (at least 10 digits).', '#phone']
+    : !String(v.message || '').trim() ? ['Message is required.', '#message'] : null;
+  if (problem) { $('#err').textContent = problem[0]; $(problem[1]).setAttribute('aria-invalid', 'true'); $(problem[1]).focus(); $('#submit').disabled = false; return; }
   try {
-    const r = await post('/api/leads', Object.fromEntries(f));
+    const r = await post('/api/leads', v);
     leadId = r.id; token = r.token;
     try { sessionStorage.setItem(KEY, JSON.stringify({ id: leadId, token })); } catch { /* ignore */ }
     show();
@@ -34,8 +40,9 @@ $('#leadForm').addEventListener('submit', async (e) => {
 });
 
 $('#replyForm').addEventListener('submit', async (e) => {
-  e.preventDefault(); const ta = $('#replyText'); const text = ta.value.trim(); if (!text) return;
+  e.preventDefault(); const ta = $('#replyText'); const text = ta.value.trim();
   $('#err2').textContent = '';
+  if (!text) { $('#err2').textContent = 'Type a message first.'; return; }
   try { await post(`/api/public/leads/${leadId}/messages`, { token, text }); ta.value = ''; poll(true); } catch (err) { $('#err2').textContent = err.message; }
 });
 

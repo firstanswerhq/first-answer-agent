@@ -16,3 +16,37 @@ export function rateLimiter({ windowMs, max }, name, now = Date.now) {
     return next();
   };
 }
+
+/**
+ * Counts only ACCEPTED actions. check(key) says whether another action is allowed without spending anything; hit(key)
+ * records one accepted action. Invalid submissions (400s) never call hit, so they never use up anyone's allowance.
+ * Fixed sliding window of timestamps per key.
+ */
+export function acceptCounter({ windowMs, max }, now = Date.now) {
+  const stamps = new Map();
+  const live = (key) => {
+    const cutoff = now() - windowMs;
+    const s = (stamps.get(key) || []).filter((t) => t > cutoff);
+    if (s.length) stamps.set(key, s); else stamps.delete(key);
+    return s;
+  };
+  return {
+    check: (key) => live(key).length < max,
+    retryAfterSec: (key) => { const s = live(key); return s.length ? Math.max(1, Math.ceil((s[0] + windowMs - now()) / 1000)) : 1; },
+    hit: (key) => { const s = live(key); s.push(now()); stamps.set(key, s); },
+  };
+}
+
+/** Express middleware: refuse with 429 if any counter is full for its key; the route calls hit() only after it accepted. */
+export function gate(counters) {
+  return (req, res, next) => {
+    for (const { counter, key } of counters) {
+      const k = key(req);
+      if (!counter.check(k)) {
+        res.set('Retry-After', String(counter.retryAfterSec(k)));
+        return res.status(429).json({ error: 'Too many requests. Please slow down and try again shortly.' });
+      }
+    }
+    return next();
+  };
+}

@@ -180,20 +180,51 @@ test('offline: Sunday leads are only offered Monday onward', async () => {
   assert.ok(l.offeredSlots.every((s) => s >= '2026-11-09'));
 });
 
-test('offline: after a handoff the customer gets exactly one short holding message, then the agent stays quiet', async () => {
+test('offline: after a handoff every new message gets a short holding reply, logged, with no booking and no safety text out of context', async () => {
   const env = makeEnv();
   const l = await newLead(env, { message: 'I want a refund, this service was terrible' });
   const before = agentTexts(l).length;
-  await say(env, l, 'Hello? Anyone there?');
+  await say(env, l, 'Hello? Anyone there? Can I get a discount?');
   assert.equal(agentTexts(l).length, before + 1);
-  assert.match(agentTexts(l).at(-1), /teammate has your message/);
+  assert.match(agentTexts(l).at(-1), /teammate has this and will follow up/);
   assert.match(agentTexts(l).at(-1), /call us at \(615\) 555-0100/);
+  assert.doesNotMatch(agentTexts(l).at(-1), /911|breathing/i);
   assert.equal(l.status, 'human');
   await say(env, l, 'Still waiting...');
-  await say(env, l, 'Hello??');
-  assert.equal(agentTexts(l).length, before + 1, 'no further automatic replies');
-  assert.ok(l.timeline.some((t) => /held back/.test(t.title)));
+  assert.equal(agentTexts(l).length, before + 2);
+  assert.ok(l.timeline.filter((t) => /customer wrote again/.test(t.title)).length >= 2);
   assert.ok(!fnNames(l).includes('book_appointment'));
+});
+
+test('offline: a booked customer who writes "can I change it to Friday?" is handed to a person with an honest reply', async () => {
+  const env = makeEnv();
+  const l = await newLead(env);
+  await say(env, l, 'The first one works');
+  assert.equal(l.status, 'booked');
+  await say(env, l, 'Actually can I change it to Friday?');
+  assert.equal(l.status, 'human');
+  assert.match(agentTexts(l).at(-1), /cannot change a booked appointment/i);
+  assert.match(agentTexts(l).at(-1), /flagged this for our team/);
+  assert.match(l.humanReason, /change or cancel/i);
+});
+
+test('offline: new emergency wording after a handoff is re-flagged urgent, gets the safety reply and one more alert', async () => {
+  const sent = [];
+  const transport = async (url, o) => { sent.push(o.headers.Priority); return { ok: true, status: 200 }; };
+  const { Notifier } = await import('../src/notify.js');
+  const env = makeEnv();
+  env.agent.notifier = new Notifier({ topic: 't', transport, now: env.clock.now, log: () => {} });
+  const l = await newLead(env, { message: 'I want a refund, this service was terrible' });
+  await env.agent.settled();
+  assert.deepEqual(sent, ['high']);
+  await say(env, l, 'My son has a swollen face and cannot breathe');
+  await env.agent.settled();
+  assert.equal(l.priority, 'urgent');
+  assert.match(agentTexts(l).at(-1), /911/);
+  assert.deepEqual(sent, ['high', 'urgent']);
+  await say(env, l, 'He is still not breathing');
+  await env.agent.settled();
+  assert.equal(sent.length, 2, 'no third alert');
 });
 
 test('offline: a booked customer who asks to reschedule is handed to a human', async () => {
