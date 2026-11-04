@@ -22,7 +22,14 @@ function rememberToken(id, tok) { try { const m = JSON.parse(sessionStorage.getI
 
 const fmtTime = (ts, secs = false) => new Intl.DateTimeFormat('en-US', { timeZone: state.tz, hour: 'numeric', minute: '2-digit', ...(secs ? { second: '2-digit' } : {}) }).format(new Date(ts));
 const fmtDay = (iso) => { const [y, m, d] = iso.split('-').map(Number); return new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', weekday: 'long', month: 'long', day: 'numeric' }).format(new Date(Date.UTC(y, m - 1, d))); };
-const secs = (n) => (n == null ? '—' : `${n.toFixed(1)} s`);
+// Durations under a second are shown in milliseconds, never as "0.0 s".
+const secs = (n) => (n == null ? '—' : n < 1 ? `${Math.round(n * 1000)} ms` : `${n.toFixed(1)} s`);
+// A reply from the built-in rules that took under a second reads "instant (rules)"; a model reply keeps its real time.
+const replyText = (sec, mode) => (sec == null ? 'Waiting' : sec < 1 && mode !== 'model' ? 'instant (rules)' : secs(sec));
+const upper1 = (t) => String(t || '').charAt(0).toUpperCase() + String(t || '').slice(1);
+const dayKey = (ts) => new Intl.DateTimeFormat('en-CA', { timeZone: state.tz }).format(new Date(ts));
+// Time of day for today, and the date plus time for anything older (a 3-day-old item must not look like it is from today).
+const fmtStamp = (ts) => (dayKey(ts) === state.today || !state.today ? fmtTime(ts) : new Intl.DateTimeFormat('en-US', { timeZone: state.tz, weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(ts)));
 const initials = (n) => n.split(/\s+/).map((p) => p[0]).slice(0, 2).join('').toUpperCase();
 const STATUS = { new: ['New', 'new'], replied: ['Replied', 'replied'], booked: ['Booked', 'booked'], human: ['Needs a Human', 'human'] };
 const chip = (s) => html`<span class="chip ${STATUS[s][1]}">${STATUS[s][0]}</span>`;
@@ -73,12 +80,12 @@ async function refreshLeads() {
 
 // ---------- Live Inbox ----------
 function rowHtml(l) {
-  return html`<tr data-id="${l.id}" tabindex="0" role="link" aria-label="Open ${l.name}">
+  return html`<tr data-id="${l.id}" class="${l.seed ? 'sample-row' : ''}" tabindex="0" role="link" aria-label="Open ${l.name}">
     <td><div class="person"><span class="initials">${initials(l.name)}</span><div><strong>${l.name}${l.priority === 'urgent' ? R('<span class="chip urgent">Urgent</span>') : ''}</strong><small>${l.serviceLabel ? `${l.serviceLabel}${l.location ? ' · ' + l.location : ''}` : l.snippet}${l.seed ? ' · sample' : ''}</small></div></div></td>
     <td class="src">${l.source}</td>
-    <td>${l.replyTimeSec == null ? 'Waiting' : secs(l.replyTimeSec)}${l.seed && l.replyTimeSec != null ? R(' <small class="dim">(simulated)</small>') : ''}</td>
+    <td>${replyText(l.replyTimeSec, l.lastRunMode)}${l.seed && l.replyTimeSec != null ? R(' <small class="dim">(simulated)</small>') : ''}</td>
     <td>${R(chip(l.status))}</td>
-    <td>${fmtTime(l.createdAt)}</td></tr>`;
+    <td>${fmtStamp(l.createdAt)}</td></tr>`;
 }
 
 function inboxFilterList() {
@@ -95,6 +102,7 @@ async function renderInbox(first) {
           <div class="menu"><button class="btn" id="simBtn" aria-haspopup="true" aria-expanded="false">+ Simulate a new lead</button>
             <div class="menu-list" id="simMenu" hidden role="menu">${sc.map((s) => R(html`<button role="menuitem" data-sc="${s.id}"><strong>${s.title}</strong><span>${s.blurb}</span></button>`))}</div></div>
           <a class="btn ghost" href="/lead" target="_blank" rel="noopener">Open lead form</a>
+          <button class="btn ghost" id="resetBtn" title="Reload the fictional sample data. Your own conversations are kept.">Reset demo</button>
         </div></div>
       <div class="inbox-grid">
         <div class="card"><div class="card-head"><div><h2>New and active leads</h2><p class="sub" style="margin-top:4px" id="inboxSub"></p></div>
@@ -112,6 +120,11 @@ async function renderInbox(first) {
       const b = e.target.closest('[data-sc]'); if (!b) return;
       menu.hidden = true; btn.disabled = true;
       try { const r = await api('/api/simulate', { method: 'POST', body: { scenario: b.dataset.sc } }); rememberToken(r.id, r.token); location.hash = `#/lead/${r.id}`; } catch (err) { toast(err.message); } finally { btn.disabled = false; }
+    });
+    $('#resetBtn').addEventListener('click', async () => {
+      if (!window.confirm('Reload the fictional sample data? Your own conversations are kept.')) return;
+      const rb = $('#resetBtn'); rb.disabled = true;
+      try { await api('/api/demo/reset', { method: 'POST', body: {} }); toast('Sample data reloaded.'); await refreshLeads(); paintInbox(); } catch (err) { toast(err.message); } finally { rb.disabled = false; }
     });
     $('#rows').addEventListener('click', (e) => { const tr = e.target.closest('tr[data-id]'); if (tr) location.hash = `#/lead/${tr.dataset.id}`; });
     $('#rows').addEventListener('keydown', (e) => { if (e.key === 'Enter') { const tr = e.target.closest('tr[data-id]'); if (tr) location.hash = `#/lead/${tr.dataset.id}`; } });
@@ -173,13 +186,13 @@ async function renderDetail(id, first) {
   }
   const working = l.status === 'new' || (l.timeline.length && l.timeline.at(-1).kind !== 'done' && l.timeline.at(-1).kind !== 'followup' && l.timeline.at(-1).kind !== 'info');
   $('#dEyebrow').textContent = `Lead detail / ${l.qualification?.serviceLabel || 'Not yet qualified'}`;
-  $('#dSub').textContent = `${STATUS[l.status][0]} · ${l.source} · Received ${fmtTime(l.createdAt)}${l.seed ? ' · sample data' : ''}`;
+  $('#dSub').textContent = `${STATUS[l.status][0]} · ${l.source} · Received ${fmtStamp(l.createdAt)}${l.seed ? ' · sample data' : ''}`;
   $('#dJob').textContent = `${l.qualification?.serviceLabel || 'Unclassified'}${l.qualification?.location ? ' · ' + l.qualification.location : ''}`;
   $('#dChips').innerHTML = html`${R(chip(l.status))}${l.priority === 'urgent' ? R('<span class="chip urgent">Urgent</span>') : ''}`;
   const conv = $('#conv');
   const atEnd = conv.scrollTop + conv.clientHeight >= conv.scrollHeight - 40;
   const sig = l.messages.length + ':' + (working ? 1 : 0);
-  conv.innerHTML = l.messages.map((m) => html`<div class="msg ${m.followup ? 'system' : m.from}">${m.text}<span class="time">${fmtTime(m.ts)} · ${m.from === 'customer' ? 'Customer (role-play)' : m.followup ? 'Automatic follow-up, simulated send' : 'Answer Agent, simulated send'}</span></div>`).join('') + (working ? '<div class="msg system">Agent is working…</div>' : '');
+  conv.innerHTML = l.messages.map((m) => html`<div class="msg ${m.followup ? 'system' : m.from}">${m.text}<span class="time">${fmtStamp(m.ts)} · ${m.from === 'customer' ? 'Customer (role-play)' : m.followup ? 'Automatic follow-up, simulated send' : 'Answer Agent, simulated send'}</span></div>`).join('') + (working ? '<div class="msg system">Agent is working…</div>' : '');
   if (atEnd || conv.dataset.sig !== sig) conv.scrollTop = conv.scrollHeight;
   conv.dataset.sig = sig;
   const badge = $('#dBadge'); badge.className = `badge ${working ? 'offline' : ''}`;
@@ -210,7 +223,7 @@ function timelineItem(t) {
 function factsHtml(l, speedup) {
   const q = l.qualification; const rows = [];
   const add = (k, v) => rows.push(html`<dt>${k}</dt><dd>${v}</dd>`);
-  add('First reply', l.replyTimeSec == null ? 'Not yet' : `${secs(l.replyTimeSec)} (measured)`);
+  add('First reply', l.replyTimeSec == null ? 'Not yet' : `${replyText(l.replyTimeSec, l.lastRunMode)}${l.seed ? ' (simulated)' : ' (measured)'}`);
   add('Run mode', l.lastRunMode === 'model' ? 'Live model' : l.lastRunMode === 'offline' ? 'Offline rules' : 'Pending');
   if (q) {
     add('Service', `${q.serviceLabel}, ${q.urgency}`);
@@ -250,7 +263,7 @@ async function renderCalendar(start, { quiet = false } = {}) {
         const end = b.leadId ? '</button>' : '</div>';
         return `${tag}<strong>${esc(b.serviceLabel)}${b.kind === 'emergency_hold' ? ' (priority hold)' : ''}</strong><small>${esc(b.name)} · ${clock(s.start)}</small>${end}`;
       }
-      return `<div class="open ${s.status === 'past' ? 'past' : ''}" style="top:${top}px;height:${h}px">${s.status === 'past' ? 'Past' : 'Open'} · ${clock(s.start)}</div>`;
+      return `<div class="open ${s.status === 'past' ? 'past' : ''}" style="top:${top}px;height:${h}px">${s.status === 'past' ? (s.date < c.today ? 'Past' : 'Too soon') : 'Open'} · ${clock(s.start)}</div>`;
     }).join('');
     const starts = day.slots.map((x) => Number(x.start.slice(0, 2)));
     let closed = '';
@@ -260,7 +273,7 @@ async function renderCalendar(start, { quiet = false } = {}) {
     return `<div class="daycol" style="height:${(H1 - H0) * ROW}px">${closed}${blocks}</div>`;
   };
   const hours = Array.from({ length: H1 - H0 }, (_, i) => `<div class="hlabel">${clock(String(H0 + i).padStart(2, '0'))}</div>`).join('');
-  const agenda = cols.map((day) => `<h3>${esc(dname(day.date))} ${esc(label(day.date))}${day.today ? ' (today)' : ''}</h3>` + day.slots.map((s) => `<div class="row ${s.status === 'open' ? 'free' : s.status === 'past' ? 'past' : ''}"><span>${esc(clock(s.start))}–${esc(clock(s.end))}</span><span>${s.status === 'booked' ? esc(s.booking.serviceLabel + ' · ' + s.booking.name) : s.status === 'open' ? 'Open' : 'Past'}</span></div>`).join('')).join('');
+  const agenda = cols.map((day) => `<h3>${esc(dname(day.date))} ${esc(label(day.date))}${day.today ? ' (today)' : ''}</h3>` + (day.slots.length ? '' : '<div class="row past"><span>Closed</span><span></span></div>') + day.slots.map((s) => `<div class="row ${s.status === 'open' ? 'free' : s.status === 'past' ? 'past' : ''}"><span>${esc(clock(s.start))}–${esc(clock(s.end))}</span><span>${s.status === 'booked' ? esc(s.booking.serviceLabel + ' · ' + s.booking.name) : s.status === 'open' ? 'Open' : s.date < c.today ? 'Past' : 'Too soon'}</span></div>`).join('')).join('');
   $('#view').innerHTML = html`
     <div class="heading"><div><div class="eyebrow">Your week at a glance</div><h1>Calendar</h1><p class="sub">Booked and open appointment times. The agent can only book what you see here.</p></div>
       <div class="actions"><button class="btn ghost small" data-week="${c.prev}" aria-label="Previous week">‹ Prev</button><span class="btn ghost small" style="pointer-events:none">${label(cols[0].date)} – ${label(cols[5].date)}, ${cols[0].date.slice(0, 4)}</span><button class="btn ghost small" data-week="${c.next}" aria-label="Next week">Next ›</button></div></div>
@@ -305,11 +318,13 @@ function chartSvg(data) {
   const narrow = window.innerWidth < 600;
   const d = narrow ? data.slice(-7) : data;
   const W = 760; const H = 280; const L = 44; const T = 22; const B = 36; const iw = W - L - 10; const ih = H - T - B;
-  const max = Math.max(5, Math.ceil(Math.max(...d.map((x) => x.sec)) / 5) * 5);
+  const top = Math.max(...d.map((x) => x.sec));
+  const inMs = top < 1; // all replies under a second: scale the axis in milliseconds so the bars are visible
+  const max = inMs ? Math.max(0.005, Math.ceil(top * 1000 / 5) * 5 / 1000) : Math.max(5, Math.ceil(top / 5) * 5);
   const bw = Math.min(34, (iw / d.length) * 0.55);
   const y = (v) => T + ih - (v / max) * ih;
   let out = `<svg class="chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Bar chart of reply time in seconds for the latest ${d.length} leads. ">`;
-  for (let i = 0; i <= 4; i += 1) { const v = (max / 4) * i; out += `<line x1="${L}" x2="${W - 10}" y1="${y(v)}" y2="${y(v)}" stroke="#ffffff14"/><text x="${L - 8}" y="${y(v) + 4}" text-anchor="end">${Number.isInteger(v) ? v : v.toFixed(1)}</text>`; }
+  for (let i = 0; i <= 4; i += 1) { const v = (max / 4) * i; out += `<line x1="${L}" x2="${W - 10}" y1="${y(v)}" y2="${y(v)}" stroke="#ffffff14"/><text x="${L - 8}" y="${y(v) + 4}" text-anchor="end">${inMs ? Math.round(v * 1000) + ' ms' : Number.isInteger(v) ? v : v.toFixed(1)}</text>`; }
   d.forEach((x, i) => {
     const cx = L + (iw / d.length) * (i + 0.5); const live = x.mode === 'model'; const sim = x.seed;
     out += `<defs><linearGradient id="g${i}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${sim ? '#8791b2' : live ? '#77cfff' : '#d575ff'}"/><stop offset="1" stop-color="${sim ? '#5a6486' : live ? '#4778df' : '#7652e9'}"/></linearGradient></defs>`;
@@ -337,7 +352,7 @@ function renderGuardrails() {
       <div class="card"><div class="card-head"><h2>Always handed to a human</h2></div><div class="card-body"><ul class="rules">
         <li><b>${c.urgency.label}:</b> flagged urgent for a person to call. ${c.urgency.safetyNote}</li>
         <li><b>Complaints and angry ${c.business.customerWord}s.</b></li>
-        ${c.alwaysHuman.map((t) => R(html`<li><b>${t}.</b></li>`))}
+        ${c.alwaysHuman.map((t) => R(html`<li><b>${upper1(t.replace(/\.$/, ''))}.</b></li>`))}
         <li><b>Schedule changes</b> to an existing booking, or anyone asking for a person.</li>
         <li><b>Out of scope${c.serviceArea ? ' or out of area' : ''}</b> requests, and unclear leads after two questions.</li>
         <li><b>Repeated guardrail violations</b> by the model.</li></ul></div></div>
@@ -355,7 +370,7 @@ async function route() {
   const first = state.view !== view; state.view = view;
   setNav(name === 'lead' ? 'inbox' : name);
   $('#crumb').textContent = { inbox: 'Live Inbox', lead: 'Lead Detail', calendar: 'Calendar', results: 'Results', guardrails: 'Guardrails' }[name] || 'Live Inbox';
-  $('.search').style.visibility = name === 'inbox' ? 'visible' : 'hidden';
+  $('.search').hidden = name !== 'inbox';
   let again = 3000;
   try {
     if (!state.cfg) { state.cfg = await api('/api/config'); state.tz = state.cfg.business.tz; }

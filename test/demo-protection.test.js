@@ -66,7 +66,7 @@ test('visitor bookings are capped overall and per visitor', async () => {
   assert.equal(env.store.liveBookings().length, 2);
 });
 
-test('POST /api/demo/reset restores the sample day, drops visitor leads, is rate limited and never touches model counters', async () => {
+test('POST /api/demo/reset reloads only the sample day, keeps visitor leads, is rate limited and never touches model counters', async () => {
   const clock = makeClock(WED_10AM, 5);
   const config = cap({ resetCooldownMs: 0, resetRate: { windowMs: 3_600_000, max: 2 } });
   const store = new Store();
@@ -76,10 +76,12 @@ test('POST /api/demo/reset restores the sample day, drops visitor leads, is rate
     await settle(s);
     const runsBefore = s.agent.modelRunStamps.length;
     const statsBefore = JSON.stringify(s.agent.stats);
-    assert.ok(store.leads.some((l) => !l.seed));
+    const visitors = store.leads.filter((l) => !l.seed).map((l) => l.id);
+    assert.equal(visitors.length, 3);
     const r = await post(s.base, '/api/demo/reset', {});
     assert.equal(r.status, 200);
-    assert.ok(store.leads.length >= 8 && store.leads.every((l) => l.seed));
+    assert.ok(store.leads.filter((l) => l.seed).length >= 8);
+    assert.deepEqual(store.leads.filter((l) => !l.seed).map((l) => l.id).sort(), [...visitors].sort(), 'visitors keep their conversations');
     assert.equal(s.agent.modelRunStamps.length, runsBefore);
     assert.equal(JSON.stringify(s.agent.stats), statsBefore);
     assert.equal((await post(s.base, '/api/demo/reset', {})).status, 200);
@@ -94,5 +96,49 @@ test('POST /api/demo/reset has a cooldown between resets', async () => {
   try {
     assert.equal((await post(s.base, '/api/demo/reset', {})).status, 200);
     assert.equal((await post(s.base, '/api/demo/reset', {})).status, 429);
+  } finally { await s.stop(); }
+});
+
+test('a stranger resetting the demo keeps another visitor\'s conversation and booking', async () => {
+  const clock = makeClock(WED_10AM, 5);
+  const config = cap({ resetCooldownMs: 0 });
+  const s = await startServer({ config, now: clock.now });
+  try {
+    const mine = await (await post(s.base, '/api/leads', lead({ name: 'Visitor A' }))).json();
+    await settle(s);
+    await post(s.base, `/api/public/leads/${mine.id}/messages`, { token: mine.token, text: 'The first one works for me.' });
+    await settle(s);
+    const booked = s.store.bookingForLead(mine.id);
+    assert.ok(booked, 'visitor booked');
+    assert.equal((await post(s.base, '/api/demo/reset', {})).status, 200);
+    const thread = await fetch(`${s.base}/api/public/leads/${mine.id}?token=${mine.token}`);
+    assert.equal(thread.status, 200, 'the visitor can still read their conversation');
+    assert.ok(s.store.bookingForLead(mine.id), 'the visitor booking survives a reset');
+    assert.ok(!s.store.bookingForLead(mine.id).sample, 'and is not mislabeled as sample data');
+    assert.equal(s.store.liveBookings().length, 1);
+  } finally { await s.stop(); }
+});
+
+test('the sample day is reloaded relative to now when it has gone stale', async () => {
+  const clock = makeClock(WED_10AM);
+  const config = cfgFor();
+  const s = await startServer({ config: { ...config, seedOnEmpty: true }, now: clock.now });
+  try {
+    const oldest = () => Math.min(...s.store.leads.filter((l) => l.seed).map((l) => l.createdAt));
+    assert.ok(clock.now() - oldest() < 6 * 3_600_000);
+    assert.equal(await s.refreshSample(), false, 'fresh sample day is left alone');
+    clock.advance(3 * 24 * 3_600_000);
+    assert.equal(await s.refreshSample(), true, 'three days later it is reloaded');
+    assert.ok(clock.now() - oldest() < 6 * 3_600_000, 'sample leads are hours old again, not days');
+    assert.equal(s.store.leads.filter((l) => l.seed).length, 8);
+  } finally { await s.stop(); }
+});
+
+test('calendar start dates far outside a sensible range fall back to this week', async () => {
+  const s = await startServer({ now: makeClock(WED_10AM).now });
+  try {
+    const c = await (await fetch(`${s.base}/api/calendar?start=9999-12-31`)).json();
+    assert.match(c.start, /^2026-11-02$/);
+    assert.match(c.next, /^2026-11-09$/);
   } finally { await s.stop(); }
 });

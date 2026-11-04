@@ -158,3 +158,19 @@ html{background:#070b18}
 .btn{background:linear-gradient(100deg,var(--accent,#a75afc),color-mix(in srgb,var(--accent,#df5de1) 55%,#df5de1))}
 .orbmini{background:radial-gradient(circle at 35% 30%,#fff 0 6%,var(--accent,#d96aff) 18%,color-mix(in srgb,var(--accent,#774cff) 55%,#11132a) 48%,#11132a 74%)}
 .agent-orb{background:radial-gradient(circle at 35% 28%,#fff 0 3%,var(--accent,#a95aff) 28%,color-mix(in srgb,var(--accent,#3532a4) 40%,#10132a) 62%,#10132a 78%)}
+
+/* Layout fixes from the second review */
+.inbox-grid > *{min-width:0}
+.inbox-grid > .card:first-child{overflow-x:auto}
+@media(max-width:1500px){.inbox-grid{grid-template-columns:1fr}}
+.person small{max-width:min(340px,38vw)}
+.conversation{align-content:start;grid-auto-rows:min-content}
+.sample-row td{opacity:.78}
+.search[hidden]{display:none}
+.chart-head{flex-wrap:wrap;gap:10px 16px}
+.legend{flex-wrap:wrap;row-gap:6px}
+@media(max-width:900px){
+ .topbar .top-actions{display:flex;flex-wrap:wrap;gap:8px;width:100%}
+ .search{display:flex;flex:1 1 100%;min-width:0;order:2}
+ .search[hidden]{display:none}
+}

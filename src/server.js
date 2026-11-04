@@ -9,7 +9,7 @@ import { FollowupScheduler } from './followups.js';
 import { computeMetrics } from './metrics.js';
 import { listSlots, mondayOf, localNow, dateOf, addDays, isValidDate, isOpenNow } from './calendar.js';
 import { rateLimiter } from './ratelimit.js';
-import { seedSample } from './seed.js';
+import { seedSample, sampleIsStale } from './seed.js';
 import { safeEqual } from './util.js';
 import crypto from 'node:crypto';
 
@@ -23,7 +23,15 @@ export async function createApp({ config, store = new Store({ file: config.dataF
   const scheduler = new FollowupScheduler({ store, agent, now });
   const startedAt = now();
   if (config.seedOnEmpty && !store.state.meta.seeded && store.leads.length === 0) await seedSample(store, config, { realNow: now() });
-  if (startTimers) scheduler.start();
+  // Keep the fictional sample day fresh on a long-running server: its times are relative to when it was loaded.
+  const refreshSample = async () => { if (config.seedOnEmpty && sampleIsStale(store, now())) { await seedSample(store, config, { force: true, realNow: now() }); return true; } return false; };
+  await refreshSample();
+  let sampleTimer = null;
+  if (startTimers) {
+    scheduler.start();
+    sampleTimer = setInterval(() => { refreshSample().catch(() => {}); }, 15 * 60_000);
+    sampleTimer.unref?.();
+  }
 
   const app = express();
   app.disable('x-powered-by');
@@ -73,7 +81,7 @@ export async function createApp({ config, store = new Store({ file: config.dataF
   app.get('/api/scenarios', readLimit, (_req, res) => res.json(SCENARIOS_OF(config).map(({ id, title, blurb }) => ({ id, title, blurb }))));
 
   app.get('/api/leads', readLimit, (_req, res) => {
-    res.json({ leads: store.leads.map((l) => summary(l, store)), agent: agent.status(), officeOpen: isOpenNow(localNow(now(), config.business.tz), config.hours), today: dateOf(localNow(now(), config.business.tz)) });
+    res.json({ leads: [...store.leads].sort((a, b) => b.createdAt - a.createdAt).map((l) => summary(l, store)), agent: agent.status(), officeOpen: isOpenNow(localNow(now(), config.business.tz), config.hours), today: dateOf(localNow(now(), config.business.tz)) });
   });
 
   app.get('/api/leads/:id', readLimit, (req, res) => {
@@ -133,8 +141,9 @@ export async function createApp({ config, store = new Store({ file: config.dataF
     } catch (e) { next(e); }
   });
 
-  // Reset the demo: drops every visitor lead and booking and reloads the fictional sample day. The sample day is
-  // produced by the offline rules engine on a separate agent, so this never spends or touches the live model budget.
+  // Reset the demo: reloads the fictional sample day only. Visitors' own conversations and bookings are never touched,
+  // so one visitor cannot erase another's work. The sample day is produced by the offline rules engine on a separate
+  // agent, so this never spends or touches the live model budget.
   let lastReset = 0;
   app.post('/api/demo/reset', resetLimit, async (_req, res, next) => {
     try {
@@ -150,7 +159,7 @@ export async function createApp({ config, store = new Store({ file: config.dataF
 
   app.get('/api/calendar', readLimit, (req, res) => {
     const today = dateOf(localNow(now(), config.business.tz));
-    let start = typeof req.query.start === 'string' && isValidDate(req.query.start) ? req.query.start : today;
+    let start = typeof req.query.start === 'string' && isValidDate(req.query.start) && req.query.start >= '2000-01-01' && req.query.start <= '2100-12-31' ? req.query.start : today;
     start = mondayOf(start);
     const slots = listSlots(store, config, now(), start, 6);
     const days = Array.from({ length: 6 }, (_, i) => addDays(start, i)).map((date) => ({ date, today: date === today, slots: slots.filter((s) => s.date === date) }));
@@ -174,5 +183,5 @@ export async function createApp({ config, store = new Store({ file: config.dataF
     return res.status(500).json({ error: 'Something went wrong.' });
   });
 
-  return { app, store, agent, svc, scheduler, llm: client, close: async () => { scheduler.stop(); await store.flush(); } };
+  return { app, store, agent, svc, scheduler, llm: client, refreshSample, close: async () => { scheduler.stop(); clearInterval(sampleTimer); await store.flush(); } };
 }

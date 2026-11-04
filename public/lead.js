@@ -33,7 +33,15 @@ async function poll(now) {
   clearTimeout(timer);
   try {
     const res = await fetch(`/api/public/leads/${leadId}?token=${encodeURIComponent(token)}`);
-    if (!res.ok) { sessionStorage.removeItem('fa-lead'); location.reload(); return; }
+    if (res.status === 404) {
+      // The conversation is gone (for example the demo data was reloaded). Say so instead of silently showing a blank form.
+      sessionStorage.removeItem('fa-lead');
+      leadId = null; token = null;
+      $('#threadView').hidden = true; $('#formView').hidden = false;
+      $('#err').textContent = 'That conversation is no longer available. The demo data may have been reloaded. You can start a new one below.';
+      return;
+    }
+    if (!res.ok) { timer = setTimeout(poll, 6000); return; }
     const d = await res.json();
     const conv = $('#conv'); conv.textContent = '';
     for (const m of d.messages) {
