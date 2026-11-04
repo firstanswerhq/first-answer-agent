@@ -332,7 +332,12 @@ export class Functions {
     // The model's replies always end with one AI signature, exactly once.
     if (this.ctx.writer === 'model') {
       const tail = `${config.business.agentName} (AI)`;
-      if (!text.toLowerCase().endsWith(tail.toLowerCase())) text = `${text.replace(/[\s-]*\(AI\)[.!]?\s*$/i, '').replace(/[\s-]+$/, '')} - ${tail}`;
+      // Strip any signature the model wrote itself (any dash, with or without "(AI)", doubled) before adding ours once.
+      const nameRe = config.business.agentName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
+      const sig = new RegExp(`(?:[\\s\\-–—]*(?:${nameRe})?\\s*\\(AI\\)[.!]?|[\\s\\-–—]+${nameRe}[.!]?)\\s*$`, 'i');
+      let body = text;
+      for (let i = 0; i < 4 && sig.test(body); i += 1) body = body.replace(sig, '');
+      text = `${body.replace(/[\s\-–—]+$/, '')} - ${tail}`;
     }
     const ts = this.ctx.now();
     const msg = { id: rid('M'), ts, from: 'agent', text, simulated: true, by: this.ctx.writer || 'rules', ...(this.ctx.writer !== 'model' && this.ctx.fallbackReason ? { fallbackReason: this.ctx.fallbackReason } : {}), ...extra };

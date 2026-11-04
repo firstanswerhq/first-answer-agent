@@ -31,3 +31,22 @@ test('dangling: hand-offs are fine, "what is open" without a time is not an answ
   for (const t of ['Let me check what is open for you.', 'Let me see what I have and get back to you.']) assert.equal(model(t)?.id, 'dangling', t);
   assert.equal(model('Let me check. 2 PM is open on Thursday.'), null);
 });
+
+import fs from 'node:fs';
+import { makeEnv, fakeLlm, newLead, agentTexts } from './helpers.js';
+test('signature appears exactly once whatever the model wrote', async () => {
+  const cases = ['Happy to help! -Brightwater scheduling assistant (AI).', 'Happy to help with your visit. Which day works? ​- Brightwater scheduling assistant (AI) - Brightwater scheduling assistant (AI)', 'Happy to help with that visit this week (AI)', 'Happy to help with your visit this week. — Brightwater scheduling assistant'];
+  for (const c of cases) {
+    const llm = fakeLlm([{ status: 200, json: { choices: [{ finish_reason: 'stop', message: { content: c } }] } }]);
+    const l = await newLead(makeEnv({ llm }), { message: 'hello what do you do' });
+    const t = agentTexts(l)[0];
+    assert.equal((t.match(/\(AI\)/g) || []).length, 1, t);
+    assert.equal((t.match(/Brightwater scheduling assistant/g) || []).length, 1, t);
+    assert.match(t, / - Brightwater scheduling assistant \(AI\)$/);
+  }
+});
+test('UI has plain words for the dangling and no_times rule ids', () => {
+  const js = fs.readFileSync(new URL('../public/app.js', import.meta.url), 'utf8');
+  assert.match(js, /dangling: '/);
+  assert.match(js, /no_times: '/);
+});
