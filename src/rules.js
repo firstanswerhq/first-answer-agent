@@ -1,10 +1,11 @@
 // Offline rules engine. It follows the SAME path as the model: qualify, check the
 // calendar, reply, book, schedule a follow-up, escalate. It calls the very same
 // guarded functions. Deterministic, no network.
-import { detectService, detectServices, detectLocation, wantsOutsideHours, pickSlot, slotCandidates, declinesSlots, requestedDay, slotOnDay } from './extract.js';
+import { requestedHour, detectService, detectServices, detectLocation, wantsOutsideHours, pickSlot, slotCandidates, declinesSlots, requestedDay, slotOnDay } from './extract.js';
 import { firstName, money } from './util.js';
 import { CHANGE_REQUEST } from './safety.js';
-import { slotLabel, addDays, dateOf, localNow, isOpenNow, dateLabel } from './calendar.js';
+import { slotLabel, addDays, dateOf, localNow, isOpenNow, dateLabel, listSlots, slotsForDate, fmtClock } from './calendar.js';
+import { factAnswers, missingFactText } from './facts.js';
 
 const SIGN = (config) => ` - ${config.business.agentName} (AI)`;
 const lc = (label) => (/^[A-Z][A-Z]/.test(label) ? label : label.charAt(0).toLowerCase() + label.slice(1));
@@ -78,7 +79,9 @@ export async function runRules(ctx, fx, trigger) {
   if (!q.ok) { await escalate('Could not qualify the lead.'); return; }
 
   if (flags.handoff) {
-    await reply('Thanks. This one needs a person, so I have passed it to a teammate who will follow up with you directly.');
+    const topic = config.profile.alwaysHuman.find((x) => x.id === flags.topic);
+    await reply(topic ? (topic.reply || `Questions about ${topic.label} go to a person, so I have passed this to a teammate who will follow up with you directly.`)
+      : 'Thanks. This one needs a person, so I have passed it to a teammate who will follow up with you directly.');
     await escalate(flags.reasons.find((r) => /needs a person|always goes to a person/.test(r)) || 'Customer request needs a person.');
     return;
   }
@@ -114,6 +117,11 @@ export async function runRules(ctx, fx, trigger) {
     return;
   }
 
+  // Plain questions about the business are answered from the profile only (hours, weekends, parking, walk-ins, visit length).
+  const fa = factAnswers(latest, config, { skipWeekend: service !== 'other' && !!requestedDay(latest, dateOf(localNow(ctx.now(), config.business.tz))) });
+  const factText = [...fa.answers, ...(fa.missing.length ? [missingFactText(fa.missing)] : [])].join(' ');
+  const flagMissing = async () => { if (fa.missing.length) await escalate(`Customer asked about ${fa.missing.join(' and ')}, which is not in the business facts; a person should confirm.`); };
+
   // 4. Not enough information yet: ask one clear question.
   if (service === 'other' || (loc.needed && !loc.known) || q.service_area_ok === null) {
     const needService = service === 'other';
@@ -128,6 +136,13 @@ export async function runRules(ctx, fx, trigger) {
     const ask = needService && needLoc ? `${wording.askService.replace(/\?$/, '')}, and ${where}?`
       : needService ? wording.askService : `${where}, so I can confirm we cover it?`;
     // The second ask sounds different from the first, so the customer never gets the same message twice in a row.
+    if (fa.any && service === 'other' && !needLoc) {
+      // A question about the business: answer it, then offer to book. Answering does not use up the one-question budget.
+      await reply(`Hi ${first}, thanks for reaching out to ${biz}. ${factText} Happy to book a visit too: ${ask}`);
+      await flagMissing();
+      if (lead.status !== 'human') await fx.call('schedule_followup', { delay_minutes: 30, text: `Hi ${first}, just checking in. Tell me what you would like to book whenever you are ready and I will line up a time. ${SIGN(config).trim()}`.slice(0, 400) });
+      return;
+    }
     const r = await reply(attempts === 0
       ? `Hi ${first}, thanks for reaching out to ${biz}. Happy to help: ${ask}`
       : `Sorry, ${first === 'there' ? '' : first + ', '}I did not catch that. ${upper1(ask)}`);
@@ -190,7 +205,31 @@ export async function runRules(ctx, fx, trigger) {
   const sinceDate = declines && offered.length ? addDays(dateOf(offered.at(-1)), 1)
     : reqDay ? reqDay.date
       : wantsNextWeek ? nextMonday : undefined;
-  const cal = await fx.call('check_calendar', { days: 10, limit: 3, ...(sinceDate ? { earliest_date: sinceDate } : {}) });
+  const cal = await fx.call('check_calendar', { days: 10, limit: 6, ...(sinceDate ? { earliest_date: sinceDate } : {}) });
+  // A specific time on a specific day: say plainly whether it is open. If it is taken, offer the nearest open times that day
+  // first (closest to the time asked for), then the next ones after it.
+  const askedHour = !declines && reqDay ? requestedHour(latest) : null;
+  let timeNote = '';
+  if (cal.ok && askedHour != null && reqDay) {
+    const dayWord = reqDay.weekday ? dateLabel(reqDay.date, true).split(',')[0] : dateLabel(reqDay.date);
+    const wanted = `${reqDay.date}T${String(askedHour).padStart(2, '0')}:00`;
+    const clock = fmtClock(wanted.slice(11, 16));
+    const info = listSlots(ctx.store, config, ctx.now(), reqDay.date, 1).find((x) => x.slot_id === wanted);
+    if (info && info.status === 'open') timeNote = `${dayWord} at ${clock} is open. `;
+    else if (info && (info.status === 'booked' || info.status === 'busy')) timeNote = `${dayWord} at ${clock} is already taken. `;
+    else if (info && info.status === 'past') timeNote = `${dayWord} at ${clock} is too soon to book. `;
+    else if (info && info.status === 'unchecked') timeNote = `I cannot check ${dayWord} at ${clock} right now. `;
+    else if (slotsForDate(reqDay.date, config.hours).length) timeNote = `We do not start ${wording.appointment}s at ${clock} on ${dayWord}. `;
+    // Same-day open windows (all of them, not just the first few), closest to the asked time first; a tie goes to the later one.
+    const dist = (sl) => Math.abs(Number(sl.slot_id.slice(11, 13)) - askedHour);
+    const sameDay = listSlots(ctx.store, config, ctx.now(), reqDay.date, 1).filter((x) => x.status === 'open').map((x) => ({ slot_id: x.slot_id, label: x.label }))
+      .sort(info && info.status === 'open'
+        ? (a, b) => (a.slot_id === wanted ? -1 : b.slot_id === wanted ? 1 : (a.slot_id > wanted) === (b.slot_id > wanted) ? a.slot_id.localeCompare(b.slot_id) : a.slot_id > wanted ? -1 : 1) // the asked time, then the ones after it, then earlier ones
+        : (a, b) => dist(a) - dist(b) || b.slot_id.localeCompare(a.slot_id));
+    const others = cal.slots.filter((sl) => sl.slot_id.slice(0, 10) !== reqDay.date);
+    if (sameDay.length) cal.slots = [...sameDay, ...others];
+  }
+  if (cal.ok) { cal.slots = cal.slots.slice(0, 3); lead.offeredSlots = cal.slots.map((sl) => sl.slot_id); }
   if (!cal.ok || !cal.slots.length) {
     await reply('I could not find an open time right now, so I have asked a teammate to find a time for you.');
     await escalate('No open calendar times available.');
@@ -210,11 +249,11 @@ export async function runRules(ctx, fx, trigger) {
   if (reqDay) {
     const dayName = dateLabel(reqDay.date, true).split(',')[0];
     const onThatDay = cal.slots.some((sl) => sl.slot_id.slice(0, 10) === reqDay.date);
-    dayNote = onThatDay ? `Here is what is open on ${dayName}. ` : `I do not have an opening on ${reqDay.weekday ? dayName : dateLabel(reqDay.date)}. We are open ${config.hours.text}, so here are the nearest times. `;
+    dayNote = timeNote ? (onThatDay ? `${timeNote}${/is open/.test(timeNote) ? '' : `Here is what is open on ${dayName} instead. `}` : `${timeNote}I do not have another opening on ${dayName}, so here are the nearest times. `) : onThatDay ? `Here is what is open on ${dayName}. ` : `I do not have an opening on ${reqDay.weekday ? dayName : dateLabel(reqDay.date)}. We are open ${config.hours.text}, so here are the nearest times. `;
   } else if (wantsNextWeek && cal.slots.every((sl) => sl.slot_id.slice(0, 10) >= nextMonday)) dayNote = 'Here is what is open next week. ';
   const inLoc = loc.needed && loc.text ? ` in ${loc.text}` : '';
-  const body = q.price_range ? `${price.replace(/ usually runs/, inLoc + ' usually runs')}` : `${q.service_label}${inLoc}: ${price}`;
-  let text = `Hi ${first}! ${bookNote}${dayNote}${intro}${body} Open times: ${times}. Which one works?`;
+  const body = q.price_range ? `${price.replace(/ usually runs/, inLoc + ' usually runs')}` : `I can set up ${aOrAn(lc(q.service_label))} ${lc(q.service_label)}${inLoc}. ${price}`;
+  let text = `Hi ${first}! ${fa.any ? factText + ' ' : ''}${bookNote}${dayNote}${intro}${body} Open times: ${times}. Which one works?`;
   // Never send the identical offer twice in a row.
   const lastAgent = [...lead.messages].reverse().find((m) => m.from === 'agent');
   if (lastAgent && lastAgent.text === text + SIGN(config)) {
@@ -223,6 +262,8 @@ export async function runRules(ctx, fx, trigger) {
     return;
   }
   await reply(text);
+  await flagMissing();
+  if (lead.status === 'human') return;
   await fx.call('schedule_followup', { delay_minutes: 30, text: `Hi ${first}, still want me to hold one of those times for your ${q.service_label.toLowerCase()}? Reply with the day or option number.` });
   void slotLabel;
 }

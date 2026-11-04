@@ -33,6 +33,11 @@
     "open": { "1": ["09:00", "17:00"], "2": ["09:00", "17:00"], "3": ["09:00", "17:00"], "4": ["09:00", "17:00"], "5": ["09:00", "16:00"] },
     "text": "Mon-Thu 9 AM-5 PM, Fri 9 AM-4 PM, Central Time"
   },
+  "facts": {
+    "parking": "There is free parking behind the office, and the back entrance is step-free.",
+    "walkIns": "We meet by appointment so that your preparer has your file ready. I can look for the earliest opening.",
+    "duration": "An intro conversation usually takes about 30 to 45 minutes."
+  },
   "serviceArea": null,
   "services": [
     { "id": "personal_tax", "label": "Personal tax return", "group": "a", "price": { "low": 175, "high": 450 }, "keywords": ["personal tax", "tax return", "my taxes", "file my taxes", "w-2", "w2", "1040", "prepare my taxes", "taxes prepared"] },
@@ -52,7 +57,7 @@
     "handoffReason": "Time-sensitive tax notice or deadline (IRS letter, levy, audit or filing due now): priority callback, a person must call this client now."
   },
   "alwaysHuman": [
-    { "id": "advice", "label": "tax or legal advice questions", "phrases": ["legal advice", "tax advice", "loophole", "is it legal", "can i deduct", "can i write off", "should i claim", "offshore", "lawsuit"] },
+    { "id": "advice", "label": "tax or legal advice questions", "reply": "Questions about what you owe, whether you should file, or what is legal need a tax professional who has your details, so I have passed this to a teammate who will follow up with you directly.", "phrases": ["what do i owe", "what i owe", "how much do i owe", "how much will i owe", "will i owe", "am i going to owe", "should i file", "do i need to file", "do i have to file", "am i required to file", "should i amend", "legal advice", "tax advice", "loophole", "is it legal", "can i deduct", "can i write off", "should i claim", "offshore", "lawsuit"] },
     { "id": "contract", "label": "engagement letters, contracts or fee disputes", "phrases": ["engagement letter", "contract$", "contracts$", "fee dispute", "overcharged", "malpractice"] }
   ],
   "outOfScope": ["immigration", "divorce", "custody", "criminal", "wills and trusts", "real estate closing", "mortgage loan", "insurance quote"],

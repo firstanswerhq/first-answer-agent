@@ -33,6 +33,11 @@
     "open": { "1": ["08:00", "17:00"], "2": ["08:00", "17:00"], "3": ["08:00", "17:00"], "4": ["08:00", "17:00"], "5": ["08:00", "12:00"] },
     "text": "Mon-Thu 8 AM-5 PM, Fri 8 AM-noon, Central Time"
   },
+  "facts": {
+    "parking": "There is free parking in the lot next to the building, and the entrance is on the lot side.",
+    "walkIns": "We see patients by appointment. For a dental emergency, call us and we will fit you in as soon as we can.",
+    "duration": "A cleaning and checkup usually takes about an hour. A new patient exam with X-rays can run a little longer."
+  },
   "serviceArea": null,
   "services": [
     { "id": "checkup", "label": "Cleaning and checkup", "group": "a", "price": { "low": 110, "high": 190 }, "keywords": ["cleaning", "checkup", "check-up", "check up", "dental exam", "teeth cleaned"] },
@@ -52,8 +57,8 @@
     "handoffReason": "Dental emergency (severe pain, knocked-out tooth, heavy bleeding or facial swelling): priority callback, call the patient now."
   },
   "alwaysHuman": [
-    { "id": "insurance", "label": "insurance, billing or payment questions", "phrases": ["insurance", "billing", "my bill", "the bill", "bill is", "copay", "co-pay", "medicaid", "payment plan", "charged twice"] },
-    { "id": "clinical", "label": "medical history, prescriptions or sedation", "phrases": ["prescription", "refill", "antibiotic", "sedation", "medical records", "pregnant", "blood thinner"] }
+    { "id": "insurance", "label": "insurance, billing or payment questions", "reply": "Insurance and billing questions go to our front desk, so I have passed this to a teammate there who will follow up with you directly.", "phrases": ["insurance", "billing", "my bill", "the bill", "bill is", "copay", "co-pay", "medicaid", "payment plan", "charged twice"] },
+    { "id": "clinical", "label": "medications, doses, diagnosis and other clinical questions", "reply": "I cannot advise on medications, doses or whether something is safe to take, and I cannot diagnose. That is a question for our dental team, so I have passed it to them and a person will follow up with you directly.", "phrases": ["prescription", "refill", "antibiotic", "amoxicillin", "penicillin", "ibuprofen", "tylenol", "acetaminophen", "painkiller", "pain killer", "medication", "medicine", "dose", "dosage", "mg$", "sedation", "medical records", "pregnant", "blood thinner", "safe to take", "safe to eat", "is it safe", "diagnos", "what is wrong with", "what's wrong with", "do i have an infection", "is it infected", "is this normal", "is it normal"] }
   ],
   "outOfScope": ["eye exam", "glasses", "contacts", "massage", "chiropract", "dermatolog", "primary care", "flu shot"],
   "scenarios": [

@@ -33,6 +33,11 @@
     "open": { "2": ["09:00", "18:00"], "3": ["09:00", "18:00"], "4": ["09:00", "18:00"], "5": ["09:00", "18:00"], "6": ["09:00", "15:00"] },
     "text": "Tue-Fri 9 AM-6 PM, Sat 9 AM-3 PM, closed Sun and Mon, Central Time"
   },
+  "facts": {
+    "parking": "There is free parking in front of the salon and along the street.",
+    "walkIns": "We work by appointment so your stylist can give you their full time. If you are close by, tell me and I will look for the earliest opening.",
+    "duration": "A haircut and style usually takes about an hour, and color or highlights can take two to three hours."
+  },
   "serviceArea": null,
   "services": [
     { "id": "cut", "label": "Haircut and style", "group": "a", "price": { "low": 55, "high": 95 }, "keywords": ["haircut", "hair cut", "trim", "cut and style", "bangs", "a cut"] },
@@ -53,7 +58,7 @@
   },
   "alwaysHuman": [
     { "id": "correction", "label": "color corrections and fixes to another salon's work", "phrases": ["color correction", "colour correction", "fix my color", "fix my colour", "fix what another salon", "another salon ruined", "turned orange", "went orange", "came out orange", "too orange", "brassy"] },
-    { "id": "health", "label": "allergies, patch tests or medical conditions", "phrases": ["allergic", "allergy", "patch test", "sensitive scalp", "pregnant", "chemotherapy", "alopecia"] }
+    { "id": "health", "label": "allergies, product ingredients, patch tests or medical conditions", "reply": "Allergy, ingredient and product-safety questions go to our stylists, who can check the products and set up a patch test if needed. I have passed this to a teammate who will follow up with you directly.", "phrases": ["allergic", "allergy", "patch test", "sensitive scalp", "pregnant", "chemotherapy", "alopecia", "ingredient", "is it safe", "safe to use", "safe for", "medication", "medicine", "eczema", "psoriasis", "dermatitis", "reaction to"] }
   ],
   "outOfScope": ["manicure", "nails", "pedicure", "massage", "waxing", "tattoo", "lash", "facial"],
   "scenarios": [

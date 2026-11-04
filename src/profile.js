@@ -79,7 +79,10 @@ export function compileProfile(raw) {
   // Optional: the service to record when an urgent situation is flagged but no specific service was named.
   if (u.defaultService) { need(ids.has(u.defaultService), 'urgency.defaultService must be one of the service ids'); urgency.defaultService = u.defaultService; }
 
-  const alwaysHuman = (raw.alwaysHuman || []).map((t, i) => ({ id: str(t.id, `alwaysHuman[${i}].id`, 40), label: str(t.label, `alwaysHuman[${i}].label`, 120), phrases: strList(t.phrases || [], `alwaysHuman[${i}].phrases`), re: phraseRe(t.phrases || []) }));
+  const alwaysHuman = (raw.alwaysHuman || []).map((t, i) => ({ id: str(t.id, `alwaysHuman[${i}].id`, 40), label: str(t.label, `alwaysHuman[${i}].label`, 120), phrases: strList(t.phrases || [], `alwaysHuman[${i}].phrases`), re: phraseRe(t.phrases || []), reply: t.reply == null ? null : str(t.reply, `alwaysHuman[${i}].reply`, 300) }));
+  // Optional facts the assistant may state. Only these (plus the opening hours) are ever answered; anything else goes to a person.
+  const factsRaw = raw.facts || {};
+  const facts = Object.fromEntries(['parking', 'walkIns', 'duration'].filter((k) => factsRaw[k] != null).map((k) => [k, str(factsRaw[k], `facts.${k}`, 300)]));
   const outOfScope = strList(raw.outOfScope || [], 'outOfScope');
 
   const w = raw.wording || {};
@@ -92,7 +95,7 @@ export function compileProfile(raw) {
   seed.forEach((s, i) => need(Number.isFinite(s.minutesAgo) && s.minutesAgo > 0, `seed[${i}].minutesAgo must be a positive number`));
   const existing = (raw.existing || []).map((e, i) => ({ name: str(e.name, `existing[${i}].name`, 80), service: str(e.service, `existing[${i}].service`, 80), dayOffset: Number(e.dayOffset) || 0, slotIndex: Number(e.slotIndex) || 0 }));
 
-  return { id, business, wording, hours, serviceArea, services, urgency, alwaysHuman, outOfScope, outOfScopeRe: phraseRe(outOfScope), scenarios, seed, existing };
+  return { id, business, wording, hours, serviceArea, services, urgency, alwaysHuman, facts, outOfScope, outOfScopeRe: phraseRe(outOfScope), scenarios, seed, existing };
 }
 
 export function listProfiles() {

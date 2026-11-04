@@ -99,6 +99,22 @@ export function requestedDay(text, today) {
   return null;
 }
 
+/**
+ * The clock hour (0-23) the customer asked for, or null. Understands "9am", "at 1 pm", "10:00 am", "at 14:00". A time with minutes
+ * other than :00 gives null (appointments start on the hour). "9 year old", dates and prices are not times.
+ */
+export function requestedHour(text) {
+  const t = String(text || '').toLowerCase();
+  let m = /\b(1[0-2]|0?[1-9])(?::([0-5]\d))?\s?([ap])\.?m\b/.exec(t);
+  if (m) {
+    if (m[2] && m[2] !== '00') return null;
+    return (Number(m[1]) % 12) + (m[3] === 'p' ? 12 : 0);
+  }
+  m = /\bat (1[0-9]|2[0-3]|0?[7-9]):00\b/.exec(t);
+  if (m) return Number(m[1]);
+  return null;
+}
+
 /** Does this offered slot fall on the day the customer named? */
 export function slotOnDay(slotId, day) {
   return day.weekday ? dowOf(slotId.slice(0, 10)) === day.dow : slotId.slice(0, 10) === day.date;

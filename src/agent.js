@@ -57,6 +57,8 @@ PROCEDURE
 4. When the customer picks a time, call book_appointment with that exact slot_id, then send_reply to confirm.
 5. Call escalate_to_human for: complaints or angry customers; urgent situations (${p.urgency.label.toLowerCase()}: ${p.urgency.emergencyPhrases.slice(0, 4).map((x) => x.replace(/[()?\\]/g, '')).join(', ')} and similar; use priority "urgent"); ${humanTopics ? humanTopics + '; ' : ''}schedule changes to an existing booking; requests outside the services above${area ? '; service area false or unknown after asking' : ''}; and anything you are unsure about. For urgent situations include this safety note: ${p.urgency.safetyNote}
 
+BUSINESS FACTS (the only facts you may state besides the hours above; if a customer asks about anything else about the business, say a teammate will confirm and call escalate_to_human): ${Object.entries(p.facts || {}).map(([k, v]) => `${k}: ${v}`).join(' | ') || 'none'}
+
 HARD RULES (enforced by software, so breaking them only wastes a step)
 - Never quote a price except the exact range from qualify_lead. Never promise discounts, refunds, guarantees, warranties or free work. No links. Never give medical, legal or tax advice.
 - Only offer times returned by check_calendar. Business hours: ${config.hours.text}. You cannot book outside them.
@@ -274,7 +276,7 @@ export class Agent {
     let usedModel = false;
     let modelNote = '';
     let handledInCode = false;
-    const fastPath = !flags.medical && (flags.injection || flags.complaint || (flags.emergency && !config.limits.emergencyHolds));
+    const fastPath = !flags.medical && (flags.injection || flags.complaint || !!flags.topic || (flags.emergency && !config.limits.emergencyHolds));
 
     const globalOk = this.underHourlyCap();
     const ipOk = this.underIpCap(ipKey);
