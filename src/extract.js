@@ -116,6 +116,8 @@ export function requestedClock(text) {
   if (m && guess(Number(m[1])) != null) return { hour: guess(Number(m[1])), minute: 30 };
   m = /\bat (1[0-9]|2[0-3]|0?[7-9]):([0-5]\d)\b/.exec(t);
   if (m) return { hour: Number(m[1]), minute: Number(m[2]) };
+  m = /(?<![\d$:.])(1[0-2]|0?[1-9]):([0-5]\d)(?![\d:])(?!\s*[ap]\.?m)/.exec(t); // "10:00 on Friday": business hours decide am or pm
+  if (m && guess(Number(m[1])) != null) return { hour: guess(Number(m[1])), minute: Number(m[2]) };
   m = /(?:\bat|\baround|\babout|@|\b(?:mon|tues|wednes|thurs|fri|satur|sun)day)\s*(1[0-2]|[1-9])(?::([0-5]\d))?\b(?!\s*(?:[/.-]\d|th\b|st\b|nd\b|rd\b|years?|yrs?|months?|people|kids|children|patients|teeth|minutes?|mins?|hours?|dollars?|%|\$|\d))/.exec(t);
   if (m && guess(Number(m[1])) != null) return { hour: guess(Number(m[1])), minute: Number(m[2] || 0) };
   return null;

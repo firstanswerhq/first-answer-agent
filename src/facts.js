@@ -21,6 +21,7 @@ const UNKNOWN = [
   [/\b(?:your|the office'?s?|clinic'?s?|salon'?s?|shop'?s?) address\b|\bwhat(?:'s| is) the address\b|\bwhere (?:are you|is (?:the |your )?(?:office|clinic|salon|shop)) (?:located|at)\b|\bwhere are you (?:located|at)\b|\bhow do i get (?:there|to you)\b|\bdirections\b/i, 'our address'],
   [/\b(?:thanksgiving|christmas|easter|new year'?s?|memorial day|labor day|independence day|july (?:4|4th|fourth)|holidays?)\b(?=[\s\S]*\b(?:open|closed|hours)\b)|\b(?:open|closed|hours)\b[\s\S]*\b(?:thanksgiving|christmas|easter|new year'?s?|memorial day|labor day|independence day|july (?:4|4th|fourth)|holidays?)\b/i, 'holiday hours'],
   [/\b(?:credit|debit) cards?\b|\bpayment (?:methods?|options)\b|\bdo you (?:take|accept) (?:cash|checks?|visa|mastercard|amex|apple pay|venmo|zelle|cards?)\b|\bfinancing\b|\bcarecredit\b|\b(?:hsa|fsa)\b/i, 'our accepted payment methods'],
+  [/\b(?:cost|charge|fee|pay|price)s?\b[^?.!]{0,30}\b(?:extra|additional|separately)\b|\b(?:extra|additional|separate)\b[^?.!]{0,20}\b(?:cost|charge|fee)s?\b|\bx-?rays?\b[^?.!]{0,30}\b(?:cost|extra|included|charge|fee)|\b(?:cost|extra|included|charge|fee)[^?.!]{0,30}\bx-?rays?\b/i, 'details on extra charges'],
   [/\bpharmac(?:y|ies)\b/i, 'nearby pharmacies'],
   [/\bwheelchair\b|\baccessib(?:le|ility)\b|\belevator\b/i, 'accessibility details'],
 ];

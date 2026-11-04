@@ -222,7 +222,7 @@ export async function runRules(ctx, fx, trigger) {
         return;
       }
       const clock = (id) => { const h = Number(id.slice(11, 13)); return `${h % 12 || 12} ${h >= 12 ? 'PM' : 'AM'}`; };
-      let ask = 'Which of those times works best? Reply with the day or the number of the option.';
+      let ask = `Which of these works best: ${offered.map((id, i) => `${i + 1}) ${dateLabel(dateOf(id))} ${clock(id)}`).join('  ')}? Reply with the number or the time.`;
       if (several.length > 1) {
         const days = new Set(several.map((i) => offered[i].slice(0, 10)));
         const dayName = days.size === 1 ? new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', weekday: 'long' }).format(new Date(`${[...days][0]}T12:00:00Z`)) : '';
@@ -300,7 +300,7 @@ export async function runRules(ctx, fx, trigger) {
   const closedNow = !isOpenNow(localNow(ctx.now(), config.business.tz), config.hours);
   const intro = wantsOutsideHours(customerText)
     ? `We only schedule ${wording.appointment}s during business hours: ${config.hours.text}. I cannot book that time, but here is what is open. `
-    : closedNow ? 'We are closed right now, but I can already hold a time. ' : '';
+    : closedNow && !reqDay ? `We are closed right now (${config.hours.text}), but I can already hold a time. ` : '';
   let dayNote = '';
   if (reqDay) {
     const dayName = reqDay.rel || dateLabel(reqDay.date, true).split(',')[0];

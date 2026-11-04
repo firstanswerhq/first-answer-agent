@@ -48,7 +48,7 @@ test('offline: unclear replies get two clarifying questions, then a human', asyn
   const l = await newLead(env);
   await say(env, l, 'hmm maybe');
   assert.equal(l.status, 'replied');
-  assert.match(agentTexts(l).at(-1), /Which of those times/);
+  assert.match(agentTexts(l).at(-1), /Which of these works best: 1\) .* 2\) /);
   await say(env, l, 'dunno');
   assert.equal(l.status, 'replied');
   await say(env, l, 'not sure');

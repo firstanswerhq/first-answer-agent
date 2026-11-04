@@ -46,3 +46,34 @@ test('a real open time offered by the model passes; stored offered slots come on
   assert.ok(real.length >= 3);
   assert.ok(real.every((id) => /^\d{4}-\d\d-\d\dT\d\d:00$/.test(id)));
 });
+
+import { profileCfg } from './helpers.js';
+test('rules wording: Friday 10:00 exam, x-ray cost question, bare yes among several offers', async () => {
+  let env = makeEnv({ config: profileCfg('dental') });
+  let l = await newLead(env, { message: 'Is 10:00 on Friday available for an exam?' });
+  let t = agentTexts(l).join(' ');
+  assert.match(t, /Friday at 10:00 AM is (open|already taken)/);
+  assert.doesNotMatch(t, /closed right now/);
+  l = await newLead(env, { name: 'Xena Ray', phone: '(615) 555-0166', message: 'Do x-rays cost extra?' });
+  t = agentTexts(l).join(' ');
+  assert.match(t, /teammate will confirm/);
+  assert.doesNotMatch(t, /do not have whether/);
+  l = await newLead(env, { name: 'Yan Yes', phone: '(615) 555-0167', message: 'I need a cleaning next week' });
+  const offered = l.offeredSlots.slice();
+  assert.ok(offered.length >= 2);
+  const { done } = env.svc.addCustomerMessage(l.id, 'yes that works'); await done;
+  assert.match(agentTexts(l).at(-1), /Which of these works best: 1\) .* 2\) /);
+  assert.ok(!env.store.bookingForLead(l.id));
+});
+
+import { makeClock } from './helpers.js';
+test('model_timeout during a booking follow-up: the rules still honor the pick', async () => {
+  const clock = makeClock();
+  const env = makeEnv({ clock });
+  const l = await newLead(env, { message: 'Tuesday at 1pm for a cleaning please.' });
+  const offered = [...l.offeredSlots];
+  env.agent.llm = fakeLlm([() => { clock.advance(19000); return reply(call('qualify_lead', { service: 'checkup', urgency: 'routine' })); }, reply(call('send_reply', { text: 'Booked!' }))]);
+  const { done } = env.svc.addCustomerMessage(l.id, 'The first time you offered works great, please book that one.'); await done;
+  assert.equal(l.lastFallbackReason, 'model_timeout');
+  assert.equal(env.store.bookingForLead(l.id)?.slot_id, offered[0]);
+});
