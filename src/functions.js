@@ -1,8 +1,8 @@
 // The six functions the agent can call. Every call goes through the same path whether it
 // comes from the model or from the offline rules engine: validate arguments, enforce
 // guardrails in code, write state, and record a timeline step.
-import { findZip } from './extract.js';
-import { cleanText, money, rid, round2 } from './util.js';
+import { findZip, pickSlot } from './extract.js';
+import { cleanText, money, rid, round2, firstName } from './util.js';
 import { openSlots, localNow, isRealSlot, isBookableNow, slotLabel, isOpenNow, isValidDate, dateOf, DATE_RE, feedFor, calendarSource, slotCheck, calendarLabel } from './calendar.js';
 
 const URGENCIES = ['emergency', 'urgent', 'routine'];
@@ -328,7 +328,23 @@ export class Functions {
   // 4. send_reply
   async send_reply(a) {
     const { lead, config } = this.ctx;
-    const bad = checkOutboundRule(a.text, lead, this.guardOpts());
+    let bad = checkOutboundRule(a.text, lead, this.guardOpts());
+    // The model says "booked" but never called book_appointment, and the customer clearly picked one of the offered times:
+    // book that time through the normal guarded path (same caps and checks), then confirm.
+    if (bad?.id === 'booking_claim' && this.ctx.writer === 'model' && !this.ctx.store.bookingForLead(lead.id) && lead.offeredSlots?.length && !this.ctx.pickBooked) {
+      const last = [...lead.messages].reverse().find((m) => m.from === 'customer')?.text || '';
+      const pick = pickSlot(last, lead.offeredSlots);
+      if (pick) {
+        this.ctx.pickBooked = true;
+        const b = await this.call('book_appointment', { slot_id: pick, note: '' }, 'guardrail');
+        if (b.ok) {
+          bad = checkOutboundRule(a.text, lead, this.guardOpts());
+          if (!bad) return this.deliver(a.text);
+          const first = firstName(lead.name);
+          return this.deliver(`Booked${first === 'there' ? '' : ', ' + first}: ${b.label}. ${config.wording.bookedAfter}`);
+        }
+      }
+    }
     if (bad) {
       this.ctx.guardRejects = (this.ctx.guardRejects || 0) + 1;
       if (this.ctx.writer === 'model') this.noteReject(bad.id);

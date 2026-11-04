@@ -61,3 +61,56 @@ test('system prompt: scheduling requests get check_calendar and times first; unr
   assert.match(sys, /NOT an escalation/);
   assert.match(sys, /Do NOT call escalate_to_human for plainly unrelated/);
 });
+
+import { pickSlot } from '../src/extract.js';
+const SLOTS = ['2026-11-10T11:00', '2026-11-10T14:00', '2026-11-10T15:00'];
+test('pickSlot: natural ways to point at an offered time', () => {
+  const at = (t) => pickSlot(t, SLOTS)?.slice(11);
+  assert.equal(at('The first time you offered works great, please book that one.'), '11:00');
+  assert.equal(at('yes the first one'), '11:00');
+  assert.equal(at('the 3pm please'), '15:00');
+  assert.equal(at('the earliest one'), '11:00');
+  assert.equal(at('book the second'), '14:00');
+  assert.equal(at('the last one'), '15:00');
+  assert.equal(at('the 2 pm one'), '14:00');
+  assert.equal(at('11 works'), '11:00');
+  assert.equal(at('Tuesday at 2'), '14:00');
+  assert.equal(pickSlot('that one', [SLOTS[1]]), SLOTS[1]);
+  assert.equal(pickSlot('book that', [SLOTS[1]]), SLOTS[1]);
+  for (const t of ['sure', 'yes', 'ok', 'the 2nd of the month', 'November 2nd', 'my 2nd child needs one', 'this is my first time at a dentist', 'that one', 'Thursday at 2']) assert.equal(pickSlot(t, SLOTS), null, t);
+  assert.equal(pickSlot('the first one', []), null, 'nothing offered yet');
+  assert.equal(pickSlot('yes', [SLOTS[0]]), SLOTS[0], 'a single offer and a plain yes');
+});
+
+test('probe 5: the model claims a booking without calling book_appointment; the picked time is booked through the guarded path', async () => {
+  for (const [msg, hour] of [['The first time you offered works great, please book that one.', '11:00'], ['yes the first one', '11:00'], ['the 3pm please', '15:00'], ['the earliest one', '11:00'], ['book the second', '14:00']]) {
+    const env = makeEnv({});
+    const l = await newLead(env, { message: 'Tuesday at 1pm for a cleaning please.' });
+    assert.ok(l.offeredSlots?.length >= 3, 'times were offered');
+    const idx = { '11:00': l.offeredSlots.findIndex((id) => id.endsWith('11:00')), '14:00': 1, '15:00': l.offeredSlots.findIndex((id) => id.endsWith('15:00')) };
+    void idx;
+    const offered = [...l.offeredSlots];
+    env.agent.llm = fakeLlm([{ status: 200, json: { choices: [{ finish_reason: 'stop', message: { content: "You're all set! Your cleaning is booked. See you soon!" } }] } }]);
+    const { done } = env.svc.addCustomerMessage(l.id, msg); await done;
+    const b = env.store.bookingForLead(l.id);
+    assert.ok(b, `booked for: ${msg}`);
+    const want = /3pm/.test(msg) ? offered.find((id) => id.slice(11, 13) === '15') : /second/.test(msg) ? offered[1] : offered[0];
+    assert.equal(b.slot_id, want, msg);
+    assert.equal(env.store.liveBookings().filter((x) => x.leadId === l.id).length, 1);
+    assert.match(agentTexts(l).at(-1), /Booked|booked/);
+  }
+});
+
+test('booking claim without a clear pick is still refused and the rules ask which time', async () => {
+  for (const msg of ['sure', 'the 2nd of the month']) {
+    const env = makeEnv({});
+    const l = await newLead(env, { message: 'Tuesday at 1pm for a cleaning please.' });
+    env.agent.llm = fakeLlm([{ status: 200, json: { choices: [{ finish_reason: 'stop', message: { content: "You're all set! Your cleaning is booked. See you soon!" } }] } }]);
+    const { done } = env.svc.addCustomerMessage(l.id, msg); await done;
+    assert.ok(!env.store.bookingForLead(l.id), msg);
+  }
+  // nothing offered yet
+  const env = makeEnv({ llm: fakeLlm([{ status: 200, json: { choices: [{ finish_reason: 'stop', message: { content: "You're all set! Your cleaning is booked." } }] } }]) });
+  const l = await newLead(env, { message: 'the first one please' });
+  assert.ok(!env.store.bookingForLead(l.id));
+});

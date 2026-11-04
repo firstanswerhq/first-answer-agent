@@ -181,13 +181,38 @@ export function pickSlot(text, slots) {
   // The offers are numbered "1) ... 2) ...", so a bare number picks that option: "2", "2)", "#2", "number 2", "I will take 2".
   const num = /^\s*(?:#|no\.?\s*|number\s*|option\s*)?([1-9])\s*[.)]?\s*(?:please|pls|thanks|thank you)?\s*[.!]*\s*$/.exec(t) || /\b(?:take|pick|choose|want|go with|book)\s+(?:number\s+|option\s+|#)?([1-9])\b(?!\s*(?::|a\.?m|p\.?m))/.exec(t);
   if (num && slots[Number(num[1]) - 1]) return slots[Number(num[1]) - 1];
+  const wi = wordPick(t, slots);
+  if (wi) return wi;
   const candidates = slotCandidates(text, slots);
   if (candidates.length === 1) return slots[candidates[0]];
   if (candidates.length > 1) return null; // ambiguous: the caller asks which one
   if (WEEKDAYS.some((_, i) => namesWeekday(t, i))) return null; // a day that was not offered: never guess a different one
   const oi = ordIndex(t);
   if (oi >= 0 && slots[oi]) return slots[oi];
-  if (yes) return slots[0];
+  if (yes && slots.length === 1) return slots[0]; // a bare "sure" among several offers is ambiguous: the caller asks which one
+  return null;
+}
+
+/**
+ * Natural ways to point at an offered slot: "the first one", "the first time you offered", "book the second", "the earliest",
+ * "the last one", "that one" (only when one time was offered), "11 works", "Tuesday at 2". Ordinal dates ("the 2nd", "November 2nd",
+ * "my 2nd child") are never picks, and neither is "my first time" on its own.
+ */
+function wordPick(t, slots) {
+  const n = slots.length;
+  const ORD = { first: 0, second: 1, third: 2 };
+  let m = /\b(?:the\s+)?(first|second|third)\s+(?:one|option|choice|slot|time\s+(?:you|that)\s+(?:offered|mentioned|gave|listed|suggested|sent)|(?:you|that)\s+(?:offered|mentioned|gave|listed|suggested)|offered|mentioned|of those|of them)\b/.exec(t)
+    || /\b(?:book|take|pick|choose|want|go with|do)\s+(?:the\s+)?(first|second|third)\b(?!\s+(?:time|visit|appointment|child|kid|day of))/.exec(t);
+  if (m) return slots[ORD[m[1]]] || null;
+  if (/\b(?:the\s+)?(?:earliest|soonest)(?:\s+(?:one|time|option|slot))?\b/.test(t) && !/\b(?:any|anything|available|openings?)\b/.test(t)) return slots[0];
+  if (/\b(?:the\s+)?last\s+(?:one|option|slot|time\s+(?:you|that)\s+(?:offered|mentioned))\b|\b(?:book|take|pick|choose|go with)\s+(?:the\s+)?last\b/.test(t)) return slots[n - 1];
+  if (n === 1 && /\b(?:that|this)\s+one\b|\b(?:book|take|pick|choose)\s+(?:that|it)\b/.test(t)) return slots[0];
+  // A bare hour: "11 works", "the 2 one", "Tuesday at 2". The hour must match exactly one offered slot (and the named weekday, if any).
+  const h = /^\W*(?:the\s+)?(1[0-2]|[1-9])(?::00)?\s*(?:o'?clock\s*)?(?:works|is good|is fine|is great|sounds good|please|one)?\W*$/.exec(t) || /\b(?:on\s+)?(?:sunday|monday|tuesday|wednesday|thursday|friday|saturday)\s+at\s+(1[0-2]|[1-9])(?::00)?\b(?!\s*(?::|a\.?m|p\.?m))/.exec(t);
+  if (h) {
+    const hit = slots.filter((id) => (Number(id.slice(11, 13)) % 12 || 12) === Number(h[1]) && (!WEEKDAYS.some((_, i) => namesWeekday(t, i)) || WEEKDAYS.some((_, i) => namesWeekday(t, i) && slotDow(id) === i)));
+    if (hit.length === 1) return hit[0];
+  }
   return null;
 }
 
