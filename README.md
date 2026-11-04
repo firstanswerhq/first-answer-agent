@@ -159,10 +159,23 @@ Public intake: open `/lead`, or `POST /api/leads` with JSON `{ "name", "phone", 
 
 **SSH:** port 22 stays open for the VM's normal SSH access, with `ufw` rate limiting repeated connections. Key-only SSH is recommended: attach an SSH key when you create the VM and set `PasswordAuthentication no`.
 
+### HTTPS (optional `DOMAIN`)
+
+Browsers, webhooks and many hosted tools need an `https://` link. Set `DOMAIN` at the top of the startup script, for example `DOMAIN="155-138-206-164.sslip.io"`. Tip: [sslip.io](https://sslip.io) turns any IP into a real host name with no DNS setup (the VM's IP with dashes, then `.sslip.io`), and Let's Encrypt will issue a certificate for it.
+
+With `DOMAIN` set, the script also:
+
+* installs Caddy from its official apt repo and writes a Caddyfile that serves `DOMAIN` with an automatic Let's Encrypt certificate and proxies to the app; plain `http://` redirects to `https://`, and responses get `X-Content-Type-Options` and `Referrer-Policy` headers (no HSTS);
+* moves the app to `127.0.0.1:8080` so it is no longer reachable directly, and opens ports 80 (certificate challenge and redirect) and 443 in `ufw`; 22 stays rate limited;
+* sets `TRUST_PROXY=1`. Behind Caddy every request arrives from 127.0.0.1, so without it the per-IP rate limits and the visitor key would treat all visitors as one. With exactly one trusted proxy in front, the app reads the real client address Caddy passes along;
+* starts the app before Caddy (a systemd drop-in) and ends by checking `https://DOMAIN/api/health`, retrying for up to 5 minutes while the first certificate is issued. If it is still pending it says so and reports the local app health instead. The 2-minute updater restarts only `first-answer-agent.service`, never Caddy.
+
+Leave `DOMAIN` empty and nothing changes: the app listens on port 80 over plain HTTP and Caddy is not installed. Caddy logs: `journalctl -u caddy`.
+
 ## Tests
 
 ```bash
-npm test      # node --test, 209 tests
+npm test      # node --test, 212 tests
 ```
 
 The same flows (price question and booking, urgent situation, angry customer, prompt injection, after-hours, vague message, always-human topics, medical emergencies, sample day, the assistant's instructions and action definitions) run against all three profiles, plus function validation, approved-price and outgoing-message checks, booking conflicts and demo limits, the safety screening, the built-in rules, follow-up timers, the tool-calling loop against mocked and real local OpenAI-compatible servers, API validation, rate limiting, demo protection, the business switcher and its isolation, wording checks, persistence, and the deploy and update scripts.

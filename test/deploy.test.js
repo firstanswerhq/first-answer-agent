@@ -137,3 +137,63 @@ test('update script: a pinned release is never moved off, and removing the pin f
   assert.equal(r2.status, 0, r2.stderr);
   assert.notEqual(h.g(h.app, 'rev-parse', 'HEAD'), pinned, 'follows the branch again');
 });
+
+// ---- optional HTTPS through Caddy (DOMAIN) ----
+function between(startRe, endRe) {
+  const lines = script.split('\n');
+  const a = lines.findIndex((l) => startRe.test(l));
+  assert.ok(a >= 0, `start marker ${startRe} not found`);
+  const b = lines.findIndex((l, i) => i > a && endRe.test(l));
+  assert.ok(b > a, `end marker ${endRe} not found`);
+  return lines.slice(a, b + 1).join('\n');
+}
+function bashOut(code, env) {
+  const r = spawnSync('bash', ['-c', code], { encoding: 'utf8', env: { PATH: process.env.PATH, ...env } });
+  assert.equal(r.status, 0, r.stderr);
+  return r.stdout;
+}
+
+test('deploy script with DOMAIN: Caddyfile text renders for the domain and proxies to the loopback app', () => {
+  const block = between(/^if \[ -n "\$DOMAIN" \]; then\s*$/, /^fi$/); // the port selection block
+  const caddy = between(/cat > \/etc\/caddy\/Caddyfile <<CADDY/, /^CADDY$/);
+  const body = caddy.split('\n').slice(1, -1).join('\n');
+  const out = bashOut(`DOMAIN=155-138-206-164.sslip.io\n${block}\ncat <<CADDY\n${body}\nCADDY`, {});
+  assert.match(out, /^155-138-206-164\.sslip\.io \{/m);
+  assert.match(out, /reverse_proxy 127\.0\.0\.1:8080/);
+  assert.match(out, /X-Content-Type-Options nosniff/);
+  assert.match(out, /Referrer-Policy/);
+  assert.doesNotMatch(out, /\$|http:\/\//, 'no unexpanded variables and no explicit http site (Caddy redirects http to https itself)');
+});
+
+test('deploy script with DOMAIN: app on loopback 8080 with TRUST_PROXY=1, Caddy installed, 443 opened, 22 still limited', () => {
+  const sel = between(/^if \[ -n "\$DOMAIN" \]; then\s*$/, /^fi$/);
+  const withDomain = bashOut(`DOMAIN=x.sslip.io TRUST_PROXY=\n${sel}\necho "$APP_PORT $APP_HOST $TRUST_PROXY $LOCAL_HEALTH_URL"`, {});
+  assert.equal(withDomain.trim(), '8080 127.0.0.1 1 http://127.0.0.1:8080/api/health');
+  assert.match(script, /dl\.cloudsmith\.io\/public\/caddy\/stable/);
+  assert.match(script, /apt-get install -y caddy/);
+  assert.match(script, /ufw allow 443\/tcp/);
+  assert.match(script, /ufw limit 22\/tcp/);
+  assert.match(script, /PORT=\$APP_PORT\nHOST=\$APP_HOST/);
+  // ordering: the app starts before Caddy, and only the app service is restarted by the updater
+  assert.match(script, /After=first-answer-agent\.service\nWants=first-answer-agent\.service/);
+  assert.ok(script.indexOf('systemctl enable --now first-answer-agent.service') < script.indexOf('systemctl restart caddy'));
+  const updater = between(/^cat >> \/usr\/local\/bin\/first-answer-agent-update/, /^UPDATE$/);
+  assert.doesNotMatch(updater, /caddy/);
+  assert.match(updater, /systemctl restart first-answer-agent\.service/);
+  // the final public check retries for 5 minutes and says clearly what happened either way
+  assert.match(script, /seq 1 60[\s\S]*sleep 5[\s\S]*https:\/\/\$DOMAIN\/api\/health/);
+  assert.match(script, /HTTPS OK/);
+  assert.match(script, /certificate still pending/);
+});
+
+test('deploy script without DOMAIN: unchanged (port 80 on all interfaces, no Caddy, no 443)', () => {
+  const sel = between(/^if \[ -n "\$DOMAIN" \]; then\s*$/, /^fi$/);
+  const noDomain = bashOut(`DOMAIN= TRUST_PROXY=\n${sel}\necho "$APP_PORT $APP_HOST [$TRUST_PROXY] $LOCAL_HEALTH_URL"`, {});
+  assert.equal(noDomain.trim(), '80 0.0.0.0 [] http://127.0.0.1/api/health');
+  // Caddy, its repo and the 443 rule exist only inside DOMAIN-gated blocks
+  const gated = between(/^if \[ -n "\$DOMAIN" \]; then\s*$/, /^fi$/).length; // sanity: the helper found the selector
+  assert.ok(gated > 0);
+  const caddyStart = script.indexOf('DOMAIN=$DOMAIN: installing Caddy');
+  assert.ok(script.lastIndexOf('if [ -n "$DOMAIN" ]; then', caddyStart) > script.lastIndexOf('\nsystemctl enable --now first-answer-agent.service') - 1);
+  assert.match(script, /if \[ -n "\$DOMAIN" \]; then ufw allow 443\/tcp; fi/);
+});

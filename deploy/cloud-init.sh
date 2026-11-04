@@ -23,7 +23,8 @@ VULTR_INFERENCE_URL="${VULTR_INFERENCE_URL:-https://api.vultrinference.com/v1}"
 VULTR_INFERENCE_MODEL="${VULTR_INFERENCE_MODEL:-glm-5.3-flash}"
 BUSINESS_PROFILE="${BUSINESS_PROFILE:-dental}"                # a file name in config/profiles (dental, salon, accounting, or your own)
 BUSINESS_NAME="${BUSINESS_NAME:-}"                          # optional override of the name in the profile
-TRUST_PROXY="${TRUST_PROXY:-}"                              # set to 1 only if you put Caddy/nginx in front (see README)
+TRUST_PROXY="${TRUST_PROXY:-}"                              # set to 1 only if you put Caddy/nginx in front (see README); forced to 1 when DOMAIN is set
+DOMAIN="${DOMAIN:-}"                                        # optional host name for automatic HTTPS via Caddy, e.g. 155-138-206-164.sslip.io (see README)
 FOLLOWUP_SPEEDUP="${FOLLOWUP_SPEEDUP:-60}"                 # demo clock for follow-up timers (1 = real time)
 AUTO_UPDATE="${AUTO_UPDATE:-1}"                             # 0 = install the update timer but leave it switched off
 REPO_PIN="${REPO_PIN:-}"                                    # optional tag or commit to stay on; the update timer then never moves off it
@@ -31,6 +32,16 @@ REPO_PIN="${REPO_PIN:-}"                                    # optional tag or co
 
 # A key pasted into a web form often carries a trailing newline or spaces; keys never contain whitespace.
 VULTR_INFERENCE_KEY="$(printf '%s' "$VULTR_INFERENCE_KEY" | tr -d '[:space:]')"
+
+# Without DOMAIN the app itself listens on port 80 (plain HTTP). With DOMAIN, Caddy owns 80/443 and the app listens
+# on loopback only, so the one public way in is HTTPS.
+if [ -n "$DOMAIN" ]; then
+  APP_PORT=8080; APP_HOST=127.0.0.1; TRUST_PROXY=1
+  LOCAL_HEALTH_URL="http://127.0.0.1:8080/api/health"
+else
+  APP_PORT=80; APP_HOST=0.0.0.0
+  LOCAL_HEALTH_URL="http://127.0.0.1/api/health"
+fi
 
 APP_USER=agent
 APP_DIR=/opt/first-answer-agent
@@ -78,8 +89,8 @@ echo "[4/7] Writing $ENV_FILE (secrets come from the variables above, never from
 q() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
 umask 077
 cat > "$ENV_FILE" <<ENV
-PORT=80
-HOST=0.0.0.0
+PORT=$APP_PORT
+HOST=$APP_HOST
 DATA_FILE=/var/lib/first-answer-agent/state.json
 VULTR_INFERENCE_KEY="$(q "$VULTR_INFERENCE_KEY")"
 VULTR_INFERENCE_URL="$(q "$VULTR_INFERENCE_URL")"
@@ -137,6 +148,7 @@ set -Eeuo pipefail
 APP_DIR="$APP_DIR"
 APP_USER="$APP_USER"
 BRANCH="$REPO_BRANCH"
+HEALTH_URL="$LOCAL_HEALTH_URL"
 UPDATE
 cat >> /usr/local/bin/first-answer-agent-update <<'UPDATE'
 cd /
@@ -153,7 +165,7 @@ install_deps() {
 }
 healthy() {
   for _ in $(seq 1 20); do
-    if curl -fsS --max-time 3 http://127.0.0.1/api/health >/dev/null 2>&1; then return 0; fi
+    if curl -fsS --max-time 3 "$HEALTH_URL" >/dev/null 2>&1; then return 0; fi
     sleep 1
   done
   return 1
@@ -210,16 +222,49 @@ Unit=first-answer-agent-update.service
 WantedBy=timers.target
 UNIT
 
-echo "[7/7] Firewall (22 rate limited, and 80) and start"
+echo "[7/7] Firewall (22 rate limited, and 80${DOMAIN:+, 443}) and start"
 ufw --force reset
 ufw default deny incoming
 ufw default allow outgoing
 ufw limit 22/tcp
 ufw allow 80/tcp
+if [ -n "$DOMAIN" ]; then ufw allow 443/tcp; fi
 ufw --force enable
 
 systemctl daemon-reload
 systemctl enable --now first-answer-agent.service
+
+if [ -n "$DOMAIN" ]; then
+  echo "DOMAIN=$DOMAIN: installing Caddy (official apt repo) for automatic HTTPS"
+  apt-get install -y debian-keyring debian-archive-keyring apt-transport-https
+  curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --batch --yes --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+  curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' > /etc/apt/sources.list.d/caddy-stable.list
+  apt-get update -y
+  apt-get install -y caddy
+  mkdir -p /etc/caddy
+  # Caddy gets a Let's Encrypt certificate for DOMAIN by itself and redirects http to https.
+  cat > /etc/caddy/Caddyfile <<CADDY
+$DOMAIN {
+	encode gzip
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+	reverse_proxy 127.0.0.1:$APP_PORT
+}
+CADDY
+  # Start order: the app first, then Caddy. Restarting only the app (the update script does this) never touches Caddy.
+  mkdir -p /etc/systemd/system/caddy.service.d
+  cat > /etc/systemd/system/caddy.service.d/10-first-answer-agent.conf <<DROPIN
+[Unit]
+After=first-answer-agent.service
+Wants=first-answer-agent.service
+DROPIN
+  systemctl daemon-reload
+  systemctl enable caddy
+  systemctl restart caddy
+fi
 if [ "$AUTO_UPDATE" = "0" ]; then
   echo "AUTO_UPDATE=0: the update timer is installed but switched off. Turn it on with: systemctl enable --now first-answer-agent-update.timer"
 else
@@ -229,15 +274,28 @@ fi
 # Wait for the app (the first start loads the sample data, which can take a moment on a small VM).
 HEALTH=""
 for _ in $(seq 1 45); do
-  if HEALTH=$(curl -fsS --max-time 3 http://127.0.0.1/api/health 2>/dev/null); then break; fi
+  if HEALTH=$(curl -fsS --max-time 3 "$LOCAL_HEALTH_URL" 2>/dev/null); then break; fi
   HEALTH=""; sleep 2
 done
 if [ -z "$HEALTH" ]; then
-  echo "WARNING: the app did not answer on port 80 within 90 seconds. Check: journalctl -u first-answer-agent" >&2
+  echo "WARNING: the app did not answer on port $APP_PORT within 90 seconds. Check: journalctl -u first-answer-agent" >&2
   exit 1
 fi
 echo "$HEALTH"
-echo "First Answer Agent is up on port 80."
+echo "First Answer Agent is up on port $APP_PORT."
+if [ -n "$DOMAIN" ]; then
+  # The first certificate takes a moment (DNS lookup, ACME challenge on port 80). Retry for up to 5 minutes.
+  PUBLIC_OK=0
+  for _ in $(seq 1 60); do
+    if curl -fsS --max-time 5 "https://$DOMAIN/api/health" >/dev/null 2>&1; then PUBLIC_OK=1; break; fi
+    sleep 5
+  done
+  if [ "$PUBLIC_OK" = 1 ]; then
+    echo "HTTPS OK: https://$DOMAIN/api/health answered with a valid certificate."
+  else
+    echo "WARNING: https://$DOMAIN/api/health did not answer within 5 minutes (certificate still pending?). The app itself is healthy at $LOCAL_HEALTH_URL. Check: journalctl -u caddy" >&2
+  fi
+fi
 if [ -z "$VULTR_INFERENCE_KEY" ]; then
   echo "WARNING: no VULTR_INFERENCE_KEY was set, so this VM runs in OFFLINE RULES MODE, not the live model." >&2
 else
@@ -245,7 +303,7 @@ else
   # in /api/health: modelVerified is true only after a real, successful call.
   VERIFIED=0
   for _ in $(seq 1 20); do
-    H=$(curl -fsS --max-time 3 http://127.0.0.1/api/health 2>/dev/null || true)
+    H=$(curl -fsS --max-time 3 "$LOCAL_HEALTH_URL" 2>/dev/null || true)
     if printf '%s' "$H" | grep -q '"modelVerified":true'; then VERIFIED=1; break; fi
     if printf '%s' "$H" | grep -q '"modelVerified":false'; then break; fi
     sleep 2
