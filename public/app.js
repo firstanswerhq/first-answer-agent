@@ -49,7 +49,11 @@ function paintShell() {
   const needs = state.leads.filter((l) => l.status === 'human' || l.status === 'new').length;
   $('#navCount').hidden = !needs;
   $('#navCount').textContent = needs;
-  if (state.cfg) $('#bizName').textContent = state.cfg.business.name;
+  if (state.cfg) {
+    $('#bizName').textContent = state.cfg.business.name;
+    document.documentElement.style.setProperty('--accent', state.cfg.business.accent);
+    document.title = `${state.cfg.business.name} | AI front desk`;
+  }
 }
 
 function setNav(name) {
@@ -70,7 +74,7 @@ async function refreshLeads() {
 // ---------- Live Inbox ----------
 function rowHtml(l) {
   return html`<tr data-id="${l.id}" tabindex="0" role="link" aria-label="Open ${l.name}">
-    <td><div class="person"><span class="initials">${initials(l.name)}</span><div><strong>${l.name}${l.priority === 'urgent' ? R('<span class="chip urgent">Urgent</span>') : ''}</strong><small>${l.jobLabel ? `${l.jobLabel}${l.location ? ' · ' + l.location : ''}` : l.snippet}${l.seed ? ' · sample' : ''}</small></div></div></td>
+    <td><div class="person"><span class="initials">${initials(l.name)}</span><div><strong>${l.name}${l.priority === 'urgent' ? R('<span class="chip urgent">Urgent</span>') : ''}</strong><small>${l.serviceLabel ? `${l.serviceLabel}${l.location ? ' · ' + l.location : ''}` : l.snippet}${l.seed ? ' · sample' : ''}</small></div></div></td>
     <td class="src">${l.source}</td>
     <td>${l.replyTimeSec == null ? 'Waiting' : secs(l.replyTimeSec)}${l.seed && l.replyTimeSec != null ? R(' <small class="dim">(simulated)</small>') : ''}</td>
     <td>${R(chip(l.status))}</td>
@@ -79,14 +83,14 @@ function rowHtml(l) {
 
 function inboxFilterList() {
   const q = state.query.toLowerCase();
-  return state.leads.filter((l) => (state.filter === 'all' || l.status === state.filter) && (!q || `${l.name} ${l.snippet} ${l.jobLabel || ''} ${l.source}`.toLowerCase().includes(q)));
+  return state.leads.filter((l) => (state.filter === 'all' || l.status === state.filter) && (!q || `${l.name} ${l.snippet} ${l.serviceLabel || ''} ${l.source}`.toLowerCase().includes(q)));
 }
 
 async function renderInbox(first) {
   if (first) {
     const sc = await api('/api/scenarios');
     $('#view').innerHTML = html`
-      <div class="heading"><div><div class="eyebrow" id="today"></div><h1>Live Inbox</h1><p class="sub">Every new lead gets a fast, helpful first answer.</p></div>
+      <div class="heading"><div><div class="eyebrow" id="today"></div><h1>Live Inbox</h1><p class="sub">An AI front desk for small service teams: the sales-ops and customer-support work an office coordinator does. Every new lead gets a fast, helpful first answer.</p></div>
         <div class="actions">
           <div class="menu"><button class="btn" id="simBtn" aria-haspopup="true" aria-expanded="false">+ Simulate a new lead</button>
             <div class="menu-list" id="simMenu" hidden role="menu">${sc.map((s) => R(html`<button role="menuitem" data-sc="${s.id}"><strong>${s.title}</strong><span>${s.blurb}</span></button>`))}</div></div>
@@ -168,9 +172,9 @@ async function renderDetail(id, first) {
     $('#composer').addEventListener('click', (e) => { const q = e.target.closest('[data-q]'); if (q) { $('#replyText').value = q.dataset.q; $('#replyText').focus(); } });
   }
   const working = l.status === 'new' || (l.timeline.length && l.timeline.at(-1).kind !== 'done' && l.timeline.at(-1).kind !== 'followup' && l.timeline.at(-1).kind !== 'info');
-  $('#dEyebrow').textContent = `Lead detail / ${l.qualification?.jobLabel || 'Not yet qualified'}`;
+  $('#dEyebrow').textContent = `Lead detail / ${l.qualification?.serviceLabel || 'Not yet qualified'}`;
   $('#dSub').textContent = `${STATUS[l.status][0]} · ${l.source} · Received ${fmtTime(l.createdAt)}${l.seed ? ' · sample data' : ''}`;
-  $('#dJob').textContent = `${l.qualification?.jobLabel || 'Unclassified'}${l.qualification?.location ? ' · ' + l.qualification.location : ''}`;
+  $('#dJob').textContent = `${l.qualification?.serviceLabel || 'Unclassified'}${l.qualification?.location ? ' · ' + l.qualification.location : ''}`;
   $('#dChips').innerHTML = html`${R(chip(l.status))}${l.priority === 'urgent' ? R('<span class="chip urgent">Urgent</span>') : ''}`;
   const conv = $('#conv');
   const atEnd = conv.scrollTop + conv.clientHeight >= conv.scrollHeight - 40;
@@ -209,9 +213,9 @@ function factsHtml(l, speedup) {
   add('First reply', l.replyTimeSec == null ? 'Not yet' : `${secs(l.replyTimeSec)} (measured)`);
   add('Run mode', l.lastRunMode === 'model' ? 'Live model' : l.lastRunMode === 'offline' ? 'Offline rules' : 'Pending');
   if (q) {
-    add('Job', `${q.jobLabel}, ${q.urgency}${q.size !== 'unknown' ? ', ' + q.size : ''}`);
-    add('Service area', q.serviceAreaOk === true ? `In area (${q.areaMatch})` : q.serviceAreaOk === false ? `Outside area (${q.areaMatch})` : 'Not confirmed');
-    add('Price book range', q.priceRange ? `$${q.priceRange.low.toLocaleString()}–$${q.priceRange.high.toLocaleString()}` : 'No quote, free on-site estimate');
+    add('Service', `${q.serviceLabel}, ${q.urgency}`);
+    if (state.cfg?.serviceArea) add('Service area', q.serviceAreaOk === true ? `In area (${q.areaMatch})` : q.serviceAreaOk === false ? `Outside area (${q.areaMatch})` : 'Not confirmed');
+    add('Price book range', q.priceRange ? `$${q.priceRange.low.toLocaleString()}–$${q.priceRange.high.toLocaleString()}` : 'No quote, cost confirmed in person');
   }
   if (l.booking) add('Booking', `${l.booking.slot_id.replace('T', ' ')} · ${l.booking.kind === 'emergency_hold' ? 'emergency hold' : 'confirmed'}`);
   const fu = l.followups.at(-1);
@@ -221,7 +225,7 @@ function factsHtml(l, speedup) {
 }
 
 // ---------- Calendar ----------
-const H0 = 8; const H1 = 17; const ROW = 54;
+const ROW = 54;
 async function renderCalendar(start, { quiet = false } = {}) {
   const c = await api(`/api/calendar${start ? '?start=' + start : ''}`);
   state.calStart = c.start;
@@ -232,37 +236,40 @@ async function renderCalendar(start, { quiet = false } = {}) {
   const label = (d) => new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' }).format(new Date(d + 'T00:00:00Z'));
   const dname = (d) => new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', weekday: 'short' }).format(new Date(d + 'T00:00:00Z')).toUpperCase();
   const clock = (t) => { const h = Number(t.slice(0, 2)); return `${h % 12 || 12} ${h >= 12 ? 'PM' : 'AM'}`; };
-  const grp = { roof: '', plumb: 'pink', clean: 'green', other: '' };
-  const JOBGROUP = { roof_leak: 'roof', roof_repair: 'roof', roof_replacement: 'roof', gutter_cleaning: 'roof', gutter_repair: 'roof', house_cleaning: 'clean', deep_cleaning: 'clean', move_out_cleaning: 'clean', plumbing_leak: 'plumb', drain_clog: 'plumb', water_heater: 'plumb' };
+  const grp = { a: '', b: 'pink', c: 'green' };
+  const GROUP = Object.fromEntries((state.cfg?.services || []).map((x) => [x.id, x.group]));
+  const WH = state.cfg?.hours?.windowHours || 1;
+  const starts0 = Object.values(state.cfg?.hours?.starts || {}).flat().map((t) => Number(t.slice(0, 2)));
+  const H0 = starts0.length ? Math.min(...starts0) : 8; const H1 = starts0.length ? Math.max(...starts0) + WH : 17;
   const colHtml = (day) => {
     const blocks = day.slots.map((s) => {
-      const top = (Number(s.start.slice(0, 2)) - H0) * ROW + 3; const h = 2 * ROW - 6;
+      const top = (Number(s.start.slice(0, 2)) - H0) * ROW + 3; const h = WH * ROW - 6;
       if (s.status === 'booked') {
-        const b = s.booking; const cls = b.kind === 'existing' ? 'existing' : grp[JOBGROUP[b.job_type]] || '';
+        const b = s.booking; const cls = b.kind === 'existing' ? 'existing' : grp[GROUP[b.service]] || '';
         const tag = b.leadId ? `<button class="event ${cls}" style="top:${top}px;height:${h}px" data-lead="${esc(b.leadId)}" aria-label="Open ${esc(b.name)}">` : `<div class="event ${cls}" style="top:${top}px;height:${h}px">`;
         const end = b.leadId ? '</button>' : '</div>';
-        return `${tag}<strong>${esc(b.jobLabel)}${b.kind === 'emergency_hold' ? ' (priority hold)' : ''}</strong><small>${esc(b.name)} · ${clock(s.start)}</small>${end}`;
+        return `${tag}<strong>${esc(b.serviceLabel)}${b.kind === 'emergency_hold' ? ' (priority hold)' : ''}</strong><small>${esc(b.name)} · ${clock(s.start)}</small>${end}`;
       }
       return `<div class="open ${s.status === 'past' ? 'past' : ''}" style="top:${top}px;height:${h}px">${s.status === 'past' ? 'Past' : 'Open'} · ${clock(s.start)}</div>`;
     }).join('');
     const starts = day.slots.map((x) => Number(x.start.slice(0, 2)));
     let closed = '';
     for (let h = H0; h < H1; h += 1) {
-      if (!starts.some((st) => h >= st && h < st + 2)) closed += `<div class="closed" style="top:${(h - H0) * ROW}px;height:${ROW}px">${day.slots.length === 0 ? (h === H0 ? 'Closed' : '') : h === 12 ? 'Lunch / closed' : ''}</div>`;
+      if (!starts.some((st) => h >= st && h < st + WH)) closed += `<div class="closed" style="top:${(h - H0) * ROW}px;height:${ROW}px">${day.slots.length === 0 ? (h === H0 ? 'Closed' : '') : 'Not bookable'}</div>`;
     }
     return `<div class="daycol" style="height:${(H1 - H0) * ROW}px">${closed}${blocks}</div>`;
   };
   const hours = Array.from({ length: H1 - H0 }, (_, i) => `<div class="hlabel">${clock(String(H0 + i).padStart(2, '0'))}</div>`).join('');
-  const agenda = cols.map((day) => `<h3>${esc(dname(day.date))} ${esc(label(day.date))}${day.today ? ' (today)' : ''}</h3>` + day.slots.map((s) => `<div class="row ${s.status === 'open' ? 'free' : s.status === 'past' ? 'past' : ''}"><span>${esc(clock(s.start))}–${esc(clock(s.end))}</span><span>${s.status === 'booked' ? esc(s.booking.jobLabel + ' · ' + s.booking.name) : s.status === 'open' ? 'Open' : 'Past'}</span></div>`).join('')).join('');
+  const agenda = cols.map((day) => `<h3>${esc(dname(day.date))} ${esc(label(day.date))}${day.today ? ' (today)' : ''}</h3>` + day.slots.map((s) => `<div class="row ${s.status === 'open' ? 'free' : s.status === 'past' ? 'past' : ''}"><span>${esc(clock(s.start))}–${esc(clock(s.end))}</span><span>${s.status === 'booked' ? esc(s.booking.serviceLabel + ' · ' + s.booking.name) : s.status === 'open' ? 'Open' : 'Past'}</span></div>`).join('')).join('');
   $('#view').innerHTML = html`
-    <div class="heading"><div><div class="eyebrow">Your week at a glance</div><h1>Calendar</h1><p class="sub">Real bookings and open visit windows. The agent can only book what you see here.</p></div>
+    <div class="heading"><div><div class="eyebrow">Your week at a glance</div><h1>Calendar</h1><p class="sub">Booked and open appointment times. The agent can only book what you see here.</p></div>
       <div class="actions"><button class="btn ghost small" data-week="${c.prev}" aria-label="Previous week">‹ Prev</button><span class="btn ghost small" style="pointer-events:none">${label(cols[0].date)} – ${label(cols[5].date)}, ${cols[0].date.slice(0, 4)}</span><button class="btn ghost small" data-week="${c.next}" aria-label="Next week">Next ›</button></div></div>
     <div class="card" style="padding:15px">
       <div class="week-wrap"><div class="week"><div></div>${R(cols.map((d) => html`<div class="dayhead ${d.today ? 'today' : ''}">${dname(d.date)}<small>${label(d.date)}</small></div>`).join(''))}
         <div class="hourcol">${R(hours)}</div>${R(cols.map(colHtml).join(''))}</div></div>
       <div class="agenda">${R(agenda)}</div>
     </div>
-    <div class="legend-row"><span>● Roof &amp; exterior</span><span style="color:#e985dc">● Plumbing</span><span style="color:#72dfbe">● Cleaning</span><span style="color:#8791b2">● Existing customers (sample)</span><span style="margin-left:auto">All times Central · Visit windows are 2 hours · Closed Sunday</span></div>
+    <div class="legend-row"><span>● Booked by the agent</span><span style="color:#8791b2">● Existing clients (sample)</span><span style="margin-left:auto">All times ${state.cfg.business.tz.replace('_', ' ')} · Appointments are ${WH} hour${WH === 1 ? '' : 's'} · ${state.cfg.hoursText}</span></div>
     <p class="foot">Demo data is fictional; messages are simulated.</p>`;
   $('#view').onclick = (e) => {
     const w = e.target.closest('[data-week]'); if (w) { renderCalendar(w.dataset.week); return; }
@@ -316,25 +323,28 @@ function chartSvg(data) {
 // ---------- Guardrails ----------
 function renderGuardrails() {
   const c = state.cfg;
+  const priced = c.services.filter((x) => x.price);
+  const quote = c.services.filter((x) => !x.price).map((x) => x.label);
   $('#view').innerHTML = html`
-    <div class="heading"><div><div class="eyebrow">Safety</div><h1>Guardrails</h1><p class="sub">Enforced in code before and after every model call. A model cannot talk its way past them.</p></div></div>
+    <div class="heading"><div><div class="eyebrow">Safety</div><h1>Guardrails</h1><p class="sub">Enforced in code before and after every model call, for ${c.business.name}. Customer text is treated as data, and the checks below run in software after the model, so they hold even if the model misbehaves.</p></div></div>
     <div class="grid2">
-      <div class="card"><div class="card-head"><h2>What the agent can never do</h2></div><div class="card-body"><ul class="rules">
-        <li><b>Book outside business hours.</b> ${c.hours}. Slots come only from the calendar store.</li>
-        <li><b>Double book.</b> A taken slot is refused at write time.</li>
-        <li><b>Quote beyond the price book.</b> Any dollar amount outside the configured range is blocked; otherwise it offers a range or a free on-site estimate.</li>
+      <div class="card"><div class="card-head"><h2>What the agent is blocked from doing</h2></div><div class="card-body"><ul class="rules">
+        <li><b>Book outside business hours.</b> ${c.hoursText}. Times come only from the calendar store.</li>
+        <li><b>Double book.</b> A taken time is refused at write time.</li>
+        <li><b>Quote beyond the price book.</b> Any dollar amount outside the configured range is blocked; otherwise it offers a range or says the cost is confirmed in person.</li>
         <li><b>Promise discounts, refunds, guarantees or free work,</b> or send links.</li>
         <li><b>Follow instructions inside customer text.</b> Customer messages are data. Injection attempts are flagged and handed to a human.</li></ul></div></div>
       <div class="card"><div class="card-head"><h2>Always handed to a human</h2></div><div class="card-body"><ul class="rules">
-        <li><b>Emergencies:</b> active leak, flooding, gas, fire, structural damage. Priority flag, 911 reminder, earliest window held.</li>
-        <li><b>Complaints and angry customers.</b></li>
-        <li><b>Insurance claims, contracts, schedule changes,</b> or anyone asking for a person.</li>
-        <li><b>Out of scope or out of area</b> requests, and unclear leads after two questions.</li>
+        <li><b>${c.urgency.label}:</b> flagged urgent for a person to call. ${c.urgency.safetyNote}</li>
+        <li><b>Complaints and angry ${c.business.customerWord}s.</b></li>
+        ${c.alwaysHuman.map((t) => R(html`<li><b>${t}.</b></li>`))}
+        <li><b>Schedule changes</b> to an existing booking, or anyone asking for a person.</li>
+        <li><b>Out of scope${c.serviceArea ? ' or out of area' : ''}</b> requests, and unclear leads after two questions.</li>
         <li><b>Repeated guardrail violations</b> by the model.</li></ul></div></div>
-      <div class="card"><div class="card-head"><h2>Service area</h2></div><div class="card-body"><div class="pillbox">${c.serviceArea.map((x) => R(html`<span>${x}</span>`))}</div></div></div>
-      <div class="card"><div class="card-head"><h2>Price book</h2></div><div class="card-body" style="padding:0"><table class="table"><thead><tr><th>Job</th><th>Small</th><th>Medium</th><th>Large</th></tr></thead><tbody>${c.priceBook.map((p) => R(html`<tr><td>${p.label}</td>${['small', 'medium', 'large'].map((s) => R(html`<td>$${p.sizes[s].low.toLocaleString()}–$${p.sizes[s].high.toLocaleString()}</td>`))}</tr>`))}</tbody></table><p class="sub" style="padding:12px 16px">No quote from the agent: ${c.noQuoteJobs.join(', ')}. It offers a free on-site estimate.</p></div></div>
+      ${c.serviceArea ? R(html`<div class="card"><div class="card-head"><h2>Service area</h2></div><div class="card-body"><div class="pillbox">${c.serviceArea.cities.map((x) => R(html`<span>${x}</span>`))}</div></div></div>`) : ''}
+      <div class="card"><div class="card-head"><h2>Price book</h2></div><div class="card-body" style="padding:0"><table class="table"><thead><tr><th>Service</th><th>Price range</th></tr></thead><tbody>${priced.map((p) => R(html`<tr><td>${p.label}</td><td>$${p.price.low.toLocaleString()}–$${p.price.high.toLocaleString()}</td></tr>`))}</tbody></table><p class="sub" style="padding:12px 16px">${quote.length ? `No quote from the agent: ${quote.join(', ')}. ${c.wording.noQuote}` : 'Every service has a configured range.'}</p></div></div>
     </div>
-    <p class="foot">Demo data is fictional; messages are simulated. Follow-up timers run on a ${c.followupSpeedup}x demo clock so you can watch one fire.</p>`;
+    <p class="foot">Demo data is fictional; messages are simulated. Follow-up timers run on a ${c.followupSpeedup}x demo clock so you can watch one fire. All of this comes from the business profile "${c.profile}".</p>`;
 }
 
 // ---------- router ----------

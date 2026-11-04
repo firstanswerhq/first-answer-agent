@@ -3,12 +3,12 @@ import assert from 'node:assert/strict';
 import { makeEnv, fakeLlm, call, reply, cfgFor, lead } from './helpers.js';
 
 const happy = () => [
-  reply(call('qualify_lead', { job_type: 'gutter_cleaning', urgency: 'routine', size: 'medium', location: 'Franklin 37064' })),
+  reply(call('qualify_lead', { service: 'checkup', urgency: 'routine' })),
   reply(call('check_calendar', { limit: 3 })),
   (body) => {
     const tool = body.messages.filter((m) => m.role === 'tool').map((m) => JSON.parse(m.content));
     const slots = tool.find((t) => t.slots).slots;
-    return reply(call('send_reply', { text: `Gutter cleaning is typically $170-$250. I can come ${slots[0].label}. Does that work?` }));
+    return reply(call('send_reply', { text: `Cleaning and checkup is typically $110-$190. I can come ${slots[0].label}. Does that work?` }));
   },
   reply(),
 ];
@@ -46,9 +46,9 @@ test('the global cap is reserved when a run starts, so concurrent runs cannot ov
   // Stateless responder so interleaved concurrent runs each get a sensible answer.
   const responder = (body) => {
     const tool = body.messages.filter((m) => m.role === 'tool').map((m) => JSON.parse(m.content));
-    if (!tool.length) return reply(call('qualify_lead', { job_type: 'gutter_cleaning', urgency: 'routine', size: 'medium', location: 'Franklin 37064' }));
+    if (!tool.length) return reply(call('qualify_lead', { service: 'checkup', urgency: 'routine' }));
     if (!tool.some((t) => t.slots)) return reply(call('check_calendar', { limit: 3 }));
-    if (tool.length < 3) return reply(call('send_reply', { text: `Gutter cleaning is typically $170-$250. I can come ${tool.find((t) => t.slots).slots[0].label}. Does that work?` }));
+    if (tool.length < 3) return reply(call('send_reply', { text: `Cleaning and checkup is typically $110-$190. I can come ${tool.find((t) => t.slots).slots[0].label}. Does that work?` }));
     return reply();
   };
   const llm = fakeLlm([responder]);

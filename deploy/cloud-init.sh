@@ -17,7 +17,8 @@ REPO_BRANCH="${REPO_BRANCH:-main}"
 VULTR_INFERENCE_KEY="${VULTR_INFERENCE_KEY:-}"            # leave empty to run in offline rules mode
 VULTR_INFERENCE_URL="${VULTR_INFERENCE_URL:-https://api.vultrinference.com/v1}"
 VULTR_INFERENCE_MODEL="${VULTR_INFERENCE_MODEL:-glm-5.3-flash}"
-BUSINESS_NAME="${BUSINESS_NAME:-Harbor Lane Home Services}"
+BUSINESS_PROFILE="${BUSINESS_PROFILE:-dental}"                # a file name in config/profiles (dental, salon, accounting, or your own)
+BUSINESS_NAME="${BUSINESS_NAME:-}"                          # optional override of the name in the profile
 TRUST_PROXY="${TRUST_PROXY:-}"                              # set to 1 only if you put Caddy/nginx in front (see README)
 FOLLOWUP_SPEEDUP="${FOLLOWUP_SPEEDUP:-60}"                 # demo clock for follow-up timers (1 = real time)
 # --------------------------------------------------------------------------------------------------
@@ -69,6 +70,7 @@ DATA_FILE=/var/lib/first-answer-agent/state.json
 VULTR_INFERENCE_KEY="$(q "$VULTR_INFERENCE_KEY")"
 VULTR_INFERENCE_URL="$(q "$VULTR_INFERENCE_URL")"
 VULTR_INFERENCE_MODEL="$(q "$VULTR_INFERENCE_MODEL")"
+BUSINESS_PROFILE="$(q "$BUSINESS_PROFILE")"
 BUSINESS_NAME="$(q "$BUSINESS_NAME")"
 FOLLOWUP_SPEEDUP=$FOLLOWUP_SPEEDUP
 TRUST_PROXY=$TRUST_PROXY

@@ -15,8 +15,9 @@ test('isOpenNow follows business hours', () => {
   assert.equal(isOpenNow('2026-11-04T10:00', cfg.hours), true);
   assert.equal(isOpenNow('2026-11-04T23:00', cfg.hours), false);
   assert.equal(isOpenNow('2026-11-08T10:00', cfg.hours), false, 'closed Sunday');
-  assert.equal(isOpenNow('2026-11-07T09:30', cfg.hours), true, 'open Saturday morning');
-  assert.equal(isOpenNow('2026-11-07T13:00', cfg.hours), false);
+  assert.equal(isOpenNow('2026-11-06T11:30', cfg.hours), true, 'open Friday morning');
+  assert.equal(isOpenNow('2026-11-06T13:00', cfg.hours), false, 'closed Friday afternoon');
+  assert.equal(isOpenNow('2026-11-07T10:00', cfg.hours), false, 'closed Saturday');
 });
 
 test('isRealSlot rejects anything outside the configured windows', () => {
@@ -28,7 +29,7 @@ test('isRealSlot rejects anything outside the configured windows', () => {
 
 test('listSlots marks past, booked and open windows from the real store', () => {
   const store = new Store();
-  store.bookings.push({ slot_id: '2026-11-05T10:00', status: 'confirmed', leadId: 'x', name: 'A', jobLabel: 'J' });
+  store.bookings.push({ slot_id: '2026-11-05T10:00', status: 'confirmed', leadId: 'x', name: 'A', serviceLabel: 'J' });
   const slots = listSlots(store, cfg, WED_10AM, '2026-11-04', 2);
   const by = Object.fromEntries(slots.map((s) => [s.slot_id, s.status]));
   assert.equal(by['2026-11-04T08:00'], 'past');

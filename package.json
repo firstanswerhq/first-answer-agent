@@ -1,7 +1,7 @@
 {
   "name": "first-answer-agent",
   "version": "1.0.0",
-  "description": "An AI agent that answers new home-service leads in seconds: qualifies, books, follows up, and hands off to a human when unsure.",
+  "description": "An AI front desk for small service teams: answers new leads, qualifies them, books appointments, follows up, and hands off to a person when unsure.",
   "type": "module",
   "main": "src/index.js",
   "engines": { "node": ">=22" },

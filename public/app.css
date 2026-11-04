@@ -153,3 +153,8 @@ html{background:#070b18}
 .brand{display:flex;align-items:center;gap:12px;font-weight:750;letter-spacing:.01em}
 .brand small{display:block;color:var(--muted);font-size:11px;font-weight:500;letter-spacing:.14em;text-transform:uppercase;margin-top:2px}
 .live-dot.off{background:var(--amber);box-shadow:0 0 10px var(--amber)}
+
+/* The business profile sets --accent; fall back to the default purple. */
+.btn{background:linear-gradient(100deg,var(--accent,#a75afc),color-mix(in srgb,var(--accent,#df5de1) 55%,#df5de1))}
+.orbmini{background:radial-gradient(circle at 35% 30%,#fff 0 6%,var(--accent,#d96aff) 18%,color-mix(in srgb,var(--accent,#774cff) 55%,#11132a) 48%,#11132a 74%)}
+.agent-orb{background:radial-gradient(circle at 35% 28%,#fff 0 3%,var(--accent,#a95aff) 28%,color-mix(in srgb,var(--accent,#3532a4) 40%,#10132a) 62%,#10132a 78%)}

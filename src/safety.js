@@ -1,37 +1,22 @@
 // Deterministic safety classifier. It runs BEFORE any model call, on every customer
 // message, and its verdicts are enforced in code. A model cannot talk its way past it.
-const EMERGENCY = [
-  /\b(active|actively|ongoing|currently)\b.{0,20}\b(leak|leaking|flood|flooding)\b/i,
-  /\b(water|rain)\b.{0,30}\b(pouring|coming (in|through)|gushing|dripping|streaming|flooding)\b/i,
-  /\bceiling\b.{0,40}\b(collaps|sagging|caving|dripping|leaking)\b/i,
-  /\b(burst|broken)\s+pipe\b|\bpipe\b.{0,15}\bburst\b/i,
-  /\b(flooded|flooding|flood)\b/i,
-  /\bsewage\b.{0,20}\b(back|overflow|flood)/i,
-  /\bgas\b.{0,15}\b(smell|leak)\b|\bsmell\b.{0,10}\bgas\b/i,
-  /\b(tree|limb)\b.{0,20}\b(fell|through|on)\b.{0,20}\b(roof|house)\b/i,
-  /\bsparking\b|\bon fire\b|\bsmoke\b.{0,15}\b(coming|from)\b/i,
-];
-
 const COMPLAINT = [
-  /\b(refund|lawyer|attorney|lawsuit|sue you|\bsue\b|bbb|complaint|complain)\b/i,
+  /\b(lawyer|attorney|lawsuit|sue you|\bsue\b|bbb|complaint|complain)\b/i,
+  /\b(want|demand|need|give me|get) (a |my )?(full )?refund\b|\brefund (me|my (money|fee|payment|deposit))\b|\bmoney back\b|\bchargeback\b/i,
   /\b(unacceptable|terrible|horrible|worst|rude|incompetent|useless|garbage|disgusting|ripped? ?off|scam|fraud)\b/i,
   /\b(furious|angry|pissed|livid|fed up)\b/i,
   /\b(third|2nd|second|3rd) time (i|we)('ve| have)? (called|called you|emailed|texted)\b/i,
   /\bnobody (called|came|showed|responded)\b|\bno[- ]show\b|\bnever (came|showed)\b/i,
-  /\b(left|made) a (mess|hole)\b|\b(damaged|ruined|broke) my\b/i,
+  /\b(damaged|ruined|botched|messed up) my\b/i,
   /!{3,}/,
 ];
 
+// Generic reasons to bring in a person for any business. Business-specific topics (insurance, tax advice and so on)
+// come from the profile's alwaysHuman list.
 const HANDOFF = [
   /\b(speak|talk) (to|with) (a |the )?(human|person|manager|owner|supervisor|someone)\b/i,
   /\b(real person|human being)\b/i,
-  /\binsurance claim\b|\badjuster\b/i,
-  /\b(contract|permit|warranty|commercial building|hoa)\b/i,
-  /\b(cancel|reschedule|move) (my|the|our) (appointment|booking|visit)\b/i,
-];
-
-const OUT_OF_SCOPE = [
-  /\b(electrician|electrical|hvac|furnace|air conditioning|a\/c|pest|termite|exterminator|landscap|lawn|mow|paint(ing)?|mold remediation|asbestos|tax|legal advice|medical|siding|drywall|fence)\b/i,
+  /\b(cancel|reschedule|move|change) (my|the|our) (appointment|booking|visit|consultation)\b/i,
 ];
 
 const INJECTION = [
@@ -42,7 +27,7 @@ const INJECTION = [
   /\b(reveal|show|print|repeat)\b.{0,25}\b(prompt|instructions|api key|secret|password)\b/i,
   /\bnew instructions?\b|\bjailbreak\b|\bDAN mode\b/i,
   /<\/?(system|assistant|tool|function)[^>]*>/i,
-  /\bcall (the )?(function|tool)\b|\bescalate_to_human\b|\bbook_job\b|\bsend_reply\b/i,
+  /\bcall (the )?(function|tool)\b|\bescalate_to_human\b|\bbook_(job|appointment)\b|\bsend_reply\b/i,
 ];
 
 const test = (list, text) => list.some((re) => re.test(text));
@@ -54,19 +39,25 @@ function shouting(text) {
   return upper / letters.length > 0.6;
 }
 
-export function classify(text) {
+/**
+ * @param text customer message
+ * @param profile the compiled business profile (urgency phrases, always-human topics, out-of-scope services)
+ */
+export function classify(text, profile = null) {
   const t = String(text || '');
+  const topic = profile?.alwaysHuman?.find((x) => x.re?.test(t));
   const flags = {
-    emergency: test(EMERGENCY, t),
+    emergency: !!profile?.urgency?.emergencyRe?.test(t),
     complaint: test(COMPLAINT, t) || shouting(t),
-    handoff: test(HANDOFF, t),
-    outOfScope: test(OUT_OF_SCOPE, t),
+    handoff: test(HANDOFF, t) || !!topic,
+    outOfScope: !!profile?.outOfScopeRe?.test(t),
     injection: test(INJECTION, t),
+    topic: topic?.id || null,
   };
   const reasons = [];
-  if (flags.emergency) reasons.push('Emergency wording (active leak, flooding, gas, fire or structural damage)');
+  if (flags.emergency) reasons.push(`${profile.urgency.label} wording (urgent situation that needs a person now)`);
   if (flags.complaint) reasons.push('Complaint or angry customer');
-  if (flags.handoff) reasons.push('Customer needs a person (insurance, contract, schedule change or asked for a human)');
+  if (flags.handoff) reasons.push(topic ? `Customer raised ${topic.label}, which always goes to a person` : 'Customer needs a person (schedule change or asked for a human)');
   if (flags.outOfScope) reasons.push('Request is outside the services the agent schedules');
   if (flags.injection) reasons.push('Message tries to give the agent instructions (possible prompt injection)');
   return { ...flags, reasons, any: reasons.length > 0 };

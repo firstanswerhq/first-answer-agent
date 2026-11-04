@@ -4,6 +4,9 @@ import { Agent } from '../src/agent.js';
 import { LeadService } from '../src/service.js';
 import { LlmClient } from '../src/llm.js';
 import { createApp } from '../src/server.js';
+import { loadProfile, compileProfile, listProfiles } from '../src/profile.js';
+import fs from 'node:fs';
+import path from 'node:path';
 
 // Wednesday 2026-11-04, 10:00 AM Central (CST = UTC-6) is inside business hours.
 export const WED_10AM = Date.UTC(2026, 10, 4, 16, 0, 0);
@@ -15,6 +18,24 @@ export function makeClock(start = WED_10AM, step = 0) {
   return c;
 }
 
+export const PROFILE_NAMES = listProfiles();
+export const profileCfg = (name, over = {}) => loadConfig({ DATA_FILE: '' }, { profile: name, seedOnEmpty: false, followupSpeedup: 60, ...over });
+
+// A test-only variant of the default profile that ALSO has a service area, so the location checks (ZIPs, cities, outside
+// places) stay covered even though the shipped profiles are businesses where customers come to the office.
+export const PROFILE = loadProfile('dental');
+export function areaProfile() {
+  const raw = JSON.parse(fs.readFileSync(path.join(path.resolve(import.meta.dirname, '..'), 'config', 'profiles', 'dental.json'), 'utf8'));
+  raw.serviceArea = {
+    label: 'service area (Nashville and nearby)',
+    cities: ['Nashville', 'East Nashville', 'Brentwood', 'Franklin', 'Hendersonville', 'Murfreesboro', 'Antioch', 'Madison', 'Donelson', 'Hermitage', 'Green Hills', 'The Gulch', 'Sylvan Park', 'Bellevue'],
+    zips: [...Array.from({ length: 21 }, (_, i) => String(37201 + i)), '37027', '37064', '37067', '37069', '37076', '37115', '37130'],
+    outside: ['Memphis', 'Knoxville', 'Chattanooga', 'Atlanta', 'Louisville'],
+  };
+  return compileProfile(raw);
+}
+export const areaCfg = (over = {}) => cfgFor({ profile: areaProfile(), ...over });
+
 export const cfgFor = (over = {}) => loadConfig({ DATA_FILE: '' }, { seedOnEmpty: false, followupSpeedup: 60, ...over });
 
 export function makeEnv({ llm = null, clock = makeClock(), config = cfgFor(), store = new Store() } = {}) {
@@ -23,7 +44,7 @@ export function makeEnv({ llm = null, clock = makeClock(), config = cfgFor(), st
   return { store, agent, svc, config, clock };
 }
 
-export const lead = (over = {}) => ({ name: 'Test Person', phone: '(615) 555-0111', source: 'Website form', message: 'How much to clean gutters on a 2 story house in Franklin 37064?', ...over });
+export const lead = (over = {}) => ({ name: 'Test Person', phone: '(615) 555-0111', source: 'Website form', message: 'How much is a cleaning and checkup for an adult? I pay out of pocket.', ...over });
 
 export async function newLead(env, over, opts) {
   const { lead: l, done } = env.svc.createLead(lead(over), opts);

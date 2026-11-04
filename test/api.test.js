@@ -133,10 +133,10 @@ test('POST /api/simulate runs each fictional scenario through the agent', async 
       await settle(s);
       statuses[sc.id] = s.store.getLead(r.body.id).status;
     }
-    assert.equal(statuses.roof_leak, 'human');
+    assert.equal(statuses.urgent, 'human');
     assert.equal(statuses.angry, 'human');
     assert.equal(statuses.injection, 'human');
-    assert.equal(statuses.gutter_quote, 'replied');
+    assert.equal(statuses.price_question, 'replied');
     assert.equal(statuses.vague, 'replied');
     assert.equal((await post(s.base, '/api/simulate', { scenario: 'nope' })).status, 400);
   } finally { await s.stop(); }
@@ -304,8 +304,8 @@ test('lead list and detail mask phone numbers for live leads; sample leads and t
 test('simulate returns a token that unlocks role-play for that simulated lead only', async () => {
   const s = await startServer();
   try {
-    const a = await j(await post(s.base, '/api/simulate', { scenario: 'gutter_quote' }));
-    const b = await j(await post(s.base, '/api/simulate', { scenario: 'gutter_quote' }));
+    const a = await j(await post(s.base, '/api/simulate', { scenario: 'price_question' }));
+    const b = await j(await post(s.base, '/api/simulate', { scenario: 'price_question' }));
     await settle(s);
     assert.equal((await post(s.base, `/api/leads/${a.body.id}/customer-reply`, { text: 'first', token: b.body.token })).status, 404);
     assert.equal((await post(s.base, `/api/leads/${a.body.id}/customer-reply`, { text: 'first', token: a.body.token })).status, 202);

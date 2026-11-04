@@ -46,17 +46,17 @@ test('visitor bookings expire after the TTL and free the slot; sample bookings s
 test('visitor bookings are capped overall and per visitor', async () => {
   const config = cap({ maxLiveBookings: 2, maxBookingsPerVisitor: 1 });
   const env = makeEnv({ config });
-  const a = env.svc.createLead({ name: 'A One', phone: '(615) 555-0111', source: 'Website form', message: 'How much to clean gutters on a 2 story house in Franklin 37064?' }, { ipKey: 'ip1' });
+  const a = env.svc.createLead({ name: 'A One', phone: '(615) 555-0111', source: 'Website form', message: 'How much is a cleaning and checkup for an adult? I pay out of pocket.' }, { ipKey: 'ip1' });
   await a.done;
   await say(env, a.lead, 'first one');
   assert.ok(env.store.bookingForLead(a.lead.id));
-  const a2 = env.svc.createLead({ name: 'A Two', phone: '(615) 555-0112', source: 'Website form', message: 'How much to clean gutters on a 2 story house in Franklin 37064?' }, { ipKey: 'ip1' });
+  const a2 = env.svc.createLead({ name: 'A Two', phone: '(615) 555-0112', source: 'Website form', message: 'How much is a cleaning and checkup for an adult? I pay out of pocket.' }, { ipKey: 'ip1' });
   await a2.done;
   await say(env, a2.lead, 'first one');
   assert.equal(env.store.bookingForLead(a2.lead.id), null, 'same visitor cannot hold a second slot');
   const others = [];
   for (const ip of ['ip2', 'ip3']) {
-    const x = env.svc.createLead({ name: `X ${ip}`, phone: '(615) 555-0113', source: 'Website form', message: 'How much to clean gutters on a 2 story house in Franklin 37064?' }, { ipKey: ip });
+    const x = env.svc.createLead({ name: `X ${ip}`, phone: '(615) 555-0113', source: 'Website form', message: 'How much is a cleaning and checkup for an adult? I pay out of pocket.' }, { ipKey: ip });
     await x.done;
     await say(env, x.lead, 'first one');
     others.push(x.lead);

@@ -1,5 +1,5 @@
 const $ = (s) => document.querySelector(s);
-let leadId = null; let token = null; let timer = null;
+let agentName = 'Booking assistant'; let leadId = null; let token = null; let timer = null;
 try { const saved = JSON.parse(sessionStorage.getItem('fa-lead') || 'null'); if (saved) { leadId = saved.id; token = saved.token; } } catch { /* storage unavailable */ }
 
 const fmt = (ts) => new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit' }).format(new Date(ts));
@@ -39,13 +39,22 @@ async function poll(now) {
     for (const m of d.messages) {
       const div = document.createElement('div'); div.className = `msg ${m.from === 'customer' ? 'customer' : 'agent'}`;
       div.append(document.createTextNode(m.text));
-      const t = document.createElement('span'); t.className = 'time'; t.textContent = `${fmt(m.ts)} · ${m.from === 'customer' ? 'You' : 'Answer Agent, simulated'}`; div.append(t); conv.append(div);
+      const t = document.createElement('span'); t.className = 'time'; t.textContent = `${fmt(m.ts)} · ${m.from === 'customer' ? 'You' : `${agentName}, simulated`}`; div.append(t); conv.append(div);
     }
-    $('#status').textContent = d.replyTimeSec == null ? 'Waiting for the first reply…' : `The agent replied in ${d.replyTimeSec < 1 ? Math.round(d.replyTimeSec * 1000) + ' milliseconds' : d.replyTimeSec.toFixed(1) + ' seconds'}${d.handedToHuman ? ' and handed you to a teammate' : d.booked ? ' and booked your visit' : ''}.`;
+    $('#status').textContent = d.replyTimeSec == null ? 'Waiting for the first reply…' : `The agent replied in ${d.replyTimeSec < 1 ? Math.round(d.replyTimeSec * 1000) + ' milliseconds' : d.replyTimeSec.toFixed(1) + ' seconds'}${d.handedToHuman ? ' and handed you to a teammate' : d.booked ? ' and booked your appointment' : ''}.`;
     $('#mode').innerHTML = '<i class="live-dot"></i>'; $('#mode').append(document.createTextNode(d.mode));
     conv.scrollTop = conv.scrollHeight;
     timer = setTimeout(poll, d.replyTimeSec == null ? 800 : 3000);
   } catch { timer = setTimeout(poll, 4000); }
   void now;
 }
+fetch('/api/config').then((r) => r.json()).then((c) => {
+  agentName = c.business.agentName;
+  document.documentElement.style.setProperty('--accent', c.business.accent);
+  document.title = `${c.business.name} | contact us`;
+  $('#biz').textContent = c.business.name;
+  const small = document.createElement('small'); small.textContent = c.business.tagline; $('#biz').append(small);
+  $('#formEyebrow').textContent = c.wording.formEyebrow; $('#formTitle').textContent = c.wording.formTitle; $('#formIntro').textContent = c.wording.formIntro;
+  $('#message').placeholder = c.wording.formPlaceholder;
+}).catch(() => { /* the form still works with its default wording */ });
 if (leadId && token) show();

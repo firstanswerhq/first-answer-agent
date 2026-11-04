@@ -1,40 +1,18 @@
 // Lightweight text understanding used by the offline rules engine and as a cross-check.
-import { SERVICE_AREA } from './config.js';
 
-export function detectJob(text) {
-  const t = text.toLowerCase();
-  if (/\bgutter/.test(t)) return /\b(sag|pull(ed|ing)? (away|off)|repair|fix|replace|broken|hang)/.test(t) ? 'gutter_repair' : 'gutter_cleaning';
-  if (/\b(new roof|roof replacement|re-?roof|replace (the |my |our )?roof)/.test(t)) return 'roof_replacement';
-  if (/\broof\b|\bceiling\b|\bshingle/.test(t) && /\b(leak|leaking|drip|water|stain|rain|wet)/.test(t)) return 'roof_leak';
-  if (/\broof|\bshingle|\bflashing|storm damage/.test(t)) return 'roof_repair';
-  if (/\bwater heater|hot water (tank|heater)/.test(t)) return 'water_heater';
-  if (/\b(drain|clog+ed?|garbage disposal|toilet|backed up)\b/.test(t)) return 'drain_clog';
-  if (/\b(pipe|faucet|plumb|sink|leaking|leak)\b/.test(t)) return 'plumbing_leak';
-  if (/\bmove[- ]?(out|in)\b/.test(t) && /clean/.test(t)) return 'move_out_cleaning';
-  if (/\bdeep clean/.test(t)) return 'deep_cleaning';
-  if (/\bclean(ing|er|ers)?\b|\bmaid\b/.test(t)) return 'house_cleaning';
+/** Which of the profile's services the text is about, or 'other'. Services are tried in the order the profile lists them. */
+export function detectService(text, config) {
+  const t = String(text || '');
+  for (const svc of config.services) if (svc.re?.test(t)) return svc.id;
   return 'other';
 }
 
-export function detectSize(text, job) {
-  const t = text.toLowerCase();
-  if (/\b(1|one|single)[- ]story\b|\bsmall\b|\bstudio\b|\bone (spot|room)\b|\btiny\b|\b1[- ]bed(room)?\b/.test(t)) return 'small';
-  if (/\b(3|three)[- ]story\b|\b(large|big|huge|whole|entire|multiple|several|mansion)\b|\b([4-9]|four|five)[- ]bed(room)?s?\b/.test(t)) return 'large';
-  if (/\b(2|two)[- ]stor(y|ey)\b|\bmedium\b|\b(2|two|3|three)[- ]bed(room)?s?\b/.test(t)) return 'medium';
-  const sq = t.match(/(\d{3,5})\s*(sq|square)/);
-  if (sq && job) {
-    const n = Number(sq[1]);
-    return n < 1200 ? 'small' : n < 2600 ? 'medium' : 'large';
-  }
-  return 'unknown';
-}
-
 /**
- * Find a ZIP code only where it plausibly is one: a Tennessee-region 3xxxx number that is not part of a longer
+ * Find a ZIP code only where it plausibly is one: a 5-digit number that is not part of a longer
  * number, a price ("$30000", "30000 dollars") or a measurement ("35000 sq ft"). Returns the 5 digits or null.
  */
 export function findZip(text) {
-  const re = /(?<![\d$,.])(3\d{4})(?![\d,]|\.\d|\s*(?:dollars?|bucks|usd|sq|square|ft|feet|k\b|%|\$))/gi;
+  const re = /(?<![\d$,.])(\d{5})(?![\d,]|\.\d|\s*(?:dollars?|bucks|usd|sq|square|ft|feet|k\b|%|\$))/gi;
   for (const m of String(text).matchAll(re)) {
     const before = String(text).slice(Math.max(0, m.index - 12), m.index).toLowerCase();
     if (/(\$|budget|about|around|roughly|spend|pay|cost|price)\s*$/.test(before) && !/zip\s*(code)?\s*$/.test(before)) continue;
@@ -43,21 +21,26 @@ export function findZip(text) {
   return null;
 }
 
-export function detectLocation(text) {
-  const zipMatch = findZip(text);
-  const zip = zipMatch ? [zipMatch, zipMatch] : null;
+/**
+ * Where the customer is, checked against the profile's service area. A profile without a serviceArea (customers come
+ * to the business) never asks for a location: it is always "known" and in area.
+ */
+export function detectLocation(text, config) {
+  const area = config.serviceArea;
+  if (!area) return { text: '', known: true, inArea: true, needed: false };
+  const zip = findZip(text);
   const lower = text.toLowerCase();
-  const city = [...SERVICE_AREA.cities].sort((a, b) => b.length - a.length).find((c) => lower.includes(c.toLowerCase()));
-  const outside = SERVICE_AREA.outside.find((c) => lower.includes(c.toLowerCase()));
-  if (outside && !city) return { text: outside, known: true, inArea: false };
+  const city = [...area.cities].sort((a, b) => b.length - a.length).find((c) => lower.includes(c.toLowerCase()));
+  const outside = area.outside.find((c) => lower.includes(c.toLowerCase()));
+  if (outside && !city) return { text: outside, known: true, inArea: false, needed: true };
   if (zip) {
-    if (SERVICE_AREA.zips.includes(zip[1])) return { text: zip[1], known: true, inArea: true };
+    if (area.zips.includes(zip)) return { text: zip, known: true, inArea: true, needed: true };
     // A ZIP we do not list next to a city we do serve is ambiguous: keep both so the agent asks instead of guessing.
-    if (city) return { text: `${city} ${zip[1]}`, known: true, inArea: null };
-    return { text: zip[1], known: true, inArea: false };
+    if (city) return { text: `${city} ${zip}`, known: true, inArea: null, needed: true };
+    return { text: zip, known: true, inArea: false, needed: true };
   }
-  if (city) return { text: city, known: true, inArea: true };
-  return { text: '', known: false, inArea: null };
+  if (city) return { text: city, known: true, inArea: true, needed: true };
+  return { text: '', known: false, inArea: null, needed: true };
 }
 
 export function wantsOutsideHours(text) {

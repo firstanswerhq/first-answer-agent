@@ -1,6 +1,6 @@
 import express from 'express';
 import path from 'node:path';
-import { VERSION, JOB_TYPES } from './config.js';
+import { VERSION } from './config.js';
 import { Store } from './store.js';
 import { Agent } from './agent.js';
 import { LlmClient } from './llm.js';
@@ -9,12 +9,11 @@ import { FollowupScheduler } from './followups.js';
 import { computeMetrics } from './metrics.js';
 import { listSlots, mondayOf, localNow, dateOf, addDays, isValidDate, isOpenNow } from './calendar.js';
 import { rateLimiter } from './ratelimit.js';
-import { SCENARIOS } from './scenarios.js';
 import { seedSample } from './seed.js';
-import { priceRangeFor } from './functions.js';
 import { safeEqual } from './util.js';
 import crypto from 'node:crypto';
 
+const SCENARIOS_OF = (config) => config.profile.scenarios;
 const LEAD_ID = /^L-[0-9a-f]{8}$/;
 
 export async function createApp({ config, store = new Store({ file: config.dataFile }), llm, now = Date.now, startTimers = true } = {}) {
@@ -60,16 +59,18 @@ export async function createApp({ config, store = new Store({ file: config.dataF
   });
 
   app.get('/api/config', readLimit, (_req, res) => {
+    const p = config.profile;
     res.json({
-      business: config.business, hours: config.hours.text, serviceArea: config.serviceArea.cities, followupSpeedup: config.followupSpeedup,
-      maxSteps: config.maxSteps, sources: SOURCES,
-      priceBook: Object.entries(config.priceBook).filter(([, v]) => v).map(([k, v]) => ({ job: k, label: JOB_TYPES[k].label, range: priceRangeFor(config, k, 'unknown'), noQuote: false, sizes: v })),
-      noQuoteJobs: Object.entries(config.priceBook).filter(([, v]) => !v).map(([k]) => JOB_TYPES[k].label),
+      profile: p.id,
+      business: config.business, wording: config.wording, hours: config.hours, hoursText: config.hours.text,
+      serviceArea: config.serviceArea, followupSpeedup: config.followupSpeedup, maxSteps: config.maxSteps, sources: SOURCES,
+      services: config.services.map((x) => ({ id: x.id, label: x.label, group: x.group, price: x.price })),
+      alwaysHuman: p.alwaysHuman.map((t) => t.label), urgency: { label: p.urgency.label, safetyNote: p.urgency.safetyNote },
       agent: agent.status(),
     });
   });
 
-  app.get('/api/scenarios', readLimit, (_req, res) => res.json(SCENARIOS.map(({ id, title, blurb }) => ({ id, title, blurb }))));
+  app.get('/api/scenarios', readLimit, (_req, res) => res.json(SCENARIOS_OF(config).map(({ id, title, blurb }) => ({ id, title, blurb }))));
 
   app.get('/api/leads', readLimit, (_req, res) => {
     res.json({ leads: store.leads.map((l) => summary(l, store)), agent: agent.status(), officeOpen: isOpenNow(localNow(now(), config.business.tz), config.hours), today: dateOf(localNow(now(), config.business.tz)) });
@@ -92,7 +93,7 @@ export async function createApp({ config, store = new Store({ file: config.dataF
 
   app.post('/api/simulate', leadLimit, leadHourLimit, (req, res, next) => {
     try {
-      const sc = SCENARIOS.find((s) => s.id === req.body?.scenario);
+      const sc = SCENARIOS_OF(config).find((s) => s.id === req.body?.scenario);
       if (!sc) throw new InputError('Unknown scenario.');
       const { lead } = svc.createLead(sc.lead, { simulated: true, ipKey: ipKey(req) });
       res.status(202).json({ id: lead.id, token: lead.token, status: lead.status });

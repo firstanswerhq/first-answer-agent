@@ -1,14 +1,13 @@
 // The six functions the agent can call. Every call goes through the same path whether it
 // comes from the model or from the offline rules engine: validate arguments, enforce
 // guardrails in code, write real state, and record a timeline step.
-import { JOB_TYPES } from './config.js';
 import { findZip } from './extract.js';
 import { cleanText, money, rid, round2 } from './util.js';
 import { openSlots, localNow, isRealSlot, isBookableNow, slotLabel, isOpenNow, isValidDate, dateOf, DATE_RE } from './calendar.js';
 
-const SIZES = ['small', 'medium', 'large', 'unknown'];
 const URGENCIES = ['emergency', 'urgent', 'routine'];
-const JOBS = Object.keys(JOB_TYPES);
+const serviceIds = (config) => [...config.services.map((x) => x.id), 'other'];
+export const serviceLabel = (config, id) => config.services.find((x) => x.id === id)?.label || 'Unclassified request';
 
 // ---- tiny schema validator (strict types, unknown keys dropped) ----
 export class ValidationError extends Error {}
@@ -46,97 +45,100 @@ export function validateArgs(schema, raw) {
   return out;
 }
 
-const SCHEMAS = {
-  qualify_lead: {
-    job_type: { type: 'enum', values: JOBS, required: true },
-    urgency: { type: 'enum', values: URGENCIES, required: true },
-    size: { type: 'enum', values: SIZES, default: 'unknown' },
-    location: { type: 'string', max: 80, default: '' },
-    notes: { type: 'string', max: 300, default: '' },
-  },
-  check_calendar: {
-    earliest_date: { type: 'string', max: 10, pattern: DATE_RE },
-    days: { type: 'integer', min: 1, max: 14, default: 7 },
-    limit: { type: 'integer', min: 1, max: 6, default: 4 },
-  },
-  book_job: {
-    slot_id: { type: 'string', max: 16, required: true },
-    address: { type: 'string', max: 120, default: '' },
-    note: { type: 'string', max: 200, default: '' },
-  },
-  send_reply: { text: { type: 'string', min: 1, max: 600, required: true } },
-  schedule_followup: {
-    delay_minutes: { type: 'integer', min: 5, max: 1440, required: true },
-    text: { type: 'string', min: 1, max: 400, required: true },
-  },
-  escalate_to_human: {
-    reason: { type: 'string', min: 5, max: 300, required: true },
-    priority: { type: 'enum', values: ['normal', 'urgent'], default: 'normal' },
-  },
-};
+// Argument schemas and the tool definitions sent to the model are built from the business profile (its list of
+// services), so the same code serves any kind of business. The code-side validator is the real gate.
+const schemaCache = new WeakMap();
+export function schemasFor(config) {
+  if (schemaCache.has(config)) return schemaCache.get(config);
+  const schemas = {
+    qualify_lead: {
+      service: { type: 'enum', values: serviceIds(config), required: true },
+      urgency: { type: 'enum', values: URGENCIES, required: true },
+      location: { type: 'string', max: 80, default: '' },
+      notes: { type: 'string', max: 300, default: '' },
+    },
+    check_calendar: {
+      earliest_date: { type: 'string', max: 10, pattern: DATE_RE },
+      days: { type: 'integer', min: 1, max: 14, default: 7 },
+      limit: { type: 'integer', min: 1, max: 6, default: 4 },
+    },
+    book_appointment: {
+      slot_id: { type: 'string', max: 16, required: true },
+      note: { type: 'string', max: 200, default: '' },
+    },
+    send_reply: { text: { type: 'string', min: 1, max: 600, required: true } },
+    schedule_followup: {
+      delay_minutes: { type: 'integer', min: 5, max: 1440, required: true },
+      text: { type: 'string', min: 1, max: 400, required: true },
+    },
+    escalate_to_human: {
+      reason: { type: 'string', min: 5, max: 300, required: true },
+      priority: { type: 'enum', values: ['normal', 'urgent'], default: 'normal' },
+    },
+  };
+  schemaCache.set(config, schemas);
+  return schemas;
+}
 
-// JSON-schema tool definitions sent to the model (the code-side validator above is the real gate).
-export const TOOL_DEFS = [
-  {
-    name: 'qualify_lead',
-    description: 'Record what the job is. Always call this first. Returns whether the address is in the service area and the ONLY price range you may quote.',
-    parameters: {
-      type: 'object',
-      properties: {
-        job_type: { type: 'string', enum: JOBS },
-        urgency: { type: 'string', enum: URGENCIES, description: 'emergency = active water/gas/fire/structural danger' },
-        size: { type: 'string', enum: SIZES },
-        location: { type: 'string', description: 'City, neighborhood or ZIP the customer gave' },
-        notes: { type: 'string' },
-      },
-      required: ['job_type', 'urgency'],
-    },
-  },
-  {
-    name: 'check_calendar',
-    description: 'List real open visit windows from the business calendar. Never offer a time that this function did not return.',
-    parameters: {
-      type: 'object',
-      properties: {
-        earliest_date: { type: 'string', description: 'YYYY-MM-DD, optional' },
-        days: { type: 'integer', description: '1-14, default 7' },
-        limit: { type: 'integer', description: '1-6, default 4' },
+export function toolDefs(config) {
+  const area = config.serviceArea;
+  return [
+    {
+      name: 'qualify_lead',
+      description: `Record what the customer wants. Always call this first. Returns ${area ? 'whether the location is in the service area and ' : ''}the ONLY price range you may quote (null means no quote: say the cost is confirmed in person).`,
+      parameters: {
+        type: 'object',
+        properties: {
+          service: { type: 'string', enum: serviceIds(config), description: 'Which offering the customer wants; "other" if none fits' },
+          urgency: { type: 'string', enum: URGENCIES, description: `emergency = ${config.profile.urgency.label.toLowerCase()} situations that need a person now` },
+          ...(area ? { location: { type: 'string', description: `City, neighborhood or ZIP the customer gave (${area.label})` } } : {}),
+          notes: { type: 'string' },
+        },
+        required: ['service', 'urgency'],
       },
     },
-  },
-  {
-    name: 'book_job',
-    description: 'Book a slot returned by check_calendar for this lead. Refuses double bookings, out-of-hours slots and out-of-area leads.',
-    parameters: {
-      type: 'object',
-      properties: { slot_id: { type: 'string' }, address: { type: 'string' }, note: { type: 'string' } },
-      required: ['slot_id'],
+    {
+      name: 'check_calendar',
+      description: 'List real open appointment times from the business calendar. Never offer a time that this function did not return.',
+      parameters: {
+        type: 'object',
+        properties: {
+          earliest_date: { type: 'string', description: 'YYYY-MM-DD, optional' },
+          days: { type: 'integer', description: '1-14, default 7' },
+          limit: { type: 'integer', description: '1-6, default 4' },
+        },
+      },
     },
-  },
-  {
-    name: 'send_reply',
-    description: 'Send a text message to the customer (simulated in the demo). Max 600 characters. No dollar amounts except the range from qualify_lead. No discounts, refunds, guarantees or links.',
-    parameters: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
-  },
-  {
-    name: 'schedule_followup',
-    description: 'If the customer goes quiet, post this follow-up message after delay_minutes. Cancelled automatically if they reply.',
-    parameters: {
-      type: 'object',
-      properties: { delay_minutes: { type: 'integer', description: '5-1440' }, text: { type: 'string' } },
-      required: ['delay_minutes', 'text'],
+    {
+      name: 'book_appointment',
+      description: 'Book a slot returned by check_calendar for this lead. Refuses double bookings, out-of-hours slots and leads that must go to a person.',
+      parameters: { type: 'object', properties: { slot_id: { type: 'string' }, note: { type: 'string' } }, required: ['slot_id'] },
     },
-  },
-  {
-    name: 'escalate_to_human',
-    description: 'Flag the lead "Needs a Human" with a reason. Use for complaints, emergencies, anything unclear, out of scope, or outside the price book.',
-    parameters: {
-      type: 'object',
-      properties: { reason: { type: 'string' }, priority: { type: 'string', enum: ['normal', 'urgent'] } },
-      required: ['reason'],
+    {
+      name: 'send_reply',
+      description: 'Send a text message to the customer (simulated in the demo). Max 600 characters. No dollar amounts except the range from qualify_lead. No discounts, refunds, guarantees or links.',
+      parameters: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
     },
-  },
-];
+    {
+      name: 'schedule_followup',
+      description: 'If the customer goes quiet, post this follow-up message after delay_minutes. Cancelled automatically if they reply.',
+      parameters: {
+        type: 'object',
+        properties: { delay_minutes: { type: 'integer', description: '5-1440' }, text: { type: 'string' } },
+        required: ['delay_minutes', 'text'],
+      },
+    },
+    {
+      name: 'escalate_to_human',
+      description: 'Flag the lead "Needs a Human" with a reason. Use for complaints, urgent situations, anything unclear, out of scope, or outside the price book.',
+      parameters: {
+        type: 'object',
+        properties: { reason: { type: 'string' }, priority: { type: 'string', enum: ['normal', 'urgent'] } },
+        required: ['reason'],
+      },
+    },
+  ];
+}
 
 // ---- outbound message guard (price book, promises, links, leaks) ----
 const BANNED = /\b(discount|refund|guarantee[sd]?|price[- ]match|warranty|coupon|waive[sd]?|promo(tion)? code|\d+\s?% off|free of charge|no charge|on the house)\b/i;
@@ -150,33 +152,32 @@ export function checkOutbound(text, lead) {
     .map((m) => Number((m[1] || m[2]).replace(/,/g, '')));
   if (amounts.length) {
     const pr = lead.qualification?.priceRange;
-    if (!pr) return 'No price may be quoted for this job. Offer a free on-site estimate or escalate_to_human.';
+    if (!pr) return 'No price may be quoted for this service. Say the cost is confirmed in person, or escalate_to_human.';
     const bad = amounts.find((a) => a < pr.low || a > pr.high);
     if (bad !== undefined) return `Price ${money(bad)} is outside the price book range ${money(pr.low)}-${money(pr.high)}. Quote only that range or escalate_to_human.`;
   }
   return null;
 }
 
-export function priceRangeFor(config, job, size) {
-  const book = config.priceBook[job];
-  if (!book) return null;
-  if (size && size !== 'unknown' && book[size]) return { ...book[size] };
-  const all = Object.values(book);
-  return { low: Math.min(...all.map((x) => x.low)), high: Math.max(...all.map((x) => x.high)) };
+export function priceRangeFor(config, serviceId) {
+  const svc = config.services.find((x) => x.id === serviceId);
+  return svc?.price ? { ...svc.price } : null;
 }
 
 export function locationCheck(config, location) {
+  const area = config.serviceArea;
+  if (!area) return { ok: true, match: '' }; // customers come to the business: no area check
   const loc = (location || '').trim();
   if (!loc) return { ok: null, match: '' };
   const lower = loc.toLowerCase();
   const zip = findZip(loc);
-  const city = config.serviceArea.cities.find((c) => lower.includes(c.toLowerCase()));
+  const city = area.cities.find((c) => lower.includes(c.toLowerCase()));
   if (zip) {
-    if (config.serviceArea.zips.includes(zip)) return { ok: true, match: zip };
+    if (area.zips.includes(zip)) return { ok: true, match: zip };
     return { ok: city ? null : false, match: zip }; // unlisted ZIP beside a served city: unknown, so ask
   }
   if (city) return { ok: true, match: city };
-  const out = config.serviceArea.outside.find((c) => lower.includes(c.toLowerCase()));
+  const out = area.outside.find((c) => lower.includes(c.toLowerCase()));
   if (out) return { ok: false, match: out };
   return { ok: null, match: '' }; // unknown place: ask or hand off, never assume
 }
@@ -195,7 +196,7 @@ export class Functions {
 
   async call(name, rawArgs, source = 'agent') {
     const { store, config } = this.ctx;
-    const schema = SCHEMAS[name];
+    const schema = schemasFor(config)[name];
     const t0 = this.ctx.now();
     let args;
     let result;
@@ -232,19 +233,20 @@ export class Functions {
     let urgency = a.urgency;
     if (flags?.emergency) urgency = 'emergency'; // code overrides a downgraded urgency
     const loc = locationCheck(config, a.location);
-    const inScope = a.job_type !== 'other';
-    const priceRange = priceRangeFor(config, a.job_type, a.size);
+    const inScope = a.service !== 'other';
+    const priceRange = priceRangeFor(config, a.service);
+    const label = serviceLabel(config, a.service);
     lead.qualification = {
-      jobType: a.job_type, jobLabel: JOB_TYPES[a.job_type].label, urgency, size: a.size,
+      service: a.service, serviceLabel: label, urgency,
       location: a.location, serviceAreaOk: loc.ok, areaMatch: loc.match, inScope, priceRange,
       notes: a.notes, updatedAt: this.ctx.now(),
     };
     if (urgency === 'emergency') lead.priority = 'urgent';
     return {
-      ok: true, job_type: a.job_type, job_label: JOB_TYPES[a.job_type].label, urgency, size: a.size,
+      ok: true, service: a.service, service_label: label, urgency,
       in_scope: inScope,
-      service_area_ok: loc.ok, // true | false | null (null = location unknown, ask or escalate)
-      price_range: priceRange, // the ONLY range you may quote; null = no quote, offer a free on-site estimate
+      service_area_ok: loc.ok, // true | false | null (null = location unknown, ask or escalate); always true when the business has no service area
+      price_range: priceRange, // the ONLY range you may quote; null = no quote, say the cost is confirmed in person
       office_open_now: isOpenNow(localNow(this.ctx.now(), config.business.tz), config.hours),
     };
   }
@@ -262,18 +264,18 @@ export class Functions {
     };
   }
 
-  // 3. book_job
-  async book_job(a) {
+  // 3. book_appointment
+  async book_appointment(a) {
     const { store, config, lead, flags } = this.ctx;
     if (store.bookingForLead(lead.id)) return { ok: false, error: 'This lead already has a booking. Changes must be handled by a human (escalate_to_human).' };
     if (lead.status === 'human' && !(flags?.emergency)) return { ok: false, error: 'Lead is flagged for a human; the agent may not book.' };
     const q = lead.qualification;
-    if (!q) return { ok: false, error: 'Call qualify_lead before book_job.' };
-    if (!q.inScope) return { ok: false, error: 'This job type is not something the business schedules; escalate_to_human.' };
-    if (q.serviceAreaOk !== true) return { ok: false, error: q.serviceAreaOk === false ? 'Address is outside the service area; escalate_to_human.' : 'Service area is unconfirmed; ask the customer for a ZIP or neighborhood.' };
-    if (!isRealSlot(a.slot_id, config.hours)) return { ok: false, error: 'That is not a valid visit window. Business hours: ' + config.hours.text + '. Use a slot_id from check_calendar.' };
+    if (!q) return { ok: false, error: 'Call qualify_lead before book_appointment.' };
+    if (!q.inScope) return { ok: false, error: 'This request is not something the business schedules; escalate_to_human.' };
+    if (q.serviceAreaOk !== true) return { ok: false, error: q.serviceAreaOk === false ? 'Location is outside the service area; escalate_to_human.' : 'Service area is unconfirmed; ask the customer for a ZIP or neighborhood.' };
+    if (!isRealSlot(a.slot_id, config.hours)) return { ok: false, error: 'That is not a valid appointment time. Business hours: ' + config.hours.text + '. Use a slot_id from check_calendar.' };
     const nowL = localNow(this.ctx.now(), config.business.tz);
-    if (!isBookableNow(a.slot_id, nowL, config)) return { ok: false, error: 'That window is in the past or too soon (2 hours notice required).' };
+    if (!isBookableNow(a.slot_id, nowL, config)) return { ok: false, error: `That time is in the past or too soon (${config.minLeadMinutes / 60} hours notice required).` };
     if (store.bookingForSlot(a.slot_id)) return { ok: false, error: 'That slot was just taken. Call check_calendar again.' };
     if (flags?.emergency && !config.limits.emergencyHolds && !lead.seed) return { ok: false, error: 'Emergency leads are flagged for a person instead of holding a calendar slot. Call escalate_to_human with priority urgent.' };
     if (!lead.seed) {
@@ -283,8 +285,8 @@ export class Functions {
     }
     // Synchronous check-and-write: atomic with respect to other runs in this process.
     const booking = {
-      id: rid('B'), slot_id: a.slot_id, leadId: lead.id, name: lead.name, job_type: q.jobType, jobLabel: q.jobLabel,
-      address: a.address, note: a.note, kind: flags?.emergency ? 'emergency_hold' : 'standard', status: 'confirmed',
+      id: rid('B'), slot_id: a.slot_id, leadId: lead.id, name: lead.name, service: q.service, serviceLabel: q.serviceLabel,
+      note: a.note, kind: flags?.emergency ? 'emergency_hold' : 'standard', status: 'confirmed',
       createdAt: this.ctx.now(),
     };
     store.bookings.push(booking);
@@ -365,10 +367,10 @@ function describeCall(name, args, result, config) {
   switch (name) {
     case 'qualify_lead': {
       const area = result.service_area_ok === true ? 'in service area' : result.service_area_ok === false ? 'OUTSIDE service area' : 'area unconfirmed';
-      return `Qualified the job: ${result.job_label}, ${result.urgency}, ${area}`;
+      return `Qualified the request: ${result.service_label}, ${result.urgency}${config.serviceArea ? ', ' + area : ''}`;
     }
     case 'check_calendar': return `Checked the calendar: ${result.slots.length} open window${result.slots.length === 1 ? '' : 's'} found`;
-    case 'book_job': return `Booked ${result.label}`;
+    case 'book_appointment': return `Booked ${result.label}`;
     case 'send_reply': return 'Sent a reply to the customer (simulated)';
     case 'schedule_followup': return `Scheduled a follow-up in ${args.delay_minutes} min if the customer goes quiet`;
     case 'escalate_to_human': return `Flagged Needs a Human${result.priority === 'urgent' ? ' (urgent)' : ''}`;

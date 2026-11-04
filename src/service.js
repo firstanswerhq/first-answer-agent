@@ -66,7 +66,7 @@ export function summary(lead, store) {
   const fu = store.followups.find((f) => f.leadId === lead.id && f.status === 'pending');
   return {
     id: lead.id, name: lead.name, phone: lead.seed ? lead.phone : maskPhone(lead.phone), source: lead.source, status: lead.status, priority: lead.priority,
-    createdAt: lead.createdAt, replyTimeSec: lead.replyTimeSec ?? null, jobLabel: q?.jobLabel || null,
+    createdAt: lead.createdAt, replyTimeSec: lead.replyTimeSec ?? null, serviceLabel: q?.serviceLabel || null,
     location: q?.location || '', lastRunMode: lead.lastRunMode || null, simulated: !!lead.simulated, seed: !!lead.seed,
     snippet: lead.messages[0]?.text.slice(0, 110) || '', humanReason: lead.humanReason || null,
     followupPending: !!fu, booked: !!store.bookingForLead(lead.id),
