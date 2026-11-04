@@ -35,6 +35,7 @@ select.btn.ghost option{background:#10152b;color:#fff}
 .chip.urgent{color:#ff829a;background:#ff829a1c;margin-left:6px}
 .chip.sample{color:#a5abc4;background:#ffffff0d}
 .chip.amber{color:#ffcc78;background:#ffcc7817}
+.chip.scope{color:#9fb3ff;background:#9fb3ff17;margin-left:6px;white-space:nowrap}
 .side-card h3{font-size:14px}
 .agent-card small{font-size:12px!important;color:#b7bed6!important}
 .activity{font-size:13px}.activity strong{font-size:14px}

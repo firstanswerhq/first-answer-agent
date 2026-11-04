@@ -27,7 +27,31 @@ const REFUND_WORD = /\brefunds?\b/i;
 const TAX_REFUND = /\b(?:tax|taxes|return|returns|federal|state|irs|itemiz\w*|arrive|arrives|how long|bigger|larger|file|filing|overpaid|withholding|deduction|credit)\b/i;
 
 // Plainly unrelated to any business here (recipes, sports, trades). The reply says it is outside what the assistant helps with; no owner phone alert.
-export const OFF_TOPIC = /\b(?:(?:recommend|suggest|know of)\b.{0,25}\b(?:good|best|reliable|decent)\b.{0,30}\bnear\b)|\b(recipes?|cooking|baking|banana bread|football|basketball|baseball|soccer|hockey|score|who won|game last night|weather|forecast|pizza|restaurants?|movies?|jokes?|poems?|songs?|lyrics|cover letter|r[eé]sum[eé]|essay|homework|math problem|python|javascript|crypto|bitcoin|horoscope|trivia|translate|write me|write a|tell me a story)\b/i;
+export const OFF_TOPIC = /\b(?:recommend|suggest|know of)\b.{0,25}\b(?:good|best|reliable|decent)\b.{0,30}\bnear\b|\b(?:recipes?|cooking|baking|banana bread|football|basketball|baseball|soccer|hockey|who won|game last night|weather forecast|forecast|pizza|restaurants?|movies?|jokes?|poems?|songs?|lyrics|cover letter|r[eé]sum[eé]|essay|homework|math problem|python|javascript|horoscope|trivia|translate|write me|tell me a story)\b/i;
+
+// Words from the business's own world. A message with any of them is never "off-topic", whatever else it mentions.
+const COMMON_ON_TOPIC = /\b(?:teeth|tooth|mouth\w*|gums?|cap|crown|whiten\w*|dent\w*|orthodont\w*|braces|invisalign|extraction|cavit\w*|night ?guard|guards?|injur\w*|hair\w*|color|colour|cut|stylist|balayage|updo|frizz|salon|wedding|tax\w*|irs|cpa|bookkeep\w*|payroll|crypto\w*|returns?|llc|accountant|audit|insurance|appointments?|visit|exam|cleaning|office|open|clos(?:e|ed|ing)|hours|consult\w*|book\w*|schedul\w*|quote|price|cost)\b/i;
+const profileVocab = new WeakMap();
+function onTopicWords(profile) {
+  if (!profile) return null;
+  if (!profileVocab.has(profile)) {
+    const words = new Set();
+    const STOP = new Set(['with', 'and', 'for', 'from', 'that', 'this', 'your', 'other', 'about', 'general', 'question', 'questions', 'request', 'requests', 'service', 'services', 'routine', 'new', 'help']);
+    for (const sv of profile.services || []) for (const w of String(`${sv.label || ''} ${sv.id || ''}`).toLowerCase().match(/[a-z]{4,}/g) || []) if (!STOP.has(w)) words.add(w);
+    for (const t of profile.alwaysHuman || []) for (const w of String(t.label || '').toLowerCase().match(/[a-z]{4,}/g) || []) if (!STOP.has(w)) words.add(w);
+    profileVocab.set(profile, words.size ? new RegExp(`\\b(?:${[...words].join('|')})`, 'i') : null);
+  }
+  return profileVocab.get(profile);
+}
+/** Clearly unrelated content only: never when the message uses any word from the profile's own vocabulary. */
+export function isOffTopic(text, profile = null) {
+  if (!OFF_TOPIC.test(text)) return false;
+  if (COMMON_ON_TOPIC.test(text)) return false;
+  const own = onTopicWords(profile);
+  if (own && own.test(text)) return false;
+  if (profile?.services?.some((sv) => sv.re?.test(text))) return false;
+  return true;
+}
 
 const INJECTION = [
   /\bignore\b.{0,30}\b(previous|prior|above|earlier|all|your|the)\b.{0,20}\b(instructions?|prompts?|rules?|messages?)\b/i,
@@ -102,7 +126,7 @@ export function classify(text, profile = null) {
     medical: MEDICAL_911.test(t) || SELF_HARM.test(t),
     selfHarm: SELF_HARM.test(t),
     topic: topic?.id || null,
-    offTopic: OFF_TOPIC.test(t),
+    offTopic: isOffTopic(t, profile),
   };
   const reasons = [];
   if (flags.medical) reasons.push('Possible medical or personal-safety emergency (the customer is told to call 911)');

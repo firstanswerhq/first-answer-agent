@@ -59,30 +59,29 @@ test('billing disputes, refunds and double charges are handled in code, never by
   assert.notEqual(l.lastReplyBy, 'safety');
 });
 
-test('off-topic messages get the polite reply and a dashboard flag, never an owner phone alert', async () => {
-  const run = async (message) => {
+test('off-topic: dashboard flag only; it never creates or suppresses an owner alert', async () => {
+  const run = async (message, script) => {
     const calls = [];
-    const transport = async (url, opts) => { calls.push(url); return { ok: true, status: 200 }; };
+    const transport = async (url) => { calls.push(url); return { ok: true, status: 200 }; };
     const clock = makeClock();
     const store = new Store();
     const config = cfgFor();
     const notifier = new Notifier({ now: clock.now, log: () => {}, topic: 'test-topic', transport });
-    const llm = fakeLlm([reply(call('escalate_to_human', { reason: 'not something we do' })), txt('That is outside what I can help with. I can book a dental visit if you need one.')]);
-    const agent = new Agent({ store, config, llm, now: clock.now, notifier });
+    const agent = new Agent({ store, config, llm: fakeLlm(script), now: clock.now, notifier });
     const svc = new LeadService({ store, agent, config, now: clock.now });
     const { lead, done } = svc.createLead(leadInput({ message }));
     await done; await agent.settled();
     return { lead, calls };
   };
-  for (const m of ['Can you recommend a good plumber near Nashville?', 'Do you have a banana bread recipe?', 'Who won the football game last night?']) {
-    const { lead, calls } = await run(m);
-    assert.equal(calls.length, 0, m);
-    assert.equal(lead.offTopic, true, m);
-    assert.ok(lead.messages.some((x) => x.from === 'agent'), m);
+  const answer = [txt('That is outside what I can help with. I can book a dental visit if you need one.')];
+  for (const m of ['Do you have a banana bread recipe?', 'Who won the football game last night?', 'Can you recommend a good plumber near Nashville?']) {
+    const a = await run(m, answer);
+    assert.equal(a.calls.length, 0, `no alert created by off-topic alone: ${m}`);
+    assert.equal(a.lead.offTopic, true, m);
+    // the model asked for a person: that alert is not suppressed
+    const b = await run(m, [reply(call('escalate_to_human', { reason: 'not something we do' })), txt('Passed along.')]);
+    assert.equal(b.calls.length, 1, `model escalation still alerts: ${m}`);
   }
-  // control: a real reason to bring in a person still alerts
-  const c = await run('Please look at my contract and tell me if the fee is fair.');
-  assert.equal(c.calls.length, 1);
 });
 
 test('rules fallback: a vague "exam" with a day and time still answers the time and lists the nearest open ones', async () => {

@@ -73,7 +73,7 @@ export function summary(lead, store) {
     createdAt: lead.createdAt, replyTimeSec: lead.replyTimeSec ?? null, serviceLabel: q?.serviceLabel || null,
     location: q?.location || '', lastRunMode: lead.lastRunMode || null, answeredBy: lead.lastReplyBy || null, fallbackReason: lead.lastFallbackReason || null, simulated: !!lead.simulated, seed: !!lead.seed,
     snippet: lead.messages[0]?.text.slice(0, 110) || '', humanReason: lead.humanReason || null,
-    followupPending: !!fu, booked: !!store.bookingForLead(lead.id),
+    offTopic: !!lead.offTopic, followupPending: !!fu, booked: !!store.bookingForLead(lead.id),
   };
 }
 
@@ -82,5 +82,5 @@ export function detail(lead, store) {
   const fus = store.followups.filter((f) => f.leadId === lead.id);
   const { token: _t, ipHash: _ip, ...rest } = lead; // the secret token and IP hash are never sent to the dashboard
   // Fictional sample leads are open for role-play, so their token goes to the dashboard. Every other lead's token stays private.
-  return { ...rest, sourceSimulated: isSimulatedSource(lead.source), phone: lead.seed ? lead.phone : maskPhone(lead.phone), demoToken: lead.seed ? lead.token : undefined, booking, followups: fus.slice(-4), answeredBy: lead.lastReplyBy || null, fallbackReason: lead.lastFallbackReason || null };
+  return { ...rest, sourceSimulated: isSimulatedSource(lead.source), phone: lead.seed ? lead.phone : maskPhone(lead.phone), demoToken: lead.seed ? lead.token : undefined, booking, followups: fus.slice(-4), answeredBy: lead.lastReplyBy || null, fallbackReason: lead.lastFallbackReason || null, offTopic: !!lead.offTopic };
 }

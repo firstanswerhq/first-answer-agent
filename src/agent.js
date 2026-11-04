@@ -136,12 +136,6 @@ export class Agent {
   /** Fire and forget: the customer reply never waits for the network. The timeline records what really happened. */
   alertOwner(lead, step, a, flags = {}, again = false) {
     if (!this.notifier) return;
-    // Plainly off-topic messages (a recipe, a sports score) get the polite reply and a dashboard flag, never a phone alert.
-    if (flags.offTopic && !flags.emergency && !flags.medical && !flags.complaint && !flags.injection && !flags.handoff && !flags.topic) {
-      lead.offTopic = true;
-      step({ kind: 'info', title: 'Off-topic message: flagged on the dashboard only, no phone alert' });
-      return;
-    }
     const p = this.notifier.alert(lead, { category: alertCategory(flags), priority: a.priority === 'urgent' || lead.priority === 'urgent' || flags.emergency || flags.medical ? 'urgent' : 'normal', business: this.config.business.name, again })
       .then(({ status }) => { const s = ALERT_STEP[status === 'duplicate' && again ? 'duplicate_again' : status]; if (s) { step({ kind: 'alert', ...s }); this.store.save(); } })
       .catch(() => {})
@@ -316,6 +310,8 @@ export class Agent {
       store.save();
       return;
     }
+    // Clearly unrelated messages get a small "Outside scope" badge on the dashboard. This never creates or suppresses an owner alert.
+    if (flags.offTopic) lead.offTopic = true;
     if (flags.any) step({ kind: 'guard', title: `Safety check flagged: ${flags.reasons.join('; ')}`, detail: 'Checked in code before any AI call' });
 
     const fx = new Functions(ctx);

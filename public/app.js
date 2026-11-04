@@ -110,7 +110,7 @@ async function refreshLeads() {
 // ---------- Live Inbox ----------
 function rowHtml(l) {
   return html`<tr data-id="${l.id}" class="${l.seed ? 'sample-row' : ''}" tabindex="0" role="link" aria-label="Open ${l.name}">
-    <td><div class="person"><span class="initials">${initials(l.name)}</span><div><strong>${l.name}${l.priority === 'urgent' ? R('<span class="chip urgent">Urgent</span>') : ''}</strong><small>${svcLabel(l) ? `${svcLabel(l)}${l.location ? ' · ' + l.location : ''}` : l.snippet}${l.seed ? ' · sample' : ''}</small></div></div></td>
+    <td><div class="person"><span class="initials">${initials(l.name)}</span><div><strong>${l.name}${l.priority === 'urgent' ? R('<span class="chip urgent">Urgent</span>') : ''}${l.offTopic ? R('<span class="chip scope">Outside scope</span>') : ''}</strong><small>${svcLabel(l) ? `${svcLabel(l)}${l.location ? ' · ' + l.location : ''}` : l.snippet}${l.seed ? ' · sample' : ''}</small></div></div></td>
     <td class="src">${l.source}${l.sourceSimulated ? R(' <span class="srctag" title="This source is a simulated example. The website form is the only real intake channel.">simulated source</span>') : ''}</td>
     <td>${replyText(l.replyTimeSec, l.lastRunMode)}${l.seed && l.replyTimeSec != null ? R(' <small class="dim">(simulated)</small>') : ''}</td>
     <td>${R(chip(l.status))}</td>
@@ -270,6 +270,7 @@ function factsHtml(l, speedup) {
   const q = l.qualification; const rows = [];
   const add = (k, v) => rows.push(html`<dt>${k}</dt><dd>${v}</dd>`);
   add('First reply', l.replyTimeSec == null ? 'Not yet' : l.seed ? `${replyText(l.replyTimeSec, l.lastRunMode)} (simulated)` : `${secs(l.replyTimeSec)} (measured)`);
+  if (l.offTopic) add('Scope', R('<span class="chip scope">Outside scope</span>'));
   if (l.confirmNeeded) add('Teammate to confirm', l.confirmNeeded);
   { const by = l.answeredBy || l.lastReplyBy; const base = by === 'safety' ? 'Safety rules' : by === 'model' ? 'AI model' : by === 'rules' ? 'Built-in rules' : l.lastRunMode === 'model' ? 'AI model' : l.lastRunMode === 'offline' ? 'Built-in rules' : 'Pending';
     const why = by === 'model' ? '' : fallbackText(l.fallbackReason);

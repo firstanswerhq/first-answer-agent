@@ -3,7 +3,7 @@
 // guarded functions. Deterministic, no network.
 import { requestedClock, partOfDay, pastDay, detectService, detectServices, detectLocation, wantsOutsideHours, pickSlot, slotCandidates, declinesSlots, requestedDay, slotOnDay } from './extract.js';
 import { firstName, money } from './util.js';
-import { CHANGE_REQUEST, OFF_TOPIC } from './safety.js';
+import { CHANGE_REQUEST, isOffTopic } from './safety.js';
 import { slotLabel, addDays, dateOf, localNow, isOpenNow, dateLabel, listSlots, slotsForDate, fmtClock } from './calendar.js';
 import { factAnswers, missingFactText, holidayName } from './facts.js';
 
@@ -162,7 +162,7 @@ export async function runRules(ctx, fx, trigger) {
     const ask = needService && needLoc ? `${wording.askService.replace(/\?$/, '')}, and ${where}?`
       : needService ? wording.askService : `${where}, so I can confirm we cover it?`;
     // The second ask sounds different from the first, so the customer never gets the same message twice in a row.
-    if (!fa.any && service === 'other' && !needLoc && attempts === 0 && OFF_TOPIC.test(latest) && !BOOK_INTENT.test(latest)) {
+    if (!fa.any && service === 'other' && !needLoc && attempts === 0 && isOffTopic(latest, config.profile) && !BOOK_INTENT.test(latest)) {
       // Plainly outside what this business helps with: say so, and say what we do.
       await reply(`Hi ${first}, thanks for reaching out to ${biz}. That one is outside what I can help with here. I can book appointments and answer questions about our hours, parking and visits, so ${ask}`);
       return;

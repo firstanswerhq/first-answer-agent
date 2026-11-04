@@ -19,3 +19,38 @@ test('billing fast path: refund questions and tax refunds do not fire the angry-
   for (const t of ['I want a refund on my tax return', 'How long until my refund arrives?']) assert.equal(classify(t).handoff, false, t);
   for (const t of ['We were charged double for the visit last week', 'My card was charged again today for the same appointment', 'You charged us twice for the tax prep', 'I was overcharged', 'There is an unauthorized charge on my card', 'I want to dispute the charge', 'I want my money back', 'I demand a refund', 'refund me']) assert.equal(classify(t).complaint, true, t);
 });
+
+import { isOffTopic } from '../src/safety.js';
+test('off-topic is narrow and profile-aware: on-topic messages are never flagged', () => {
+  const C = [
+    ['dental', 'Do you treat sports injuries? My son chipped a tooth playing football.'], ['dental', 'Do you make custom mouthguards for football?'],
+    ['dental', 'What can I eat after a tooth extraction? Any soft food recipes?'], ['dental', 'What can I eat after whitening?'],
+    ['dental', 'Can you recommend a good dentist near Brentwood for my kid?'], ['dental', 'Can you recommend a good electric toothbrush? '],
+    ['dental', 'My son plays basketball and knocked a tooth loose, do you see kids?'], ['dental', 'Is the weather going to close the office tomorrow?'],
+    ['dental', 'Do you do sports whitening for a hockey player?'], ['dental', 'I grind my teeth when I do Python homework, do you make night guards?'],
+    ['dental', 'How do I translate this insurance form?'], ['dental', 'My score on the dental plan is low, what coverage do I have?'],
+    ['dental', 'Can you suggest a good time near lunch for an exam?'], ['salon', 'Can you recommend a good color near the roots for a blonde balayage?'],
+    ['salon', 'Can you recommend a good shampoo? I have dry hair'], ['salon', 'Can you recommend a good stylist near me for curly hair?'],
+    ['salon', 'Is there a good pizza place near you for lunch after my appointment?'], ['salon', 'I have a wedding Saturday, can I get an updo? The weather is rainy so frizz-proof please'],
+    ['accounting', 'Can you recommend a good bookkeeping software near your recommended list?'], ['accounting', 'Can you recommend a good CPA near Brentwood for my LLC?'],
+    ['accounting', 'Do you handle bitcoin and crypto taxes?'], ['accounting', 'I sold some crypto this year, can you prepare the return?'],
+    ['accounting', 'Do you prepare returns for professional football players?'], ['accounting', 'Do you do a sports betting winnings return? I won big on football'],
+    ['accounting', 'Can you write a letter to the IRS for me?'], ['accounting', 'I need a resume tax deduction question... job search expenses'],
+    ['accounting', 'I need help with my essay on tax law, can you tutor? '], ['accounting', 'Can you help me with the school homework tax credit?'],
+  ];
+  for (const [n, m] of C) assert.equal(isOffTopic(m, profileCfg(n).profile), false, `${n}: ${m}`);
+  for (const n of ['dental', 'salon', 'accounting']) {
+    for (const m of ['What is a good recipe for chili?', 'Who won the football game last night?', 'Can you recommend a good plumber near Nashville?', 'Write me a poem about the ocean', 'Tell me a joke', 'Can you help with my Python homework?', 'Help me write a cover letter']) assert.equal(isOffTopic(m, profileCfg(n).profile), true, `${n}: ${m}`);
+  }
+});
+
+test('off-topic badge: lead summary carries the flag and the dashboard renders "Outside scope" in list and detail', async () => {
+  const env = makeEnv({ llm: null });
+  const l = await newLead(env, { message: 'Do you have a banana bread recipe?' });
+  const { summary } = await import('../src/service.js');
+  assert.equal(summary(l, env.store).offTopic, true);
+  const js = fs.readFileSync(new URL('../public/app.js', import.meta.url), 'utf8');
+  assert.equal((js.match(/Outside scope/g) || []).length >= 2, true);
+  const ok = await newLead(env, { name: 'Pat Two', phone: '(615) 555-0133', message: 'Is the weather going to close the office tomorrow?' });
+  assert.equal(summary(ok, env.store).offTopic, false);
+});
