@@ -311,3 +311,20 @@ test('simulate returns a token that unlocks role-play for that simulated lead on
     assert.equal((await post(s.base, `/api/leads/${a.body.id}/customer-reply`, { text: 'first', token: a.body.token })).status, 202);
   } finally { await s.stop(); }
 });
+
+test('TRUST_PROXY: off by default, parsed from the environment, and rate limits follow X-Forwarded-For only when on', async () => {
+  const { loadConfig, parseTrustProxy } = await import('../src/config.js');
+  assert.equal(parseTrustProxy(undefined), false);
+  assert.equal(parseTrustProxy(''), false);
+  assert.equal(parseTrustProxy('0'), false);
+  assert.equal(parseTrustProxy('1'), 1);
+  assert.equal(parseTrustProxy('true'), 1);
+  assert.equal(parseTrustProxy('2'), 2);
+  assert.equal(parseTrustProxy('garbage'), false);
+  assert.equal(loadConfig({ TRUST_PROXY: '1' }).trustProxy, 1);
+  const hit = async (s, ip) => (await post(s.base, '/api/leads', lead({ message: 'need work' }), { 'X-Forwarded-For': ip })).status;
+  const off = await startServer({ config: cfgFor({ limits: { ...cfgFor().limits, leadRate: { windowMs: 60_000, max: 1 } } }) });
+  try { assert.equal(await hit(off, '1.1.1.1'), 202); assert.equal(await hit(off, '2.2.2.2'), 429, 'header ignored: same client'); } finally { await off.stop(); }
+  const on = await startServer({ config: cfgFor({ trustProxy: 1, limits: { ...cfgFor().limits, leadRate: { windowMs: 60_000, max: 1 } } }) });
+  try { assert.equal(await hit(on, '1.1.1.1'), 202); assert.equal(await hit(on, '2.2.2.2'), 202, 'different forwarded clients'); assert.equal(await hit(on, '2.2.2.2'), 429); } finally { await on.stop(); }
+});

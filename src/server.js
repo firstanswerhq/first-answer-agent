@@ -28,7 +28,7 @@ export async function createApp({ config, store = new Store({ file: config.dataF
 
   const app = express();
   app.disable('x-powered-by');
-  app.set('trust proxy', false);
+  app.set('trust proxy', config.trustProxy ?? false);
   app.use((req, res, next) => {
     res.set({
       'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'no-referrer',

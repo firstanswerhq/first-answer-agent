@@ -69,10 +69,22 @@ export const HOURS = {
   text: 'Mon-Fri 8 AM-5 PM, Sat 9 AM-1 PM Central',
 };
 
+// TRUST_PROXY: unset/empty/0/false = off (default, rate limits use the socket address).
+// Set to 1 (one hop) when the app sits behind a single reverse proxy such as Caddy or nginx, so each visitor
+// is rate limited by their own address instead of everyone sharing the proxy's.
+export function parseTrustProxy(v) {
+  const t = String(v ?? '').trim().toLowerCase();
+  if (!t || t === '0' || t === 'false' || t === 'off' || t === 'no') return false;
+  if (t === 'true' || t === 'on' || t === 'yes') return 1;
+  const n = Number.parseInt(t, 10);
+  return Number.isFinite(n) && n > 0 && String(n) === t ? n : false;
+}
+
 export function loadConfig(env = process.env, over = {}) {
   const cfg = {
     port: int(env.PORT, 3000),
     host: env.HOST || '0.0.0.0',
+    trustProxy: parseTrustProxy(env.TRUST_PROXY),
     root,
     dataFile: env.DATA_FILE === '' ? null : env.DATA_FILE || path.join(root, 'data', 'state.json'),
     inference: {
