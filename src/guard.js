@@ -14,7 +14,7 @@ export function cleanOutbound(text) {
 
 const BANNED = /\b(discount|refund|guarantee[sd]?|price[- ]match|warranty|coupon|waive[sd]?|promo(tion)? code|\d+\s?% off|free of charge|no charge|on the house)\b/i;
 // "free" used as an offer. "free parking" is a fact, not an offer, and is allowed.
-const FREE_OFFER = /\bfor free\b|\bcomplimentary\b|\bno[- ]cost\b|\bat no (?:charge|cost)\b|\bwithout (?:any )?charge\b|\bfree (?:visit|consult\w*|cleaning|whitening|exam\w*|check-?up|appointment|service|quote|estimate|session|haircut|color|colour|x-?rays?|work|trial|treatment|style|blowout|return|prep\w*)\b|\b(?:is|are|will be|would be|be) (?:totally |completely |absolutely )?free\b(?! (?:to|of the|parking)\b)|\beverything(?: is)? free\b/i;
+const FREE_OFFER = /\bfor free\b|\bcomplimentary\b|\bno[- ]cost\b|\bat no (?:charge|cost)\b|\bwithout (?:any )?charge\b|\bfree (?:visit|consult\w*|cleaning|whitening|exam\w*|check-?up|appointment|service|quote|estimate|session|haircut|color|colour|x-?rays?|work|trial|treatment|style|blowout|return|prep\w*)\b|\b(?:visit|consult\w*|cleaning|whitening|exam\w*|check-?up|appointment|service|quote|estimate|session|haircut|treatment|x-?rays?|trial|work|style|blowout|prep\w*|first one|first time)s?\b[^.!?]{0,30}?\b(?:is|are|will be|would be|be) (?:totally |completely |absolutely )?free\b(?! (?:to|of the|parking)\b)|\b(?:it|that|this)(?:'s| is| will be| would be) (?:totally |completely |absolutely )?free\b(?! (?:to|of the|parking)\b)|\b(?:you can|you'll|you will|we'll|we will) (?:get|have|receive) (?:it|that|this) (?:for )?free\b|\beverything(?: is)? free\b/i;
 const LEAK = /system prompt|my instructions|developer message|api[- ]?key|VULTR_|as an ai language model/i;
 const NUMW = '(?:zero|oh|one|two|three|four|five|six|seven|eight|nine)';
 
@@ -68,13 +68,17 @@ const NEGATED_BOOKED = /\b(?:fully|totally|completely) (?:booked|reserved)\b|\bb
 const SEE_YOU = /\b(?:we(?:'ll| will)|i(?:'ll| will)) see you\b/i;
 const CHANGE_CLAIM = /\b(?:cancel(?:l?ed|ling)?|moved|rescheduled|switched|changed (?:it|your|the)|updated your (?:appointment|booking|time)|second (?:appointment|booking)|another (?:appointment|booking)|as well)\b/i;
 // A promise to look something up, with no answer in it: "let me check what's open around Tuesday". Not final.
-const DANGLING = /\b(?:let me (?:check|see|look|find|pull|take a look|grab)|let'?s see|i(?:'ll| will| am going to|'m going to) (?:check|look|see|pull|get back)|one (?:moment|sec|second|minute)|just a (?:moment|sec|second|minute)|give me a (?:moment|sec|second|minute)|checking (?:now|that|the calendar|what)|hold on|bear with me|looking (?:now|that up|into it))\b/i;
+const DANGLING = /\b(?:let me (?:check|see|look|find|pull|take a look|grab)|let'?s see|i(?:'ll| will| am going to|'m going to) (?:check|look|see|pull|get back)|one (?:moment|sec|second|minute)|just a (?:moment|sec|second|minute)|give me a (?:moment|sec|second|minute)|checking (?:now|that|the calendar|what)|hold on(?! to\b)|bear with me|looking (?:now|that up|into it))\b/i;
 const TIME_TOKEN = /\b(?:1[0-2]|[1-9])(?::[0-5]\d)?\s?(?:a\.?m\b|p\.?m\b)|\b(?:1[0-9]|2[0-3]|[1-9]):[0-5]\d\b|\bnoon\b/gi;
-const ANSWERS = /\b(?:is|are|was) (?:already )?(?:taken|open|available|unavailable|booked up|full)\b|\bnot available\b|\bnothing (?:is )?open\b/i;
+const ANSWERS = /\b(?:is|are|was) (?:already )?(?:taken|unavailable|booked up|full|closed)\b|\bnot available\b|\bnothing (?:is )?open\b/i;
+const ANSWERS_WITH_TIME = /\b(?:is|are) (?:still |already )?(?:open|available|free)\b/i; // only an answer when it names a time
+const HANDOFF_OR_ASK = /\b(?:teammate|team member|someone|staff|front desk|dentist|stylist|hygienist|accountant|office|let me know|tell me)\b/i;
 function danglingProblem(text) {
   if (!DANGLING.test(text)) return null;
+  // Hand-offs and asks are not promises to look something up: "a teammate will follow up", "let me know which day".
+  if (HANDOFF_OR_ASK.test(text)) return null;
   const times = new Set((text.match(TIME_TOKEN) || []).map((t) => t.toLowerCase().replace(/\s|\./g, '')));
-  const concrete = text.includes('?') || times.size >= 2 || /\$\s?\d/.test(text) || ANSWERS.test(text);
+  const concrete = text.includes('?') || times.size >= 2 || /\$\s?\d/.test(text) || ANSWERS.test(text) || (times.size >= 1 && ANSWERS_WITH_TIME.test(text));
   return concrete ? null : { id: 'dangling', message: 'Message promises to look something up but gives no answer. You already have the results: give the actual open times (or say the requested time is taken).' };
 }
 
@@ -84,24 +88,43 @@ export function calendarProblem(text, slotIds) {
   if (!slotIds?.length) return null;
   if (TAKEN.test(text)) return null;
   const bare = text.replace(/\$\s?[\d,.]+(?:\s?[-–]\s?\$?[\d,.]+)?/g, ' ').replace(/\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.? \d{1,2}(?:st|nd|rd|th)?\b/gi, ' ').replace(/\d+[- ]year/gi, ' ').replace(/\d+(?:st|nd|rd|th)\b/gi, ' ');
-  const hours = new Set(slotIds.map((id) => Number(id.slice(11, 13)) % 12 || 12));
-  const nums = [...bare.matchAll(/\b(1[0-2]|[1-9])(?::[0-5]\d)?\b/g)].map((m) => Number(m[1]));
+  const h24 = slotIds.map((id) => Number(id.slice(11, 13)));
+  const hours = new Set(h24.map((h) => h % 12 || 12));
+  const nums = [...bare.matchAll(/(?<![\d:.])(1[0-2]|[1-9])(?::[0-5]\d)?(?!\d)/g)].map((m) => Number(m[1]));
+  for (const m of bare.matchAll(/(?<![\d:])(1[3-9]|2[0-3]):[0-5]\d(?!\d)/g)) nums.push(Number(m[1]) % 12 || 12);
+  const WORD = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12 };
+  for (const m of bare.matchAll(/\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)(?: o'?clock|\s?(?:[ap]\.?m\b))/gi)) nums.push(WORD[m[1].toLowerCase()]);
   if (nums.some((n) => hours.has(n))) return null;
+  // "noon", "Thursday morning is open": acceptable when an open time falls in that part of the day
+  if (/\bnoon\b|\bmidday\b/i.test(bare) && hours.has(12)) return null;
+  if (/\bmorning\b/i.test(bare) && h24.some((h) => h < 12)) return null;
+  if (/\bafternoon\b/i.test(bare) && h24.some((h) => h >= 12 && h < 17)) return null;
+  if (/\bevening\b/i.test(bare) && h24.some((h) => h >= 17)) return null;
   return { id: 'no_times', message: 'You checked the calendar but the reply does not give any of the open times. State the actual open times from check_calendar (or say the requested time is taken).' };
 }
 
 const DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 const clausesOf = (text) => text.split(/(?<=[.!?])\s+|\n+|[;:]|,|\s[-–—]\s|\bbut\b|\band\b/i).map((c) => c.trim()).filter(Boolean);
 
+// Past-tense claims that something was cancelled, moved or changed. The assistant has no such power, booking or not.
+const PAST_CHANGE = /\b(?:cancel(?:l?ed)|moved|rescheduled|re-scheduled|switched|changed|updated)\b/i;
+const CHANGE_OBJECT = /\b(?:appointment|booking|visit|reservation|slot|it|you|your|that|this|time|session)\b/i;
+function changeProblem(text) {
+  for (const c of clausesOf(text)) {
+    if (PAST_CHANGE.test(c) && CHANGE_OBJECT.test(c) && !NOT_A_CLAIM.test(c) && !NEGATED_BOOKED.test(c)) return { id: 'booking_change', message: 'Message says an appointment was changed or cancelled, but this assistant cannot do that. A teammate handles changes.' };
+  }
+  return null;
+}
+
 function bookingProblem(text, opts) {
   const claimClause = (c) => (BOOKING_CLAIM.test(c) || SEE_YOU.test(c)) && !NEGATED_BOOKED.test(c) && (SEE_YOU.test(c) || !NOT_A_CLAIM.test(c));
   if (opts.booked === false) {
     // Sentence by sentence first, then clause by clause: a negation in another clause does not excuse a claim.
     if (clausesOf(text).some(claimClause)) return { id: 'booking_claim', message: 'Message says an appointment is booked or confirmed, but no appointment has been booked for this customer. Offer times with check_calendar and book only when they choose one.' };
-    return null;
+    return opts.model ? changeProblem(text) : null;
   }
   const b = opts.booking;
-  if (!b) return null;
+  if (!b) return opts.model ? changeProblem(text) : null;
   // The customer already has a booking. This assistant cannot change, cancel or add one, so any such claim is false.
   for (const c of clausesOf(text)) {
     if (CHANGE_CLAIM.test(c) && !NOT_A_CLAIM.test(c.replace(/\bas well\b/i, '')) && !NEGATED_BOOKED.test(c)) return { id: 'booking_change', message: 'Message says an appointment was changed, cancelled or added, but this assistant cannot do that. A teammate handles changes.' };

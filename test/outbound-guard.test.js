@@ -8,7 +8,7 @@ import { makeEnv, newLead, fakeLlm, call, reply, agentTexts, say } from './helpe
 
 const fx = (n) => JSON.parse(fs.readFileSync(new URL(`./fixtures/${n}`, import.meta.url), 'utf8'));
 const lead = { phone: '(615) 555-0111', name: 'Dana Test', qualification: { priceRange: { low: 120, high: 220 } } };
-const NO_BOOKING = { booked: false, ownPhones: ['(615) 555-0100'] };
+const NO_BOOKING = { model: true, booked: false, ownPhones: ['(615) 555-0100'] };
 const bad = (t, o = NO_BOOKING) => checkOutbound(t, lead, o);
 
 test('regression: 60 natural replies are never rejected', () => {
