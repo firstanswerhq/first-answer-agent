@@ -32,7 +32,7 @@ for (const [name, message] of Object.entries(cases)) {
 }
 
 test('fast path: normal inquiries still use the model', async () => {
-  const llm = fakeLlm([reply(call('qualify_lead', { service: 'checkup', urgency: 'routine' })), reply(call('send_reply', { text: 'Happy to help with a checkup. Which day works?' })), reply()]);
+  const llm = fakeLlm([reply(call('qualify_lead', { service: 'checkup', urgency: 'routine' })), reply(call('send_reply', { text: 'Happy to help with a checkup. I have Thursday at 9 AM or 10 AM. Which works?' })), reply()]);
   const env = makeEnv({ llm });
   const l = await newLead(env, { message: 'I would like a checkup next week please' });
   assert.ok(llm.fetchMock.state.calls.length >= 1);

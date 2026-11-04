@@ -77,7 +77,9 @@ PROCEDURE
 2. If the service${area ? ' or location' : ''} is missing, ask ONE short question with send_reply, then schedule_followup.
 3. Otherwise call check_calendar, then send_reply offering up to 3 of the returned times plus the price_range from qualify_lead (or say the cost is confirmed in person when price_range is null). Then schedule_followup (about 30 minutes).
 4. When the customer picks a time, call book_appointment with that exact slot_id, then send_reply to confirm.
-5. Do NOT call escalate_to_human for plainly unrelated requests (recipes, sports, trades, jokes, homework); politely decline in one sentence and offer to help with the services above. Call escalate_to_human for: complaints or angry customers; urgent situations (${p.urgency.label.toLowerCase()}: ${p.urgency.emergencyPhrases.slice(0, 4).map((x) => x.replace(/[()?\\]/g, '')).join(', ')} and similar; use priority "urgent"); ${humanTopics ? humanTopics + '; ' : ''}schedule changes to an existing booking; requests outside the services above${area ? '; service area false or unknown after asking' : ''}; and anything you are unsure about. For urgent situations include this safety note: ${p.urgency.safetyNote}
+5. A plain question about a product or service that fits the business but is not on the list above (for example a custom accessory or a sports-related need) is NOT an escalation and gets no staff alert: say that the professional can discuss it at the visit, then call check_calendar and offer 2-3 open times for the nearest suitable visit.
+5a. A booking-like request without times ("an exam Thursday at 9", next week, ASAP) is answered by FIRST calling check_calendar, then sending 2-3 concrete open times, nearest first. If the asked time is taken, say so. Ask at most one short question AFTER the times and never reply with only a question. For ASAP or pain also say: if this is an emergency or you are in severe pain or swelling, call 911 or go to the ER, and give the business phone ${config.business.phone}.
+5b. Do NOT call escalate_to_human for plainly unrelated requests (recipes, sports, trades, jokes, homework); politely decline in one sentence and offer to help with the services above. Call escalate_to_human for: complaints or angry customers; urgent situations (${p.urgency.label.toLowerCase()}: ${p.urgency.emergencyPhrases.slice(0, 4).map((x) => x.replace(/[()?\\]/g, '')).join(', ')} and similar; use priority "urgent"); ${humanTopics ? humanTopics + '; ' : ''}schedule changes to an existing booking; requests outside the services above${area ? '; service area false or unknown after asking' : ''}; and anything you are unsure about. For urgent situations include this safety note: ${p.urgency.safetyNote}
 
 BUSINESS FACTS (the only facts you may state besides the hours above; if a customer asks about anything else about the business, say a teammate will confirm and call escalate_to_human): ${Object.entries(p.facts || {}).map(([k, v]) => `${k}: ${v}`).join(' | ') || 'none'}
 
@@ -426,7 +428,9 @@ export class Agent {
         // No usable text: one forced retry that requires send_reply, then the built-in rules.
         if (!ctx.forcedRetry && ctx.guardRejects < 3 && budget.calls < budget.maxCalls) {
           ctx.forcedRetry = true;
-          messages.push({ role: 'user', content: ctx.rejectRule === 'dangling' || ctx.rejectRule === 'no_times' || ctx.calendarOffer
+          messages.push({ role: 'user', content: ctx.rejectRule === 'no_times' && !ctx.calendarOffer
+            ? 'This is a scheduling request. Call check_calendar now, then send_reply with 2-3 concrete open times (nearest first), say the requested time is taken if it is, and ask at most one short question after the times.'
+            : ctx.rejectRule === 'dangling' || ctx.rejectRule === 'no_times' || ctx.calendarOffer
             ? 'You already have the calendar results; now call send_reply with the actual open times (or say the requested time is taken). Do not say you will check.'
             : ctx.emptyHint === 'empty_end:length'
               ? 'Reply in 2-4 short sentences, no long reasoning. Call send_reply now with a short message for the customer (no prices unless qualify_lead returned a range).'

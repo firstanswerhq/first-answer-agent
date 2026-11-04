@@ -308,12 +308,21 @@ export class Functions {
     this.ctx.rejectVia = this.ctx.via || 'tool';
   }
 
+  /** The customer's latest message asks for a time or an appointment (a day, ASAP, openings, or a booking word with a service). */
+  schedulingAsk() {
+    const { lead, config } = this.ctx;
+    const last = [...lead.messages].reverse().find((m) => m.from === 'customer')?.text || '';
+    const when = /\b(?:asap|as soon as possible|soonest|earliest|openings?|availab\w*|next week|this week|tomorrow|today|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i.test(last);
+    const what = /\b(?:appointments?|book\w*|schedul\w*|visit|exam|consult\w*|seen|come in|see someone|slot)\b/i.test(last) || config.services.some((x) => x.re?.test(last));
+    return when && what;
+  }
+
   guardOpts() {
     const { store, config, lead } = this.ctx;
     // Only the model's own wording is checked for booking claims; the software's fixed texts are written after a real booking.
     const booking = store.bookingForLead(lead.id);
     const model = this.ctx.writer === 'model';
-    return { model, offeredSlots: model && !booking ? this.ctx.calendarOffer || null : null, booked: !!booking || this.ctx.writer !== 'model', booking: this.ctx.writer === 'model' ? booking : null, ownPhones: [config.business.phone], knownRanges: (config.services || []).map((x) => x.price).filter((x) => x && x.high > 0) };
+    return { model, offeredSlots: model && !booking ? this.ctx.calendarOffer || null : null, booked: !!booking || this.ctx.writer !== 'model', booking: this.ctx.writer === 'model' ? booking : null, ownPhones: [config.business.phone], schedulingRequest: model && this.schedulingAsk(), knownRanges: (config.services || []).map((x) => x.price).filter((x) => x && x.high > 0) };
   }
 
   // 4. send_reply

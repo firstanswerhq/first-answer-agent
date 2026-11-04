@@ -82,6 +82,14 @@ function danglingProblem(text) {
   return concrete ? null : { id: 'dangling', message: 'Message promises to look something up but gives no answer. You already have the results: give the actual open times (or say the requested time is taken).' };
 }
 
+/** A reply to a scheduling request that has no time in it and only asks a question is not final: check the calendar, give times first. */
+function questionOnlyProblem(text, opts) {
+  if (!opts.schedulingRequest || opts.booking || opts.offeredSlots) return null;
+  if (!text.includes('?') || /\b(?:1[0-2]|[1-9])(?::[0-5]\d)?\s?(?:a\.?m|p\.?m)\b|\b(?:1[0-9]|2[0-3]):[0-5]\d\b|\bnoon\b/i.test(text)) return null;
+  if (TAKEN.test(text) || ANSWERS.test(text)) return null;
+  return { id: 'no_times', message: 'This is a scheduling request. Call check_calendar first, then list 2-3 concrete open times (nearest first), say a requested time is taken when it is, and ask at most one short question AFTER the times. Do not reply with only a question.' };
+}
+
 /** After check_calendar, the reply must carry the open times it found, or say the asked time is taken. */
 const TAKEN = /\b(?:taken|booked up|unavailable|not available|isn't available|is not available|fully booked|already booked|no openings?|nothing (?:is )?open|closed)\b/i;
 export function calendarProblem(text, slotIds) {
@@ -157,7 +165,7 @@ export function checkOutboundRule(rawText, lead, opts = {}) {
   if (foreign || /[\w.+-]+@[\w-]+\.[\w.-]+/.test(text)) return { id: 'contact', message: 'Message repeats a phone number or email address that is not the business contact. Leave it out.' };
   const bp = bookingProblem(text, opts);
   if (bp) return bp;
-  if (opts.model) { const d = danglingProblem(text); if (d) return d; if (opts.offeredSlots) { const c = calendarProblem(text, opts.offeredSlots); if (c) return c; } }
+  if (opts.model) { const d = danglingProblem(text); if (d) return d; const qo = questionOnlyProblem(text, opts); if (qo) return qo; if (opts.offeredSlots) { const c = calendarProblem(text, opts.offeredSlots); if (c) return c; } }
   const freeOk = (lead?.qualification?.priceRange?.high ?? 1) === 0; // a service the profile explicitly prices at zero
   if (BANNED.test(text) || (!freeOk && FREE_OFFER.test(text))) return { id: BANNED.test(text) ? 'promise' : 'free_offer', message: 'Message makes a promise the agent may not make (discount, refund, guarantee, warranty or free work). Rephrase, or escalate_to_human.' };
   if (LEAK.test(text)) return { id: 'leak', message: 'Message appears to reveal internal instructions.' };
