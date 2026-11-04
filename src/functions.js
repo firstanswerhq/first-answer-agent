@@ -170,6 +170,9 @@ export function locationCheck(config, location) {
 }
 
 // ---- executor ----
+// Wording that says a person has been told or will pick this up.
+export const HANDOFF_CLAIM = /\b(?:i|we)(?:'ve| have| had) (?:flagged|notified|escalated|alerted|forwarded|passed)\b|\b(?:flagged|passed|forwarded|escalated|handed) (?:this|it|that|your \w+|the \w+) (?:on |over )?(?:to|for) (?:a |an |our |the |my )?(?:teammate|team|person|manager|staff|owner|dentist|stylist|accountant|colleague)|\b(?:a |our |the |one of our )?(?:teammate|team member|manager|person|colleague|someone(?: from our team)?) (?:will|is going to|can) (?:review|follow up|reach out|contact you|call you|get back to you|take a look)\b|\bflagged (?:this|it|your \w+)\b/i;
+
 export class Functions {
   /**
    * @param ctx { store, config, now(), lead, flags, step(stepObj), run }
@@ -321,7 +324,13 @@ export class Functions {
       return { ok: false, error: bad.message, guardrail: true };
     }
     void config;
-    return this.deliver(a.text);
+    const sent = this.deliver(a.text);
+    // The model told the customer a person has it ("I've flagged this", "a teammate will review") without calling escalate_to_human:
+    // make the sentence true by handing the inquiry to a person through the normal escalation path.
+    if (this.ctx.writer === 'model' && lead.status !== 'human' && HANDOFF_CLAIM.test(cleanOutbound(a.text))) {
+      await this.call('escalate_to_human', { reason: 'The reply told the customer a teammate would follow up, so the inquiry was handed to a person to make that true.', priority: 'normal' }, 'guardrail');
+    }
+    return sent;
   }
 
   deliver(text, extra = {}) {

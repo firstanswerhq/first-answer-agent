@@ -23,3 +23,34 @@ test('urgent message: whatever the model does, the customer gets the safety note
     }
   }
 });
+
+const txt = (c) => ({ status: 200, json: { choices: [{ finish_reason: 'stop', message: { content: c } }] } });
+
+test('a model reply that says a teammate has it hands the inquiry to a person (the claim becomes true)', async () => {
+  for (const claim of ["Thanks for the details. I've flagged this for a teammate to review and follow up with you directly.", 'I have passed this to our team and a teammate will follow up with you about it.', 'A teammate will review your request and reach out to you soon.']) {
+    const env = makeEnv({ llm: fakeLlm([txt(claim)]) });
+    const l = await newLead(env, { message: 'Can you explain what happens at a first visit?' });
+    assert.equal(l.lastReplyBy, 'model', claim);
+    assert.equal(l.status, 'human', claim);
+    assert.ok(l.humanReason, claim);
+    assert.equal(l.timeline.filter((t) => /Flagged for a person/.test(t.title)).length, 1, 'escalated once');
+  }
+  // a plain answer does not escalate
+  const env = makeEnv({ llm: fakeLlm([txt('Our hours are Monday to Thursday 8 AM to 5 PM. Which day works for a cleaning?')]) });
+  const l = await newLead(env, { message: 'What are your hours?' });
+  assert.notEqual(l.status, 'human');
+});
+
+test('billing disputes, refunds and double charges are handled in code, never by the model', async () => {
+  for (const m of ['You charged me twice for my last visit.', 'I want to dispute the charge on my card.', 'Can I get a refund for the whitening?', 'I was overcharged on my last bill and nobody will fix it. Get me a manager.']) {
+    const llm = fakeLlm([txt('Sure!')]);
+    const env = makeEnv({ llm });
+    const l = await newLead(env, { message: m });
+    assert.equal(llm.fetchMock.state.bodies.length, 0, m);
+    assert.equal(l.status, 'human', m);
+    assert.equal(l.lastReplyBy, 'safety', m);
+  }
+  const env = makeEnv({ llm: fakeLlm([txt('Sure!')]) });
+  const l = await newLead(env, { message: 'when will I get my tax refund' });
+  assert.notEqual(l.lastReplyBy, 'safety');
+});

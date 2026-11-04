@@ -16,8 +16,12 @@ const COMPLAINT = [
 const HANDOFF = [
   /\b(speak|talk) (to|with) (a |the )?(human|person|manager|owner|supervisor|someone)\b/i,
   /\b(real person|human being)\b/i,
+  /\b(?:get|give|bring|put|want|need|send) (?:me )?(?:a |the |your )?(?:manager|owner|supervisor)\b/i,
   /\b(cancel|reschedule|move|change) (my|the|our) (appointment|booking|visit|consultation)\b/i,
 ];
+
+// A dispute about money already paid is a person's job, whatever the tone: handled in code, never left to the model.
+const BILLING_DISPUTE = /\b(?:charged|billed) (?:me|us|my card|my account) (?:twice|two times|double|too much|extra|wrong|incorrectly|again)\b|\bovercharg\w*|\bdouble[- ]?(?:charged|billed)\b|\bdispute\b.{0,25}\b(?:charge|charges|bill|invoice|payment)\b|\b(?:charge|bill|invoice)\b.{0,25}\b(?:is|was|looks|seems) (?:wrong|incorrect|a mistake)\b|(?<!tax\s)\brefunds?\b(?!\s+policy)/i;
 
 const INJECTION = [
   /\bignore\b.{0,30}\b(previous|prior|above|earlier|all|your|the)\b.{0,20}\b(instructions?|prompts?|rules?|messages?)\b/i,
@@ -80,7 +84,7 @@ export function classify(text, profile = null) {
   const t = normalizeForSafety(text);
   // Count separate anger signals: one mild word ("terrible parking", "Thank you!!!") is not a complaint by itself.
   const anger = COMPLAINT.reduce((n, re) => n + new Set([...t.matchAll(new RegExp(re.source, 'gi'))].map((m) => m[0].toLowerCase())).size, 0) + (shouting(t) ? 2 : 0); // a long all-caps message counts as two signals
-  const strong = LEGAL_THREAT.test(t) || anger >= 2;
+  const strong = LEGAL_THREAT.test(t) || BILLING_DISPUTE.test(t) || anger >= 2;
   const topic = profile?.alwaysHuman?.find((x) => x.re?.test(t));
   const flags = {
     emergency: !!profile?.urgency?.emergencyRe?.test(t),
