@@ -148,13 +148,20 @@ test('offline: Sunday leads are only offered Monday onward', async () => {
   assert.ok(l.offeredSlots.every((s) => s >= '2026-11-09'));
 });
 
-test('offline: customer replies on a human-flagged lead are held, not answered', async () => {
+test('offline: after a handoff the customer gets exactly one short holding message, then the agent stays quiet', async () => {
   const env = makeEnv();
   const l = await newLead(env, { message: 'I want a refund, this service was terrible' });
   const before = agentTexts(l).length;
   await say(env, l, 'Hello? Anyone there?');
-  assert.equal(agentTexts(l).length, before);
+  assert.equal(agentTexts(l).length, before + 1);
+  assert.match(agentTexts(l).at(-1), /teammate has your message/);
+  assert.match(agentTexts(l).at(-1), /911/);
+  assert.equal(l.status, 'human');
+  await say(env, l, 'Still waiting...');
+  await say(env, l, 'Hello??');
+  assert.equal(agentTexts(l).length, before + 1, 'no further automatic replies');
   assert.ok(l.timeline.some((t) => /held back/.test(t.title)));
+  assert.ok(!fnNames(l).includes('book_job'));
 });
 
 test('offline: a booked customer who asks to reschedule is handed to a human', async () => {

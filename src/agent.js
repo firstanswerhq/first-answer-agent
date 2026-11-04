@@ -161,7 +161,14 @@ export class Agent {
     step({ kind: 'received', title: trigger === 'new_lead' ? `New lead received from ${lead.source}` : 'Customer replied', detail: (lastCustomer?.text || '').slice(0, 160) });
 
     if (lead.status === 'human') {
-      step({ kind: 'info', title: 'Lead is with a human; the agent held back and did not reply', detail: lead.humanReason || '' });
+      if (trigger === 'customer_reply' && !lead.handoffAckSent) {
+        // One short holding message per handoff, so the customer is not left staring at a silent page.
+        lead.handoffAckSent = true;
+        new Functions(ctx).deliver(`Thanks, ${firstName(lead.name)}. A teammate has your message and will reply here soon. For an emergency, call 911 or ${config.business.phone}. - ${config.business.name} scheduling assistant (AI)`);
+        step({ kind: 'info', title: 'Lead is with a human; the agent sent one short holding message and will not reply further', detail: lead.humanReason || '' });
+      } else {
+        step({ kind: 'info', title: 'Lead is with a human; the agent held back and did not reply', detail: lead.humanReason || '' });
+      }
       lead.lastRunAt = this.now();
       store.save();
       return;

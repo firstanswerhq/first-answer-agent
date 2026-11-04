@@ -346,6 +346,7 @@ export class Functions {
   // 6. escalate_to_human
   async escalate_to_human(a) {
     const { lead } = this.ctx;
+    if (lead.status !== 'human') lead.handoffAckSent = false; // a new handoff gets its own single holding message
     lead.status = 'human';
     lead.humanReason = a.reason;
     if (a.priority === 'urgent') lead.priority = 'urgent';
