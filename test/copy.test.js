@@ -95,3 +95,13 @@ test('the dashboard config carries the customer word and the lead form works end
     assert.equal(list.leads.find((l) => l.name === 'Pat Doe').source, 'Friend or family');
   } finally { await s.stop(); }
 });
+
+test('README keeps live-proof claims out and uses plain language', () => {
+  const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
+  assert.doesNotMatch(readme, /verified live|answers? in seconds|sales-ops|calendar store|price book|inference key|deterministic/i);
+  assert.match(readme, /Real vs simulated/);
+  assert.match(readme, /Switch business/);
+  assert.match(readme, /Freeze the demo/);
+  assert.match(readme, /Make it yours/);
+  assert.doesNotMatch(readme, /PLACEHOLDER/);
+});
