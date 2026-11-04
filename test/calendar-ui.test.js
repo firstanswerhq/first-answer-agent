@@ -38,4 +38,5 @@ test('not configured: nothing is added', () => {
 test('app.js inserts these pieces with R()', () => {
   const src = fs.readFileSync(path.join(import.meta.dirname, '..', 'public', 'app.js'), 'utf8');
   for (const f of ['calendarBadge', 'calendarNotices', 'calendarLegend']) assert.ok(src.includes(`R(${f}(c))`), f);
+  assert.match(src, /import \{ calendarBadge, calendarNotices, calendarLegend \} from '\.\/calnotes\.js';/, 'the helpers are imported (a missing import broke the page once)');
 });

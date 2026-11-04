@@ -3,6 +3,7 @@
 import { isWorking } from './status.js';
 const $ = (s, r = document) => r.querySelector(s);
 import { esc, html, R } from './tpl.js';
+import { calendarBadge, calendarNotices, calendarLegend } from './calnotes.js';
 
 // Which example business this tab shows: ?profile= in the address, remembered for the tab. Empty = the server's default.
 let PROFILE = new URLSearchParams(location.search).get('profile') || '';
@@ -284,6 +285,8 @@ async function renderCalendar(start, { quiet = false } = {}) {
   const WH = state.cfg?.hours?.windowHours || 1;
   const starts0 = Object.values(state.cfg?.hours?.starts || {}).flat().map((t) => Number(t.slice(0, 2)));
   const H0 = starts0.length ? Math.min(...starts0) : 8; const H1 = starts0.length ? Math.max(...starts0) + WH : 17;
+  const mm = (t) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+  const overlapsBusy = (day, s) => (day.busy || []).some((b) => mm(b.start) < mm(s.end) && mm(b.end) > mm(s.start));
   const colHtml = (day) => {
     const blocks = day.slots.map((s) => {
       const top = (Number(s.start.slice(0, 2)) - H0) * ROW + 3; const h = WH * ROW - 6;
@@ -294,6 +297,8 @@ async function renderCalendar(start, { quiet = false } = {}) {
         return `${tag}<strong>${esc(b.serviceLabel)}${b.kind === 'emergency_hold' ? ' (priority hold)' : ''}</strong><small>${esc(b.name)} · ${clock(s.start)}</small>${end}`;
       }
       if (s.status === 'busy') return ''; // drawn from the day's busy blocks below
+      if (s.status === 'unchecked') return `<div class="open past" style="top:${top}px;height:${h}px">Calendar not checked</div>`;
+      if (s.status === 'past' && overlapsBusy(day, s)) return ''; // the Busy card already covers this hour; do not stack a "Past" label under it
       return `<div class="open ${s.status === 'past' ? 'past' : ''}" style="top:${top}px;height:${h}px">${s.status === 'past' ? (s.date < c.today ? 'Past' : 'Too soon') : 'Open'} · ${clock(s.start)}</div>`;
     }).join('');
     const mins = (t) => (Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5))) / 60;
@@ -310,7 +315,7 @@ async function renderCalendar(start, { quiet = false } = {}) {
     return `<div class="daycol" style="height:${(H1 - H0) * ROW}px">${closed}${busy}${blocks}</div>`;
   };
   const hours = Array.from({ length: H1 - H0 }, (_, i) => `<div class="hlabel">${clock(String(H0 + i).padStart(2, '0'))}</div>`).join('');
-  const agenda = cols.map((day) => `<h3>${esc(dname(day.date))} ${esc(label(day.date))}${day.today ? ' (today)' : ''}</h3>` + (day.slots.length ? '' : '<div class="row past"><span>Closed</span><span></span></div>') + day.slots.map((s) => `<div class="row ${s.status === 'open' ? 'free' : s.status === 'past' ? 'past' : ''}"><span>${esc(clock(s.start))}–${esc(clock(s.end))}</span><span>${s.status === 'booked' ? esc(s.booking.serviceLabel + ' · ' + s.booking.name) : s.status === 'busy' ? 'Busy (Google Calendar)' : s.status === 'open' ? 'Open' : s.date < c.today ? 'Past' : 'Too soon'}</span></div>`).join('')).join('');
+  const agenda = cols.map((day) => `<h3>${esc(dname(day.date))} ${esc(label(day.date))}${day.today ? ' (today)' : ''}</h3>` + (day.slots.length ? '' : '<div class="row past"><span>Closed</span><span></span></div>') + day.slots.map((s) => `<div class="row ${s.status === 'open' ? 'free' : s.status === 'past' ? 'past' : ''}"><span>${esc(clock(s.start))}–${esc(clock(s.end))}</span><span>${s.status === 'booked' ? esc(s.booking.serviceLabel + ' · ' + s.booking.name) : s.status === 'busy' ? 'Busy (Google Calendar)' : s.status === 'unchecked' ? 'Calendar not checked' : s.status === 'open' ? 'Open' : s.date < c.today ? 'Past' : 'Too soon'}</span></div>`).join('') + (day.busy || []).filter((b) => !day.slots.some((x) => mm(b.start) < mm(x.end) && mm(b.end) > mm(x.start))).map((b) => `<div class="row"><span>${esc(clock(b.start))}–${esc(b.end === '24:00' ? 'midnight' : clock(b.end))}</span><span>Busy (Google Calendar)</span></div>`).join('')).join('');
   $('#view').innerHTML = html`
     <div class="heading"><div><div class="eyebrow">Your week at a glance</div><h1>Calendar</h1><p class="sub">Booked and open appointment times from ${gcal ? 'your connected Google Calendar and the demo bookings' : 'the demo calendar'}. The assistant books only the open times shown here.</p>${R(calendarBadge(c))}${R(calendarNotices(c))}</div>
       <div class="actions"><button class="btn ghost small" data-week="${c.prev}" aria-label="Previous week">‹ Prev</button><span class="btn ghost small" style="pointer-events:none">${label(cols[0].date)} – ${label(cols[5].date)}, ${cols[0].date.slice(0, 4)}</span><button class="btn ghost small" data-week="${c.next}" aria-label="Next week">Next ›</button></div></div>
