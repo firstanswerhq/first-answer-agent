@@ -71,29 +71,39 @@ const ORD = [
 ];
 const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
-// Pick one of the offered slots from a customer's reply, or return null if unclear.
-export function pickSlot(text, slots) {
+// Indices of the offered slots that a customer's day or time words point at (empty if no day or time was mentioned).
+export function slotCandidates(text, slots) {
   const t = text.toLowerCase();
-  if (!slots?.length) return null;
-  const yes = /^(yes|yep|yeah|sure|ok|okay|that works|works for me|sounds good|perfect|book it|let'?s do it)\b/.test(t.trim());
-  const candidates = new Set();
+  if (!slots?.length) return [];
+  const byDay = new Set();
+  const byTime = new Set();
   WEEKDAYS.forEach((w, i) => {
-    if (t.includes(w) || t.includes(w.slice(0, 3) + ' ') || new RegExp(`\\b${w.slice(0, 3)}\\b`).test(t)) {
-      slots.forEach((s, idx) => { if (slotDow(s) === i) candidates.add(idx); });
+    if (t.includes(w) || new RegExp(`\\b${w.slice(0, 3)}\\b`).test(t)) {
+      slots.forEach((s, idx) => { if (slotDow(s) === i) byDay.add(idx); });
     }
   });
   const tm = t.match(/\b(\d{1,2})(?::(\d{2}))?\s?(am|pm)\b/);
   if (tm) {
     let h = Number(tm[1]) % 12;
     if (tm[3] === 'pm') h += 12;
-    slots.forEach((s, idx) => { if (Number(s.slice(11, 13)) === h) candidates.add(idx); });
+    slots.forEach((s, idx) => { if (Number(s.slice(11, 13)) === h) byTime.add(idx); });
   } else if (/\bmorning\b/.test(t)) {
-    slots.forEach((s, idx) => { if (Number(s.slice(11, 13)) < 12) candidates.add(idx); });
+    slots.forEach((s, idx) => { if (Number(s.slice(11, 13)) < 12) byTime.add(idx); });
   } else if (/\bafternoon\b/.test(t)) {
-    slots.forEach((s, idx) => { if (Number(s.slice(11, 13)) >= 12) candidates.add(idx); });
+    slots.forEach((s, idx) => { if (Number(s.slice(11, 13)) >= 12) byTime.add(idx); });
   }
-  if (candidates.size === 1) return slots[[...candidates][0]];
-  if (candidates.size > 1) return null; // ambiguous: ask again
+  if (byDay.size && byTime.size) return [...byDay].filter((i) => byTime.has(i)); // "Thursday at 1" narrows to one window
+  return [...(byDay.size ? byDay : byTime)];
+}
+
+// Pick one of the offered slots from a customer's reply, or return null if unclear.
+export function pickSlot(text, slots) {
+  const t = text.toLowerCase();
+  if (!slots?.length) return null;
+  const yes = /^(yes|yep|yeah|sure|ok|okay|that works|works for me|sounds good|perfect|book it|let'?s do it)\b/.test(t.trim());
+  const candidates = slotCandidates(text, slots);
+  if (candidates.length === 1) return slots[candidates[0]];
+  if (candidates.length > 1) return null; // ambiguous: the caller asks which one
   for (const [re, idx] of ORD) if (re.test(t) && slots[idx]) return slots[idx];
   if (yes) return slots[0];
   return null;

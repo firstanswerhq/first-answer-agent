@@ -1,7 +1,7 @@
 // Offline rules engine. It follows the SAME path as the model: qualify, check the
 // calendar, reply, book, schedule a follow-up, escalate. It calls the very same
 // guarded functions. Deterministic, no network.
-import { detectJob, detectSize, detectLocation, wantsOutsideHours, pickSlot, declinesSlots } from './extract.js';
+import { detectJob, detectSize, detectLocation, wantsOutsideHours, pickSlot, slotCandidates, declinesSlots } from './extract.js';
 import { firstName, money } from './util.js';
 import { slotLabel, addDays, dateOf, localNow, isOpenNow } from './calendar.js';
 
@@ -111,13 +111,25 @@ export async function runRules(ctx, fx, trigger) {
       if (b.ok) { await reply(`Booked, ${first}: ${b.label}. The crew will arrive during that window. Reply here if anything changes.`); return; }
       // Slot vanished: fall through and re-offer.
     } else if (!declinesSlots(latest)) {
+      // The customer named a day or time that fits several offered windows (for example all three are Thursday):
+      // ask which one instead of counting it as a failed attempt. Two unclear answers in a row go to a person.
       const tries = lead.messages.filter((m) => m.from === 'agent' && m.clarified).length;
-      if (tries >= 1) {
+      const several = slotCandidates(latest, lead.offeredSlots);
+      if (tries >= 2) {
         await reply('I want to get this right, so I have asked a teammate to confirm a time with you directly.');
-        await escalate('Customer reply did not match any offered time twice.');
+        await escalate('Customer reply did not match any offered time after two clarifying questions.');
         return;
       }
-      await reply('Which of those times works best? Reply with the day or the number of the option.');
+      const clock = (id) => { const h = Number(id.slice(11, 13)); return `${h % 12 || 12} ${h >= 12 ? 'PM' : 'AM'}`; };
+      let ask = 'Which of those times works best? Reply with the day or the number of the option.';
+      if (several.length > 1) {
+        const days = new Set(several.map((i) => lead.offeredSlots[i].slice(0, 10)));
+        const dayName = days.size === 1 ? new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', weekday: 'long' }).format(new Date(`${[...days][0]}T12:00:00Z`)) : '';
+        const times = several.map((i) => clock(lead.offeredSlots[i]));
+        const list = times.length === 2 ? `${times[0]} or ${times[1]}` : `${times.slice(0, -1).join(', ')} or ${times.at(-1)}`;
+        ask = `Which time${dayName ? ` on ${dayName}` : ''} works best: ${list}? Reply with the time or the option number.`;
+      }
+      await reply(ask);
       lead.messages[lead.messages.length - 1].clarified = true;
       return;
     }
