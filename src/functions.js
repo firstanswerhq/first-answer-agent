@@ -172,10 +172,8 @@ export function locationCheck(config, location) {
 // ---- executor ----
 // Wording that says a person has been told or will pick this up.
 export const HANDOFF_CLAIM = /\bi(?:'ve| have) (?:flagged|escalated) (?:this|it|your (?:account|request|message|case|inquiry|question|concern|issue|bill\w*)|the (?:charge|issue))\b[^.!?]{0,40}\b(?:for|to) (?:a|our|the) (?:teammate|team member|manager|staff|person)\b|\bi(?:'ve| have) (?:passed|forwarded|escalated|sent) (?:this|it|your (?:request|message|case|inquiry|question|concern|issue)) (?:on |along )?to (?:a|our|the) (?:teammate|team member|manager|front desk|staff|team|person)\b|\bi(?:'ve| have) notified (?:a|our) (?:teammate|manager|team member)\b/i;
-// "A teammate will review / follow up" is a hand-off claim only when the same text is not about picking a time or booking.
-const HANDOFF_PROMISE = /\ba (?:teammate|team member) will (?:review|follow up)\b/i;
-const TIME_TALK = /\?|\b(?:book\w*|schedul\w*|reschedul\w*|confirm\w*|which (?:day|time|one)|what (?:day|time))\b|\b\d{1,2}(?::\d\d)?\s?(?:am|pm)\b/i;
-export const claimsHandoff = (text) => HANDOFF_CLAIM.test(text) || (HANDOFF_PROMISE.test(text) && !TIME_TALK.test(text));
+// Only first-person completed claims escalate; future promises ("a teammate will review ...") never do.
+export const claimsHandoff = (text) => HANDOFF_CLAIM.test(text);
 
 export class Functions {
   /**

@@ -31,7 +31,7 @@ test('urgent message: whatever the model does, the customer gets the safety note
 const txt = (c) => ({ status: 200, json: { choices: [{ finish_reason: 'stop', message: { content: c } }] } });
 
 test('a model reply that says a teammate has it hands the inquiry to a person (the claim becomes true)', async () => {
-  for (const claim of ["Thanks for the details. I've flagged this for a teammate to review and follow up with you directly.", 'I have passed this to our team and a teammate will follow up with you about it.', 'A teammate will review your request and reach out to you soon.']) {
+  for (const claim of ["Thanks for the details. I've flagged this for a teammate to review and follow up with you directly.", 'I have passed this to our team and a teammate will follow up with you about it.']) {
     const env = makeEnv({ llm: fakeLlm([txt(claim)]) });
     const l = await newLead(env, { message: 'Can you explain what happens at a first visit?' });
     assert.equal(l.lastReplyBy, 'model', claim);
