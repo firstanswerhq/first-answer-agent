@@ -33,13 +33,15 @@ const fmtDay = (iso) => { const [y, m, d] = iso.split('-').map(Number); return n
 // Durations under a second are shown in milliseconds, never as "0.0 s".
 const tzName = (tz) => { try { return new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'longGeneric' }).formatToParts(new Date()).find((p) => p.type === 'timeZoneName')?.value || tz; } catch { return tz; } };
 const fmtSlot = (id) => { const [d, t] = id.split('T'); const [y, m, dd] = d.split('-').map(Number); const day = new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', weekday: 'short', month: 'short', day: 'numeric' }).format(new Date(Date.UTC(y, m - 1, dd))); const h = Number(t.slice(0, 2)); return `${day}, ${h % 12 || 12}:${t.slice(3, 5)} ${h >= 12 ? 'PM' : 'AM'}`; };
-const secs = (n) => (n == null ? '—' : n < 1 ? `${Math.round(n * 1000)} ms` : `${n.toFixed(1)} s`);
+const secs = (n) => (n == null ? '—' : n < 1 ? 'under 1 s' : `${n.toFixed(1)} s`);
 // Every reply shows its real measured time.
 const replyText = (sec, mode) => (sec == null ? 'Waiting' : secs(sec));
 const upper1 = (t) => String(t || '').charAt(0).toUpperCase() + String(t || '').slice(1);
 const dayKey = (ts) => new Intl.DateTimeFormat('en-CA', { timeZone: state.tz }).format(new Date(ts));
 // Time of day for today, and the date plus time for anything older (a 3-day-old item must not look like it is from today).
 const fmtStamp = (ts) => (dayKey(ts) === state.today || !state.today ? fmtTime(ts) : new Intl.DateTimeFormat('en-US', { timeZone: state.tz, weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(ts)));
+// Owner-friendly service label: an urgent inquiry that was never sorted into a service says so plainly.
+const svcLabel = (l, q) => { const s = l.serviceLabel || q?.serviceLabel || ''; if (s && s !== 'Unclassified request') return s; return l.priority === 'urgent' ? 'Urgent, needs a call' : s ? 'Not sorted yet' : ''; };
 const initials = (n) => n.split(/\s+/).map((p) => p[0]).slice(0, 2).join('').toUpperCase();
 const STATUS = { new: ['New', 'new'], replied: ['Replied', 'replied'], booked: ['Booked', 'booked'], human: ['Needs a person', 'human'] };
 const chip = (s) => html`<span class="chip ${STATUS[s][1]}">${STATUS[s][0]}</span>`;
@@ -111,7 +113,7 @@ async function refreshLeads() {
 // ---------- Live Inbox ----------
 function rowHtml(l) {
   return html`<tr data-id="${l.id}" class="${l.seed ? 'sample-row' : ''}" tabindex="0" role="link" aria-label="Open ${l.name}">
-    <td><div class="person"><span class="initials">${initials(l.name)}</span><div><strong>${l.name}${l.priority === 'urgent' ? R('<span class="chip urgent">Urgent</span>') : ''}</strong><small>${l.serviceLabel ? `${l.serviceLabel}${l.location ? ' · ' + l.location : ''}` : l.snippet}${l.seed ? ' · sample' : ''}</small></div></div></td>
+    <td><div class="person"><span class="initials">${initials(l.name)}</span><div><strong>${l.name}${l.priority === 'urgent' ? R('<span class="chip urgent">Urgent</span>') : ''}</strong><small>${svcLabel(l) ? `${svcLabel(l)}${l.location ? ' · ' + l.location : ''}` : l.snippet}${l.seed ? ' · sample' : ''}</small></div></div></td>
     <td class="src">${l.source}${l.sourceSimulated ? R(' <span class="srctag" title="This source is a simulated example. The website form is the only real intake channel.">simulated source</span>') : ''}</td>
     <td>${replyText(l.replyTimeSec, l.lastRunMode)}${l.seed && l.replyTimeSec != null ? R(' <small class="dim">(simulated)</small>') : ''}</td>
     <td>${R(chip(l.status))}</td>
@@ -173,7 +175,7 @@ function paintInbox(m) {
   const a = state.agent; const t = m.today; const ms = m.measured;
   $('#sideCard').innerHTML = html`<h3>Agent activity</h3>
     <div class="agent-card"><span class="agent-orb"></span><div><strong style="font-size:14px">${state.cfg?.business?.agentName || 'Assistant'}</strong><small style="display:block">${a.label}${a.model ? ' · ' + a.model : ''}</small></div></div>
-    <div class="activity"><span>Inquiries answered (this session)</span><strong>${t.answered}</strong></div>
+    <div class="activity"><span>Inquiries answered since the server started (all visitors)</span><strong>${t.answered}</strong></div>
     <div class="activity"><span>Typical reply time</span><strong>${ms.medianSec == null ? '—' : replyText(ms.medianSec, ms.model.answered && !ms.rules.answered ? 'model' : 'rules')}</strong></div>
     <div class="activity"><span>Booked</span><strong>${t.booked}</strong></div>
     <div class="activity"><span>Need a person</span><strong>${t.human}</strong></div>
@@ -215,9 +217,9 @@ async function renderDetail(id, first) {
     $('#composer').addEventListener('click', (e) => { const q = e.target.closest('[data-q]'); if (q) { $('#replyText').value = q.dataset.q; $('#replyText').focus(); } });
   }
   const working = isWorking(l);
-  $('#dEyebrow').textContent = `Inquiry detail / ${l.qualification?.serviceLabel || 'Not yet sorted'}`;
+  $('#dEyebrow').textContent = `Inquiry detail / ${svcLabel(l, l.qualification) || 'Not sorted yet'}`;
   $('#dSub').textContent = `${STATUS[l.status][0]} · ${l.source}${l.sourceSimulated ? ' (simulated source)' : ''} · Received ${fmtStamp(l.createdAt)}${l.seed ? ' · sample data' : ''}`;
-  $('#dJob').textContent = `${l.qualification?.serviceLabel || 'Unclassified'}${l.qualification?.location ? ' · ' + l.qualification.location : ''}`;
+  $('#dJob').textContent = `${svcLabel(l, l.qualification) || 'Not sorted yet'}${l.qualification?.location ? ' · ' + l.qualification.location : ''}`;
   $('#dChips').innerHTML = html`${R(chip(l.status))}${l.priority === 'urgent' ? R('<span class="chip urgent">Urgent</span>') : ''}`;
   const conv = $('#conv');
   const atEnd = conv.scrollTop + conv.clientHeight >= conv.scrollHeight - 40;
@@ -245,9 +247,9 @@ function paintTimeline(timeline) {
 
 function timelineItem(t) {
   const cls = t.kind === 'guard' ? 'guard' : t.ok === false ? 'bad' : t.kind === 'followup' ? 'followup' : t.kind === 'function' || t.kind === 'done' ? 'done' : '';
-  const modeTxt = t.mode === 'model' ? 'model' : t.mode === 'timer' ? 'timer' : 'rules';
-  const rawBox = t.fn ? html`<details class="raw" data-step="${t.id}"><summary>Arguments and result</summary><pre>${JSON.stringify({ args: t.args, result: t.result }, null, 2)}</pre></details>` : '';
-  return html`<div class="timeline-item ${cls}"><strong>${t.title}</strong>${t.fn ? R(html`<small><span class="fn">${t.fn}()</span>${t.source === 'guardrail' ? 'by guardrail' : t.source === 'model' ? 'chosen by model' : 'rules engine'}</small>`) : ''}${t.detail && !t.fn ? R(html`<small>${t.detail}</small>`) : ''}${R(rawBox)}<time>+${t.sinceLeadMs < 1000 ? t.sinceLeadMs + ' ms' : (t.sinceLeadMs / 1000).toFixed(1) + ' s'} from receipt · ${fmtTime(t.ts, true)} · ${modeTxt}${t.ms ? ` · step took ${t.ms} ms` : ''}</time></div>`;
+  const modeTxt = t.mode === 'model' ? 'AI model' : t.mode === 'timer' ? 'timer' : 'built-in rules';
+  const rawBox = t.fn ? html`<details class="raw" data-step="${t.id}"><summary>Technical details</summary><pre>${JSON.stringify({ function: t.fn, args: t.args, result: t.result }, null, 2)}</pre></details>` : '';
+  return html`<div class="timeline-item ${cls}"><strong>${t.title}</strong>${t.fn ? R(html`<small>${t.source === 'guardrail' ? 'Done by a safety check' : t.source === 'model' ? 'Chosen by the AI model' : 'Done by the built-in rules'}</small>`) : ''}${t.detail && !t.fn ? R(html`<small>${t.detail}</small>`) : ''}${R(rawBox)}<time>+${t.sinceLeadMs < 1000 ? t.sinceLeadMs + ' ms' : (t.sinceLeadMs / 1000).toFixed(1) + ' s'} from receipt · ${fmtTime(t.ts, true)} · ${modeTxt}${t.ms ? ` · step took ${t.ms} ms` : ''}</time></div>`;
 }
 
 function factsHtml(l, speedup) {
@@ -290,7 +292,7 @@ async function renderCalendar(start, { quiet = false } = {}) {
       const top = (Number(s.start.slice(0, 2)) - H0) * ROW + 3; const h = WH * ROW - 6;
       if (s.status === 'booked') {
         const b = s.booking; const cls = b.kind === 'existing' ? 'existing' : grp[GROUP[b.service]] || '';
-        const tag = b.leadId ? `<button class="event ${cls}" style="top:${top}px;height:${h}px" data-lead="${esc(b.leadId)}" aria-label="Open ${esc(b.name)}">` : `<div class="event ${cls}" style="top:${top}px;height:${h}px">`;
+        const tag = b.leadId ? `<button class="event ${cls}" style="top:${top}px;height:${h}px" data-lead="${esc(b.leadId)}" aria-label="Open ${esc(b.name)}" title="${esc(b.serviceLabel)} · ${esc(b.name)} · ${clock(s.start)}">` : `<div class="event ${cls}" style="top:${top}px;height:${h}px" title="${esc(b.serviceLabel)} · ${esc(b.name)} · ${clock(s.start)}">`;
         const end = b.leadId ? '</button>' : '</div>';
         return `${tag}<strong>${esc(b.serviceLabel)}${b.kind === 'emergency_hold' ? ' (priority hold)' : ''}</strong><small>${esc(b.name)} · ${clock(s.start)}</small>${end}`;
       }

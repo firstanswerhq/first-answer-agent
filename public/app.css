@@ -181,3 +181,18 @@ html{background:#070b18}
 .switch select{appearance:auto;background:#10152b;color:#fff;border:1px solid #ffffff2b;border-radius:99px;padding:5px 8px;font:inherit;font-size:12px;max-width:230px}
 @media(max-width:900px){.switch{flex:1 1 100%;justify-content:space-between;order:1}.switch select{flex:1;max-width:none}}
 .srctag{display:inline-block;margin-left:6px;padding:1px 6px;border:1px solid currentColor;border-radius:6px;font-size:10px;letter-spacing:.02em;opacity:.7;vertical-align:middle}
+
+/* Calendar cards: service on one line, customer name on the next, each cut with an ellipsis instead of being clipped by the cell. */
+.event{overflow:hidden}
+.event strong,.event small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.35}
+.event small{margin-top:2px}
+
+/* Phone width: inbox rows wrap inside the card, and small text is at least 12px. */
+@media(max-width:640px){
+ .table tr{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;max-width:100%;overflow:hidden}
+ .table td:nth-child(1){flex:1 1 100%;min-width:0}
+ .table td.src,.table td:nth-child(2),.table td:nth-child(3){white-space:normal;min-width:0;max-width:100%}
+ .table td:nth-child(4){margin-left:auto}
+ .person small{max-width:none}
+ .eyebrow,.table th,.chip,.msg .time,.timeline-item time,.timeline-item small,details.raw summary,.stat label,.stat small,.activity,.activity strong,.legend,.srctag,.dayhead small,.hour,.hlabel,.side-label,.nav .count,.brand small,.sidebar-foot p,.mobile-nav a,.chart-svg text,.person small,.barset small,.closed,.open,.event small,.badge{font-size:12px}
+}

@@ -378,11 +378,11 @@ function describeCall(name, args, result, config) {
       const area = result.service_area_ok === true ? 'in service area' : result.service_area_ok === false ? 'OUTSIDE service area' : 'area unconfirmed';
       return `Qualified the request: ${result.service_label}, ${result.urgency}${config.serviceArea ? ', ' + area : ''}`;
     }
-    case 'check_calendar': return `Checked the calendar: ${result.slots.length} open window${result.slots.length === 1 ? '' : 's'} found`;
-    case 'book_appointment': return `Booked ${result.label}`;
+    case 'check_calendar': return `Checked the demo calendar: ${result.slots.length} open window${result.slots.length === 1 ? '' : 's'} found`;
+    case 'book_appointment': return `Booked the appointment: ${result.label}`;
     case 'send_reply': return 'Sent a reply to the customer (simulated, nothing is really sent)';
     case 'schedule_followup': return `Scheduled a follow-up in ${args.delay_minutes} minutes in case the customer goes quiet`;
-    case 'escalate_to_human': return `Flagged as needing a person${result.priority === 'urgent' ? ' (urgent)' : ''}`;
+    case 'escalate_to_human': return `Flagged for a person${result.priority === 'urgent' ? ' (urgent)' : ''}`;
     default: return name;
   }
 }
