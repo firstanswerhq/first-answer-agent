@@ -141,7 +141,7 @@ test('busy requested time: "Thursday at 9:00 AM is already taken", nearest open 
 test('open requested time is confirmed as open; same request with no feed (demo calendar)', async () => {
   const { text } = await ask('dental', 'Can I come in Thursday at 9am for a cleaning?');
   assert.match(text, /Thursday at 9:00 AM is open\./);
-  assert.match(text, /Open times: 1\) Thu, Nov 5, 9:00 AM/);
+  assert.match(text, /Open times: 1\) Thu, Nov 5, 8:00 AM.*2\) Thu, Nov 5, 9:00 AM.*3\) Thu, Nov 5, 10:00 AM/); // nearest three, in time order
 });
 
 test('a time we do not start appointments at is said plainly too', async () => {

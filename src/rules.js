@@ -67,7 +67,13 @@ export async function runRules(ctx, fx, trigger) {
     const asksTimes = requestedDay(latest, dateOf(localNow(ctx.now(), config.business.tz))) || /\b(asap|as soon as possible|soonest|earliest|right away|openings?|availab\w*|anything open|open (?:today|tomorrow))\b/i.test(latest);
     if (generic && asksTimes) {
       const word = generic[1].toLowerCase().replace('-', '');
-      service = config.services.find((x) => new RegExp(`\\b${word}`, 'i').test(String(x.label).replace('-', '')))?.id || config.services.find((x) => x.price)?.id || config.services[0]?.id || 'other';
+      const saidNew = /\bnew\b/i.test(latest);
+      const named = config.services.filter((x) => new RegExp(`\\b${word}`, 'i').test(String(x.label).replace('-', '')));
+      if (named.length > 1) service = 'other'; // "a consultation" fits several services: ask which one
+      else {
+        const pick = named.find((x) => saidNew || !/\bnew\b/i.test(x.label)); // never assume a new patient
+        service = pick?.id || config.services.find((x) => x.price && (saidNew || !/\bnew\b/i.test(x.label)))?.id || 'other';
+      }
     }
   }
   const level = flags.emergency ? 'emergency' : urgency.urgentRe?.test(customerText) ? 'urgent' : 'routine';
@@ -266,10 +272,9 @@ export async function runRules(ctx, fx, trigger) {
       else if (slotsForDate(reqDay.date, config.hours).length) timeNote = `We do not start ${wording.appointment}s at ${clock} on ${dayWord}. `;
       const target = clockReq.hour + clockReq.minute / 60;
       const dist = (sl) => Math.abs(hourOf(sl) - target);
-      sameDay = [...openList].sort(noteDone
-        ? (x, y) => (x.slot_id === wanted ? -1 : y.slot_id === wanted ? 1 : (x.slot_id > wanted) === (y.slot_id > wanted) ? x.slot_id.localeCompare(y.slot_id) : x.slot_id > wanted ? -1 : 1) // the asked time, then the ones after it, then earlier ones
-        : (x, y) => dist(x) - dist(y) || y.slot_id.localeCompare(x.slot_id)); // closest first; a tie goes to the later one
-      if (!noteDone) sameDay = [...sameDay.slice(0, 3).sort((x, y) => x.slot_id.localeCompare(y.slot_id)), ...sameDay.slice(3)]; // the three nearest, shown in time order
+      // The three open times nearest the asked one (the asked time itself when it is open), always shown in time order.
+      sameDay = [...openList].sort((x, y) => dist(x) - dist(y) || y.slot_id.localeCompare(x.slot_id));
+      sameDay = [...sameDay.slice(0, 3).sort((x, y) => x.slot_id.localeCompare(y.slot_id)), ...sameDay.slice(3)];
     } else {
       const inPart = (sl) => (part === 'morning' ? hourOf(sl) < 12 : part === 'afternoon' ? hourOf(sl) >= 12 && hourOf(sl) < 16 : hourOf(sl) >= 16);
       const label = reqDay.rel === 'today' ? `this ${part}` : `${dayWord} ${part}`;

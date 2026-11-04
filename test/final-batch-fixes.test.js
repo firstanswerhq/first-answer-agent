@@ -87,7 +87,7 @@ test('off-topic: dashboard flag only; it never creates or suppresses an owner al
 test('rules fallback: a vague "exam" with a day and time still answers the time and lists the nearest open ones', async () => {
   const env = makeEnv({ config: profileCfg('dental') });
   const l1 = await newLead(env, { message: 'I need a cleaning Thursday at 9am' });
-  const { done } = env.svc.addCustomerMessage(l1.id, '1'); await done;
+  const { done } = env.svc.addCustomerMessage(l1.id, 'the 9 AM please'); await done;
   assert.equal(l1.status, 'booked');
   const l = await newLead(env, { name: 'Hank Test', phone: '(615) 555-0177', message: 'I need an exam. Can I come Thursday at 9am?' });
   const t = agentTexts(l).join(' | ');

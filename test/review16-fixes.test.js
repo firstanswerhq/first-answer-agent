@@ -84,3 +84,24 @@ test('change claims: statements about the business pass, claims about the custom
   for (const t of ['Our hours changed this fall: we are now open Monday to Thursday 8 AM to 5 PM.', 'Our prices were updated this year.', 'That time was updated in our calendar.', 'The holiday schedule changed, so we close at noon on Friday.']) assert.equal(m(t), null, t);
   for (const t of ['Your appointment has been cancelled.', "I've canceled it for you.", "Done! I've moved your appointment to Friday at 9 AM.", 'No problem, you are now rescheduled for Thursday at 2 PM.', 'I have updated your appointment to 3 PM.']) assert.equal(m(t)?.id, 'booking_change', t);
 });
+
+test('rules wording: a vague exam never quotes the new-patient price; a vague consultation asks which; times are in time order', async () => {
+  let env = makeEnv({ config: profileCfg('dental') });
+  let l = await newLead(env, { message: 'I need an exam. Can I come Thursday at 9am?' });
+  let t = agentTexts(l).join(' ');
+  assert.doesNotMatch(t, /\$140|new patient/i);
+  assert.match(t, /Thursday at 9:00 AM is open/);
+  l = await newLead(env, { name: 'Nia New', phone: '(615) 555-0188', message: 'I need a new patient exam Thursday 9am' });
+  assert.match(agentTexts(l).join(' '), /new patient exam/i);
+  env = makeEnv({ config: profileCfg('accounting') });
+  for (const m of ['I need a consultation ASAP', 'Can I get a consultation Tuesday at 1pm?']) {
+    l = await newLead(env, { message: m });
+    t = agentTexts(l).join(' ');
+    assert.doesNotMatch(t, /new business setup consultation/i, m);
+    assert.match(t, /tax return, bookkeeping, payroll or starting a business/, m);
+  }
+  env = makeEnv({ config: profileCfg('dental') });
+  l = await newLead(env, { message: 'Can I get a cleaning Friday at 10am?' });
+  const hours = [...agentTexts(l).join(' ').matchAll(/\d\) \w+, \w+ \d+, (\d+):00 (AM|PM)/g)].map((m) => (Number(m[1]) % 12) + (m[2] === 'PM' ? 12 : 0));
+  assert.deepEqual(hours, [...hours].sort((a, b) => a - b));
+});
