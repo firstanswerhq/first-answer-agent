@@ -59,7 +59,7 @@ test('billing disputes, refunds and double charges are handled in code, never by
   assert.notEqual(l.lastReplyBy, 'safety');
 });
 
-test('off-topic: dashboard flag only; it never creates or suppresses an owner alert', async () => {
+test('off-topic: dashboard flag only; a model-only escalation of an unrelated request pages nobody', async () => {
   const run = async (message, script) => {
     const calls = [];
     const transport = async (url) => { calls.push(url); return { ok: true, status: 200 }; };
@@ -78,9 +78,11 @@ test('off-topic: dashboard flag only; it never creates or suppresses an owner al
     const a = await run(m, answer);
     assert.equal(a.calls.length, 0, `no alert created by off-topic alone: ${m}`);
     assert.equal(a.lead.offTopic, true, m);
-    // the model asked for a person: that alert is not suppressed
+    // the model asked for a person for an unrelated request: dashboard flag only
     const b = await run(m, [reply(call('escalate_to_human', { reason: 'not something we do' })), txt('Passed along.')]);
-    assert.equal(b.calls.length, 1, `model escalation still alerts: ${m}`);
+    assert.equal(b.calls.length, 0, `strictly off-topic + only the model's own escalation: no alert: ${m}`);
+    assert.notEqual(b.lead.status, 'human', m);
+    assert.equal(b.lead.offTopic, true, m);
   }
 });
 

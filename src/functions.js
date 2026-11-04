@@ -388,6 +388,13 @@ export class Functions {
   // 6. escalate_to_human
   async escalate_to_human(a) {
     const { lead } = this.ctx;
+    // A plainly unrelated request (strict off-topic rule) that only the model wanted to hand off needs no person: the polite decline
+    // stands, the dashboard shows "Outside scope", and nobody is paged.
+    const f = this.ctx.flags || {};
+    if (this.ctx.writer === 'model' && f.offTopic && a.priority !== 'urgent' && !(f.emergency || f.medical || f.complaint || f.complaintWeak || f.injection || f.handoff || f.topic || f.outOfScope) && lead.status !== 'human') {
+      lead.offTopic = true;
+      return { ok: true, status: 'Outside scope noted', note: 'No person is needed for an unrelated request. Politely decline in your reply and offer to help with the business.' };
+    }
     if (lead.status !== 'human') lead.handoffAckSent = false; // a new handoff gets its own single holding message
     lead.status = 'human';
     lead.humanReason = a.reason;
