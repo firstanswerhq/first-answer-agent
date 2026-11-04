@@ -226,7 +226,7 @@ The owner phone alert uses two more:
 
 Public intake: open `/lead`, or `POST /api/leads` with JSON `{ "name", "phone", "message", "source" }`.
 
-## Connect a real calendar
+## Connect a Google Calendar (read-only)
 
 Optional and **read-only**: the app reads a Google Calendar to learn when you are busy, and never writes to it.
 
@@ -236,7 +236,7 @@ Optional and **read-only**: the app reads a Google Calendar to learn when you ar
 
 How it behaves:
 
-* The feed is fetched at most once a minute (5 second timeout, 2 MB limit, redirects only within `calendar.google.com`). Events become busy blocks: UTC, time zone, floating and all-day times, durations, and repeats (`DAILY`, `WEEKLY`, `MONTHLY` by day of month or by weekday such as `1TH` or `-1FR`, and `YEARLY`, with `INTERVAL`, `COUNT`, `UNTIL`, `BYDAY`, `BYMONTHDAY`, `BYMONTH` and `EXDATE`; changed single occurrences are honored). Series that started years ago are handled directly, and parsing is bounded (event, occurrence, step and CPU caps; a calendar that goes over them counts as unreadable, error `too_complex`, and the app uses the demo calendar). Cancelled and "free" (transparent) events are not busy. Windows-style zone names such as "Eastern Standard Time" and `US/Eastern` are mapped to the right zone; a zone name the app does not know blocks both possible readings of the time and is counted (`warnings` in `/api/health`).
+* The feed is fetched at most once a minute (5 second timeout, 2 MB limit, redirects only within `calendar.google.com`). Events become busy blocks: UTC, time zone, floating and all-day times, durations, and repeats (`DAILY`, `WEEKLY`, `MONTHLY` by day of month or by weekday such as `1TH` or `-1FR`, and `YEARLY`, with `INTERVAL`, `COUNT`, `UNTIL`, `BYDAY`, `BYMONTHDAY`, `BYMONTH` and `EXDATE`; changed single occurrences are honored). Series that started years ago are handled directly, and parsing is bounded so a feed can never hold the server up: at most 2,000 relevant events, 5,000 expanded busy blocks inside the window, 1,000 `EXDATE`s per event (over that, the event's exclusions are ignored, which blocks more time, never less, and is counted in `warnings`), 100,000 characters per line and about a quarter second of processing. A calendar that goes over the event, block or time caps counts as unreadable (error `too_complex`) and the app uses the demo calendar. This suits a small business calendar; a calendar with hundreds of daily repeating events will hit it. Cancelled and "free" (transparent) events are not busy. Windows-style zone names such as "Eastern Standard Time" and `US/Eastern` are mapped to the right zone; a zone name the app does not know blocks both possible readings of the time and is counted (`warnings` in `/api/health`).
 * Busy times are read for 14 days back to 120 days ahead. Dates beyond that are **not checked**: the Calendar page labels them "Calendar not checked", and the assistant neither offers nor books them.
 * Busy blocks apply to **one profile only**; the other example businesses keep their demo calendars. Booked demo appointments still block slots as before.
 * Event titles are private: they are never stored, returned by the API or shown. The Calendar page shows only "Busy (Google Calendar)". On the narrow (phone) layout the agenda also lists busy blocks that do not line up with an appointment slot; a past hour that is busy shows the busy card instead of "Past".

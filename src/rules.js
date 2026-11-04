@@ -13,7 +13,9 @@ const upper1 = (t) => t.charAt(0).toUpperCase() + t.slice(1);
 
 /** Fixed safe wording for a possible medical or personal-safety emergency (also used for later messages after a handoff). */
 export function medicalText(config, flags) {
-  return `Please call 911 right now if you or someone else is in danger or having a medical emergency. I am an automated assistant and cannot help with emergencies by text. I have flagged this for our team, and you can also reach us at ${config.business.phone}.${flags.selfHarm ? ' If you are thinking about harming yourself, you can call or text 988 at any time.' : ''}`;
+  // For self-harm the 988 line comes first: it is the line that matters most to this person.
+  const lead988 = flags.selfHarm ? 'If you are thinking about harming yourself, please call or text 988 right now, at any time. ' : '';
+  return `${lead988}Please call 911 right now if you or someone else is in danger or having a medical emergency. I am an automated assistant and cannot help with emergencies by text. I have flagged this for our team, and you can also reach us at ${config.business.phone}.`;
 }
 
 export async function runRules(ctx, fx, trigger) {

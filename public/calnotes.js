@@ -6,7 +6,7 @@ export function calendarBadge(c) {
   const k = c?.calendar;
   if (!k?.connected) return '';
   return k.stale
-    ? `<span class="badge" id="calBadge">Connected: Google Calendar (read-only), last updated ${esc(k.staleMinutes)} min ago</span>`
+    ? `<span class="badge" id="calBadge">Google Calendar connected (read-only), updated ${esc(k.staleMinutes)} min ago</span>`
     : '<span class="badge" id="calBadge">Connected: Google Calendar (read-only)</span>';
 }
 

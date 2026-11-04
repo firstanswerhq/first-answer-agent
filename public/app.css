@@ -198,3 +198,4 @@ html{background:#070b18}
 }
 
 .event.busyfeed{background:#8791b21f;border:1px dashed #8791b266;color:#c3c8dc;pointer-events:none}.event.busyfeed small{color:#9aa1bb}
+#calBadge{white-space:normal;max-width:100%}

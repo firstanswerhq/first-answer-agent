@@ -134,7 +134,7 @@ test('S5: a failed refresh keeps the last good data for 15 minutes, flagged stal
   assert.deepEqual([st.connected, st.stale, st.lastError, st.staleMinutes], [true, true, 'http_error', 5]);
   assert.equal(slotStatus(cfg, '2026-11-05T09:00', t5), 'busy', 'still blocks while stale');
   assert.equal(calendarLabel(cfg), 'Connected Google Calendar (read-only, last updated 5 min ago)');
-  assert.match(calendarBadge({ calendar: st }), /last updated 5 min ago/);
+  assert.match(calendarBadge({ calendar: st }), /updated 5 min ago/);
   assert.match(calendarNotices({ calendar: st }), /id="calStale"/);
   await feed.ensureFresh(WED_10AM + 16 * 60_000);
   assert.deepEqual([feed.status().connected, feed.status().stale], [false, false]);
