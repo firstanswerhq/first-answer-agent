@@ -176,7 +176,7 @@ export async function runRules(ctx, fx, trigger) {
     }
   }
 
-  // 6. Offer real windows with a price range. A day the customer asked for, or "next week", sets where the search starts.
+  // 6. Offer open windows with a price range. A day the customer asked for, or "next week", sets where the search starts.
   const wantsNextWeek = /\bnext week\b/i.test(latest);
   const nextMonday = addDays(mondayStart(todayLocal), 7);
   const sinceDate = declines && offered.length ? addDays(dateOf(offered.at(-1)), 1)

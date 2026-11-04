@@ -3,6 +3,10 @@ import { cleanText, rid, token, maskPhone } from './util.js';
 
 export const SOURCES = ['Website form', 'Google search', 'Google Ads', 'Facebook', 'Friend or family', 'Referral', 'Text message', 'Phone call', 'Other'];
 
+// Only the website form is a real intake channel. Text message and phone call rows are simulated examples.
+export const SIMULATED_SOURCES = ['Text message', 'Phone call'];
+export const isSimulatedSource = (s) => SIMULATED_SOURCES.includes(s);
+
 export class InputError extends Error {
   constructor(msg, status = 400) { super(msg); this.status = status; }
 }
@@ -65,7 +69,7 @@ export function summary(lead, store) {
   const q = lead.qualification;
   const fu = store.followups.find((f) => f.leadId === lead.id && f.status === 'pending');
   return {
-    id: lead.id, name: lead.name, phone: lead.seed ? lead.phone : maskPhone(lead.phone), source: lead.source, status: lead.status, priority: lead.priority,
+    id: lead.id, name: lead.name, phone: lead.seed ? lead.phone : maskPhone(lead.phone), source: lead.source, sourceSimulated: isSimulatedSource(lead.source), status: lead.status, priority: lead.priority,
     createdAt: lead.createdAt, replyTimeSec: lead.replyTimeSec ?? null, serviceLabel: q?.serviceLabel || null,
     location: q?.location || '', lastRunMode: lead.lastRunMode || null, simulated: !!lead.simulated, seed: !!lead.seed,
     snippet: lead.messages[0]?.text.slice(0, 110) || '', humanReason: lead.humanReason || null,
@@ -78,5 +82,5 @@ export function detail(lead, store) {
   const fus = store.followups.filter((f) => f.leadId === lead.id);
   const { token: _t, ipHash: _ip, ...rest } = lead; // the secret token and IP hash are never sent to the dashboard
   // Fictional sample leads are open for role-play, so their token goes to the dashboard. Every other lead's token stays private.
-  return { ...rest, phone: lead.seed ? lead.phone : maskPhone(lead.phone), demoToken: lead.seed ? lead.token : undefined, booking, followups: fus.slice(-4) };
+  return { ...rest, sourceSimulated: isSimulatedSource(lead.source), phone: lead.seed ? lead.phone : maskPhone(lead.phone), demoToken: lead.seed ? lead.token : undefined, booking, followups: fus.slice(-4) };
 }

@@ -111,7 +111,7 @@ async function refreshLeads() {
 function rowHtml(l) {
   return html`<tr data-id="${l.id}" class="${l.seed ? 'sample-row' : ''}" tabindex="0" role="link" aria-label="Open ${l.name}">
     <td><div class="person"><span class="initials">${initials(l.name)}</span><div><strong>${l.name}${l.priority === 'urgent' ? R('<span class="chip urgent">Urgent</span>') : ''}</strong><small>${l.serviceLabel ? `${l.serviceLabel}${l.location ? ' · ' + l.location : ''}` : l.snippet}${l.seed ? ' · sample' : ''}</small></div></div></td>
-    <td class="src">${l.source}</td>
+    <td class="src">${l.source}${l.sourceSimulated ? R(' <span class="srctag" title="This source is a simulated example. The website form is the only real intake channel.">simulated source</span>') : ''}</td>
     <td>${replyText(l.replyTimeSec, l.lastRunMode)}${l.seed && l.replyTimeSec != null ? R(' <small class="dim">(simulated)</small>') : ''}</td>
     <td>${R(chip(l.status))}</td>
     <td>${fmtStamp(l.createdAt)}</td></tr>`;
@@ -215,7 +215,7 @@ async function renderDetail(id, first) {
   }
   const working = l.status === 'new' || (l.timeline.length && l.timeline.at(-1).kind !== 'done' && l.timeline.at(-1).kind !== 'followup' && l.timeline.at(-1).kind !== 'info');
   $('#dEyebrow').textContent = `Inquiry detail / ${l.qualification?.serviceLabel || 'Not yet sorted'}`;
-  $('#dSub').textContent = `${STATUS[l.status][0]} · ${l.source} · Received ${fmtStamp(l.createdAt)}${l.seed ? ' · sample data' : ''}`;
+  $('#dSub').textContent = `${STATUS[l.status][0]} · ${l.source}${l.sourceSimulated ? ' (simulated source)' : ''} · Received ${fmtStamp(l.createdAt)}${l.seed ? ' · sample data' : ''}`;
   $('#dJob').textContent = `${l.qualification?.serviceLabel || 'Unclassified'}${l.qualification?.location ? ' · ' + l.qualification.location : ''}`;
   $('#dChips').innerHTML = html`${R(chip(l.status))}${l.priority === 'urgent' ? R('<span class="chip urgent">Urgent</span>') : ''}`;
   const conv = $('#conv');
@@ -305,7 +305,7 @@ async function renderCalendar(start, { quiet = false } = {}) {
   const hours = Array.from({ length: H1 - H0 }, (_, i) => `<div class="hlabel">${clock(String(H0 + i).padStart(2, '0'))}</div>`).join('');
   const agenda = cols.map((day) => `<h3>${esc(dname(day.date))} ${esc(label(day.date))}${day.today ? ' (today)' : ''}</h3>` + (day.slots.length ? '' : '<div class="row past"><span>Closed</span><span></span></div>') + day.slots.map((s) => `<div class="row ${s.status === 'open' ? 'free' : s.status === 'past' ? 'past' : ''}"><span>${esc(clock(s.start))}–${esc(clock(s.end))}</span><span>${s.status === 'booked' ? esc(s.booking.serviceLabel + ' · ' + s.booking.name) : s.status === 'open' ? 'Open' : s.date < c.today ? 'Past' : 'Too soon'}</span></div>`).join('')).join('');
   $('#view').innerHTML = html`
-    <div class="heading"><div><div class="eyebrow">Your week at a glance</div><h1>Calendar</h1><p class="sub">Booked and open appointment times. The assistant books only the open times shown here.</p></div>
+    <div class="heading"><div><div class="eyebrow">Your week at a glance</div><h1>Calendar</h1><p class="sub">Booked and open appointment times from the demo calendar. The assistant books only the open times shown here.</p></div>
       <div class="actions"><button class="btn ghost small" data-week="${c.prev}" aria-label="Previous week">‹ Prev</button><span class="btn ghost small" style="pointer-events:none">${label(cols[0].date)} – ${label(cols[5].date)}, ${cols[0].date.slice(0, 4)}</span><button class="btn ghost small" data-week="${c.next}" aria-label="Next week">Next ›</button></div></div>
     <div class="card" style="padding:15px">
       <div class="week-wrap"><div class="week"><div></div>${R(cols.map((d) => html`<div class="dayhead ${d.today ? 'today' : ''}">${dname(d.date)}<small>${label(d.date)}</small></div>`).join(''))}
@@ -374,7 +374,7 @@ function renderGuardrails() {
     <div class="heading"><div><div class="eyebrow">Safety</div><h1>Guardrails</h1><p class="sub">These checks run in software for ${c.business.name}, so they still apply if the AI model gets something wrong. Customer text is treated as data, never as instructions.</p></div></div>
     <div class="grid2">
       <div class="card"><div class="card-head"><h2>What the assistant is blocked from doing</h2></div><div class="card-body"><ul class="rules">
-        <li><b>Book outside business hours.</b> ${c.hoursText}. Times come only from the business's calendar.</li>
+        <li><b>Book outside business hours.</b> ${c.hoursText}. Times come only from the demo calendar.</li>
         <li><b>Double book.</b> A taken time is refused at write time.</li>
         <li><b>Quote a price outside the approved range.</b> Any dollar amount outside the range set for the service is blocked; otherwise the assistant gives the range or says the cost is confirmed in person.</li>
         <li><b>Promise discounts, refunds, guarantees or free work,</b> or send links.</li>

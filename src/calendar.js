@@ -73,7 +73,7 @@ export function isOpenNow(nowLocalStr, hoursCfg) {
   return t >= w[0] && t < w[1];
 }
 
-// Is this a real slot of the business calendar (a valid start time on a working day)?
+// Is this a valid slot of the demo calendar (a valid start time on a working day)?
 export function isRealSlot(id, hoursCfg) {
   if (typeof id !== 'string' || !SLOT_RE.test(id) || !isValidDate(dateOf(id))) return false;
   return slotsForDate(dateOf(id), hoursCfg).includes(id);

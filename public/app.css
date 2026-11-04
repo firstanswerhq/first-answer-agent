@@ -180,3 +180,4 @@ html{background:#070b18}
 .switch[hidden]{display:none}
 .switch select{appearance:auto;background:#10152b;color:#fff;border:1px solid #ffffff2b;border-radius:99px;padding:5px 8px;font:inherit;font-size:12px;max-width:230px}
 @media(max-width:900px){.switch{flex:1 1 100%;justify-content:space-between;order:1}.switch select{flex:1;max-width:none}}
+.srctag{display:inline-block;margin-left:6px;padding:1px 6px;border:1px solid currentColor;border-radius:6px;font-size:10px;letter-spacing:.02em;opacity:.7;vertical-align:middle}

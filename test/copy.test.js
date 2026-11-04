@@ -49,11 +49,11 @@ test('the lead form page title names the business, and the lead form offers cust
   assert.doesNotMatch(js, /milliseconds/);
 });
 
-test('the shipped profiles describe the assistant without a speed claim, and each has its own cast of people', () => {
+test('the shipped profiles describe the assistant without an instant-reply claim, and each has its own cast of people', () => {
   const casts = [];
   for (const name of PROFILE_NAMES) {
     const p = makeEnv({ config: profileCfg(name) }).config.profile;
-    assert.doesNotMatch(p.wording.formIntro, /seconds/i);
+    assert.doesNotMatch(p.wording.formIntro, /right away|instantly|immediately/i);
     assert.match(p.wording.formIntro, /AI/);
     casts.push(new Set([...p.scenarios.map((s) => s.lead.name), ...p.seed.map((s) => s.lead.name)]));
   }
