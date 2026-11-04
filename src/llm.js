@@ -41,11 +41,11 @@ export class LlmClient {
     }
   }
 
-  async chat({ messages, tools }) {
+  async chat({ messages, tools, toolChoice = 'auto' }) {
     if (!this.configured) throw new LlmError('Inference is not configured');
     const body = {
       model: this.model, messages, temperature: 0.2, max_tokens: 500,
-      tools: tools.map((t) => ({ type: 'function', function: t })), tool_choice: 'auto',
+      tools: tools.map((t) => ({ type: 'function', function: t })), tool_choice: toolChoice,
     };
     let lastErr;
     for (let attempt = 0; attempt <= this.retries; attempt += 1) {

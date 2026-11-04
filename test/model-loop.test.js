@@ -290,3 +290,48 @@ test('model loop: a <system> payload goes to the fast path and never reaches the
   assert.equal(llm.fetchMock.state.calls.length, 0);
   assert.equal(l.status, 'human');
 });
+
+// ---- live-batch fix: a model that answers in plain text instead of calling send_reply ----
+const textOnly = (content) => ({ status: 200, json: { model: 'fake-model-1', choices: [{ message: { role: 'assistant', content } }] } });
+
+test('model loop: plain-text ending is sent as the reply through the guards, signed, and counted as AI-written', async () => {
+  const env = makeEnv({ llm: fakeLlm([textOnly('Thanks for reaching out! We can fit a checkup this week, which day works best for you?')]) });
+  const l = await newLead(env);
+  assert.equal(l.status, 'replied');
+  assert.equal(agentTexts(l).length, 1);
+  assert.match(agentTexts(l)[0], /which day works best/);
+  assert.match(agentTexts(l)[0], /\(AI\)$/);
+  assert.equal(l.lastRunMode, 'model');
+  assert.ok(!l.timeline.some((t) => /built-in rules finished the job/.test(t.title)));
+});
+
+test('model loop: plain text that breaks a guard (a link) is not sent; the rules take over', async () => {
+  const env = makeEnv({ llm: fakeLlm([textOnly('Sure thing, please book here: https://evil.example/book and we will see you soon.'), textOnly('ok')]) });
+  const l = await newLead(env);
+  assert.equal(l.status, 'replied');
+  assert.ok(agentTexts(l).every((t) => !/evil\.example/.test(t)));
+  assert.equal(l.lastRunMode, 'offline');
+});
+
+test('model loop: an empty ending triggers one forced send_reply retry, which succeeds', async () => {
+  const llm = fakeLlm([textOnly(''), reply(call('send_reply', { text: 'Happy to help with your checkup. Which day works best?' }))]);
+  const env = makeEnv({ llm });
+  const l = await newLead(env);
+  assert.equal(l.status, 'replied');
+  assert.equal(agentTexts(l).length, 1);
+  assert.match(agentTexts(l)[0], /Which day works best/);
+  assert.equal(l.lastRunMode, 'model');
+  const bodies = llm.fetchMock.state.bodies;
+  assert.deepEqual(bodies[bodies.length - 1].tool_choice, { type: 'function', function: { name: 'send_reply' } });
+  assert.equal(bodies.length, 2, 'exactly one retry');
+});
+
+test('model loop: if the forced retry also fails, the rules write the reply (once)', async () => {
+  const llm = fakeLlm([textOnly('')]);
+  const env = makeEnv({ llm });
+  const l = await newLead(env);
+  assert.equal(l.status, 'replied');
+  assert.equal(agentTexts(l).length, 1);
+  assert.equal(l.lastRunMode, 'offline');
+  assert.equal(llm.fetchMock.state.bodies.length, 2);
+});
