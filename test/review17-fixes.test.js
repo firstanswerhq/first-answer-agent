@@ -25,3 +25,10 @@ test('the model escalating "recommend a plumber near me" does not hand off; anot
   const b = await newLead(makeEnv({ llm: stub() }), { message: 'Do you have a banana bread recipe? I also have a tooth emergency, severe pain' });
   assert.equal(b.status, 'human');
 });
+
+import { isOffTopic } from '../src/safety.js';
+test('a sport word alone is not off-topic; scores, schedules and betting are', () => {
+  const d = profileCfg('dental').profile; const sa = profileCfg('salon').profile;
+  for (const [p, t] of [[d, 'Can kids who play soccer get fluoride treatments?'], [d, 'Do you treat TMJ pain from clenching during football practice?'], [sa, 'Do you do kids cuts? My son has a baseball game tomorrow.'], [d, 'Do you make custom mouthguards for football?']]) assert.equal(isOffTopic(t, p), false, t);
+  for (const t of ['Who won the football game last night?', 'What were the NFL scores this weekend?', 'Any good odds on the basketball playoffs?']) assert.equal(isOffTopic(t, d), true, t);
+});
