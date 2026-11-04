@@ -11,7 +11,9 @@ const MAX_RAW_EVENTS = 20_000; // VEVENTs in the file at all
 const MAX_EVENTS = 2000; // events that can matter for the window (recurring, or overlapping it)
 const MAX_OCCURRENCES = 5000; // expanded busy blocks inside the window
 const MAX_STEPS = 400_000; // cheap loop steps in total
-const CPU_BUDGET_MS = 750;
+const CPU_BUDGET_MS = 250; // parsing is synchronous, so this is also the longest the server can be held up by one read
+const MAX_EXDATES = 1000; // per event; beyond that all of an event's EXDATEs are ignored (blocks more time, never less) and counted
+const MAX_LINE = 100_000; // longer unfolded lines are dropped
 export const STALE_MS = 15 * 60_000; // how long the last good read is still used after refreshes fail
 
 export class FeedConfigError extends Error {}
@@ -169,7 +171,7 @@ function collectEvents(text) {
     if (u === 'BEGIN:VCALENDAR') { sawCal = true; continue; }
     if (u === 'BEGIN:VEVENT') { if (cur === null) { cur = []; } depth += 1; continue; }
     if (u === 'END:VEVENT') { depth -= 1; if (depth <= 0 && cur) { events.push(cur); cur = null; depth = 0; } continue; }
-    if (cur && depth === 1) { const p = parseLine(line); if (p) cur.push(p); }
+    if (cur && depth === 1 && line.length <= MAX_LINE) { const p = parseLine(line); if (p) cur.push(p); }
     if (events.length > MAX_RAW_EVENTS) throw new Error('too_complex');
   }
   return { events, sawCal };
@@ -215,8 +217,20 @@ export function parseIcs(text, { tz, from, to, cpuMs = CPU_BUDGET_MS }) {
     if (relevant > MAX_EVENTS) throw new Error('too_complex');
     let ridKey = null;
     if (rid) { const r = parseDt(rid.value, rid.params, tz); if (r) ridKey = r.kind === 'date' ? `D${r.wall}` : `I${toInstant(r)}`; }
-    const ex = [];
-    for (const e of all('EXDATE')) for (const v of e.value.split(',')) { const d = parseDt(v, e.params, start.tz); if (d) ex.push(d); }
+    // EXDATEs become a Set of keys once, so each occurrence is one lookup. Over the cap they are ignored (see MAX_EXDATES).
+    const ex = new Set(); let exCount = 0; let exOver = false;
+    for (const e of all('EXDATE')) {
+      const vals = e.value.split(',');
+      exCount += vals.length;
+      if (exCount > MAX_EXDATES) { exOver = true; break; }
+      for (const v of vals) {
+        const d = parseDt(v, e.params, start.tz);
+        if (!d) continue;
+        if (d.kind === 'date') ex.add(`D${d.wall}`);
+        else { ex.add(`I${toInstant(d)}`); if (d.kind !== 'utc') ex.add(`W${d.wall}`); }
+      }
+    }
+    if (exOver) { ex.clear(); stats.warnings += 1; }
     if (start.kind === 'unknown') stats.warnings += 1;
     parsed.push({
       uid: (get('UID')?.value || '').trim(), cancelled: status === 'CANCELLED', free: transp === 'TRANSPARENT',
@@ -253,7 +267,7 @@ export function parseIcs(text, { tz, from, to, cpuMs = CPU_BUDGET_MS }) {
         const day = wallStart - (((wallStart % DAY) + DAY) % DAY);
         const dateKey = `D${day}`;
         if (ev.uid && (overridden.has(`${ev.uid}|I${s}`) || overridden.has(`${ev.uid}|${dateKey}`))) return;
-        if (ev.exdates.some((x) => (x.kind === 'date' ? `D${x.wall}` === dateKey : toInstant(x) === s || (x.kind !== 'utc' && x.wall === wallStart)))) return;
+        if (ev.exdates.size && (ev.exdates.has(`I${s}`) || ev.exdates.has(`W${wallStart}`) || ev.exdates.has(dateKey))) return;
       }
       push(s, e, ev.allDay);
       if (start.kind === 'unknown') push(wallStart, wallStart + ev.len, false); // the same clock time read as UTC

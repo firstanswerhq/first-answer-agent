@@ -109,7 +109,7 @@ test('S4: an unknown zone name blocks both readings and is counted as a warning'
   const { blocks, stats } = parseIcs(t, WIN);
   assert.equal(stats.warnings, 1);
   assert.deepEqual(blocks.map((b) => localString(b.start, TZ)).sort(), ['2026-11-05T03:00', '2026-11-05T09:00']);
-  assert.match(calendarNotices({ calendar: { configured: true, connected: true, warnings: 1, unsupportedRules: 0 } }), /time zone the app does not know/);
+  assert.match(calendarNotices({ calendar: { configured: true, connected: true, warnings: 1, unsupportedRules: 0 } }), /could not be read exactly/);
 });
 
 // ---- S5 / S6 through the real config
@@ -182,4 +182,29 @@ test('S6: dates beyond the range that was read are "not checked": never offered,
     assert.equal(b.ok, false);
     assert.match(b.error, /not been checked/);
   } finally { await s.stop(); }
+});
+
+// ---- review 11: EXDATE bomb
+const exLine = (n, step = 1) => 'EXDATE;TZID=America/Chicago:' + Array.from({ length: n }, (_, i) => { const d = new Date(Date.UTC(2013, 0, 1 + i * step)); return d.toISOString().slice(0, 10).replace(/-/g, '') + 'T090000'; }).join(',');
+const bombEvent = (lines) => ev('b', 'DTSTART;TZID=America/Chicago:20130101T090000', 'DTEND;TZID=America/Chicago:20130101T100000', ['RRULE:FREQ=DAILY', ...lines]);
+
+test('EXDATE bomb: 100k dates on one line and 40k over many lines parse in under a second', () => {
+  for (const lines of [[exLine(100_000)], Array.from({ length: 400 }, (_, i) => exLine(100).replace(/2013/g, String(2014 + (i % 3))))]) {
+    const t0 = Date.now();
+    const out = parseIcs(cal(bombEvent(lines)), { tz: TZ, from: Date.UTC(2026, 10, 1), to: Date.UTC(2026, 10, 30) });
+    assert.ok(Date.now() - t0 < 1000, `took ${Date.now() - t0} ms`);
+    assert.ok(out.blocks.length >= 28, 'over the cap the EXDATEs are ignored: the series blocks every day (never less)');
+    if (lines.length > 1) assert.ok(out.stats.warnings >= 1);
+  }
+});
+
+test('EXDATE under the cap still removes exactly those days, with many occurrences', () => {
+  const t = cal(ev('x', 'DTSTART;TZID=America/Chicago:20200101T090000', 'DTEND;TZID=America/Chicago:20200101T100000', ['RRULE:FREQ=DAILY', 'EXDATE;TZID=America/Chicago:20261105T090000,20261106T090000', 'EXDATE;VALUE=DATE:20261107']));
+  const s = starts(t, { tz: TZ, from: Date.UTC(2026, 10, 4), to: Date.UTC(2026, 10, 10) });
+  assert.deepEqual(s, ['2026-11-04T09:00', '2026-11-08T09:00', '2026-11-09T09:00']);
+});
+
+test('an over-long line is dropped, not parsed', () => {
+  const t = cal(ev('l', 'DTSTART:20261105T150000Z', 'DTEND:20261105T160000Z', ['DESCRIPTION:' + 'x'.repeat(500_000)]));
+  assert.equal(parseIcs(t, WIN).blocks.length, 1);
 });
