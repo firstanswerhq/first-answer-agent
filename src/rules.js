@@ -1,7 +1,7 @@
 // Offline rules engine. It follows the SAME path as the model: qualify, check the
 // calendar, reply, book, schedule a follow-up, escalate. It calls the very same
 // guarded functions. Deterministic, no network.
-import { requestedHour, detectService, detectServices, detectLocation, wantsOutsideHours, pickSlot, slotCandidates, declinesSlots, requestedDay, slotOnDay } from './extract.js';
+import { requestedClock, partOfDay, pastDay, detectService, detectServices, detectLocation, wantsOutsideHours, pickSlot, slotCandidates, declinesSlots, requestedDay, slotOnDay } from './extract.js';
 import { firstName, money } from './util.js';
 import { CHANGE_REQUEST } from './safety.js';
 import { slotLabel, addDays, dateOf, localNow, isOpenNow, dateLabel, listSlots, slotsForDate, fmtClock } from './calendar.js';
@@ -119,9 +119,14 @@ export async function runRules(ctx, fx, trigger) {
   }
 
   // Plain questions about the business are answered from the profile only (hours, weekends, parking, walk-ins, visit length).
-  const fa = factAnswers(latest, config, { skipWeekend: service !== 'other' && !!requestedDay(latest, dateOf(localNow(ctx.now(), config.business.tz))) });
+  const fa = factAnswers(latest, config, { nowMs: ctx.now(), skipWeekend: service !== 'other' && !!requestedDay(latest, dateOf(localNow(ctx.now(), config.business.tz))) });
   const factText = [...fa.answers, ...(fa.missing.length ? [missingFactText(fa.missing)] : [])].join(' ');
-  const flagMissing = async () => { if (fa.missing.length) await escalate(`Customer asked about ${fa.missing.join(' and ')}, which is not in the business facts; a person should confirm.`); };
+  // A fact we do not have: low priority. The assistant keeps helping; a note for a teammate is added (no phone alert, not a hand-off).
+  const flagMissing = async () => {
+    if (!fa.missing.length) return;
+    lead.confirmNeeded = `Customer asked about ${fa.missing.join(' and ')}, which is not in the business facts; a teammate should confirm.`;
+    ctx.step({ kind: 'info', title: 'Flagged for a teammate to confirm (low priority, no phone alert)', detail: lead.confirmNeeded });
+  };
 
   // 4. Not enough information yet: ask one clear question.
   if (service === 'other' || (loc.needed && !loc.known) || q.service_area_ok === null) {
@@ -209,24 +214,43 @@ export async function runRules(ctx, fx, trigger) {
   const cal = await fx.call('check_calendar', { days: 10, limit: 6, ...(sinceDate ? { earliest_date: sinceDate } : {}) });
   // A specific time on a specific day: say plainly whether it is open. If it is taken, offer the nearest open times that day
   // first (closest to the time asked for), then the next ones after it.
-  const askedHour = !declines && reqDay ? requestedHour(latest) : null;
+  const clockReq = !declines && reqDay ? requestedClock(latest) : null;
+  const part = !declines && reqDay && !clockReq ? partOfDay(latest) : null;
+  const pastWhen = !declines && !reqDay ? pastDay(latest, todayLocal) : null;
   let timeNote = '';
-  if (cal.ok && askedHour != null && reqDay) {
-    const dayWord = reqDay.weekday ? dateLabel(reqDay.date, true).split(',')[0] : dateLabel(reqDay.date);
-    const wanted = `${reqDay.date}T${String(askedHour).padStart(2, '0')}:00`;
-    const clock = fmtClock(wanted.slice(11, 16));
-    const info = listSlots(ctx.store, config, ctx.now(), reqDay.date, 1).find((x) => x.slot_id === wanted);
-    if (info && info.status === 'open') timeNote = `${dayWord} at ${clock} is open. `;
-    else if (info && (info.status === 'booked' || info.status === 'busy')) timeNote = `${dayWord} at ${clock} is already taken. `;
-    else if (info && info.status === 'past') timeNote = `${dayWord} at ${clock} is too soon to book. `;
-    else if (info && info.status === 'unchecked') timeNote = `I cannot check ${dayWord} at ${clock} right now. `;
-    else if (slotsForDate(reqDay.date, config.hours).length) timeNote = `We do not start ${wording.appointment}s at ${clock} on ${dayWord}. `;
-    // Same-day open windows (all of them, not just the first few), closest to the asked time first; a tie goes to the later one.
-    const dist = (sl) => Math.abs(Number(sl.slot_id.slice(11, 13)) - askedHour);
-    const sameDay = listSlots(ctx.store, config, ctx.now(), reqDay.date, 1).filter((x) => x.status === 'open').map((x) => ({ slot_id: x.slot_id, label: x.label }))
-      .sort(info && info.status === 'open'
-        ? (a, b) => (a.slot_id === wanted ? -1 : b.slot_id === wanted ? 1 : (a.slot_id > wanted) === (b.slot_id > wanted) ? a.slot_id.localeCompare(b.slot_id) : a.slot_id > wanted ? -1 : 1) // the asked time, then the ones after it, then earlier ones
-        : (a, b) => dist(a) - dist(b) || b.slot_id.localeCompare(a.slot_id));
+  let noteDone = false; // the note already says what is open, so nothing more needs adding after it
+  if (cal.ok && reqDay && (clockReq || part)) {
+    const dayName = dateLabel(reqDay.date, true).split(',')[0];
+    const dayWord = reqDay.rel || (reqDay.weekday ? dayName : dateLabel(reqDay.date));
+    const nowL = localNow(ctx.now(), config.business.tz);
+    const dayOpen = listSlots(ctx.store, config, ctx.now(), reqDay.date, 1);
+    const openList = dayOpen.filter((x) => x.status === 'open').map((x) => ({ slot_id: x.slot_id, label: x.label }));
+    const hourOf = (sl) => Number(sl.slot_id.slice(11, 13));
+    let sameDay = openList;
+    if (clockReq) {
+      const hh = String(clockReq.hour).padStart(2, '0');
+      const wanted = `${reqDay.date}T${hh}:00`;
+      const clock = fmtClock(`${hh}:${String(clockReq.minute).padStart(2, '0')}`);
+      const info = dayOpen.find((x) => x.slot_id === wanted);
+      const at = `${reqDay.rel ? reqDay.rel : dayWord} at ${clock}`;
+      if (clockReq.minute) timeNote = `We start ${wording.appointment}s on the hour, so ${clock} is not a start time. `;
+      else if (info && info.status === 'open') { timeNote = `${upper1(at)} is open. `; noteDone = true; }
+      else if (info && (info.status === 'booked' || info.status === 'busy')) timeNote = `${upper1(at)} is already taken. `;
+      else if (info && info.status === 'past') timeNote = wanted <= nowL ? `${upper1(at)} has already passed. ` : `${upper1(at)} is too soon to book. `;
+      else if (info && info.status === 'unchecked') timeNote = `I cannot check ${at} right now. `;
+      else if (slotsForDate(reqDay.date, config.hours).length) timeNote = `We do not start ${wording.appointment}s at ${clock} on ${dayWord}. `;
+      const target = clockReq.hour + clockReq.minute / 60;
+      const dist = (sl) => Math.abs(hourOf(sl) - target);
+      sameDay = [...openList].sort(noteDone
+        ? (x, y) => (x.slot_id === wanted ? -1 : y.slot_id === wanted ? 1 : (x.slot_id > wanted) === (y.slot_id > wanted) ? x.slot_id.localeCompare(y.slot_id) : x.slot_id > wanted ? -1 : 1) // the asked time, then the ones after it, then earlier ones
+        : (x, y) => dist(x) - dist(y) || y.slot_id.localeCompare(x.slot_id)); // closest first; a tie goes to the later one
+    } else {
+      const inPart = (sl) => (part === 'morning' ? hourOf(sl) < 12 : part === 'afternoon' ? hourOf(sl) >= 12 && hourOf(sl) < 16 : hourOf(sl) >= 16);
+      const label = reqDay.rel === 'today' ? `this ${part}` : `${dayWord} ${part}`;
+      const hit = openList.filter(inPart);
+      if (hit.length) { timeNote = `Here is what is open ${label}. `; noteDone = true; sameDay = [...hit, ...openList.filter((sl) => !inPart(sl))]; }
+      else if (slotsForDate(reqDay.date, config.hours).length) timeNote = `I do not have anything open ${label}. `;
+    }
     const others = cal.slots.filter((sl) => sl.slot_id.slice(0, 10) !== reqDay.date);
     if (sameDay.length) cal.slots = [...sameDay, ...others];
   }
@@ -248,12 +272,14 @@ export async function runRules(ctx, fx, trigger) {
     : closedNow ? 'We are closed right now, but I can already hold a time. ' : '';
   let dayNote = '';
   if (reqDay) {
-    const dayName = dateLabel(reqDay.date, true).split(',')[0];
+    const dayName = reqDay.rel || dateLabel(reqDay.date, true).split(',')[0];
+    const on = reqDay.rel ? '' : 'on ';
     const onThatDay = cal.slots.some((sl) => sl.slot_id.slice(0, 10) === reqDay.date);
-    dayNote = timeNote ? (onThatDay ? `${timeNote}${/is open/.test(timeNote) ? '' : `Here is what is open on ${dayName} instead. `}` : `${timeNote}I do not have another opening on ${dayName}, so here are the nearest times. `) : onThatDay ? `Here is what is open on ${dayName}. ` : `I do not have an opening on ${reqDay.weekday ? dayName : dateLabel(reqDay.date)}. We are open ${config.hours.text}, so here are the nearest times. `;
-  } else if (wantsNextWeek && cal.slots.every((sl) => sl.slot_id.slice(0, 10) >= nextMonday)) dayNote = 'Here is what is open next week. ';
+    dayNote = timeNote ? (onThatDay ? `${timeNote}${noteDone ? '' : `Here is what is open ${on}${dayName} instead. `}` : `${timeNote}I do not have another opening ${on}${dayName}, so here are the nearest times. `) : onThatDay ? `Here is what is open ${on}${dayName}. ` : `I do not have an opening ${on}${reqDay.rel || (reqDay.weekday ? dayName : dateLabel(reqDay.date))}. We are open ${config.hours.text}, so here are the nearest times. `;
+  } else if (pastWhen) dayNote = `${dateLabel(pastWhen)} has already passed, so here are the next open times. `;
+  else if (wantsNextWeek && cal.slots.every((sl) => sl.slot_id.slice(0, 10) >= nextMonday)) dayNote = 'Here is what is open next week. ';
   const inLoc = loc.needed && loc.text ? ` in ${loc.text}` : '';
-  const body = q.price_range ? `${price.replace(/ usually runs/, inLoc + ' usually runs')}` : `I can set up ${aOrAn(lc(q.service_label))} ${lc(q.service_label)}${inLoc}. ${price}`;
+  const body = q.price_range ? `${price.replace(/ usually runs/, inLoc + ' usually runs')}` : `Happy to help with your ${lc(q.service_label)}${inLoc}. ${price}`;
   let text = `Hi ${first}! ${fa.any ? factText + ' ' : ''}${bookNote}${dayNote}${intro}${body} Open times: ${times}. Which one works?`;
   // Never send the identical offer twice in a row.
   const lastAgent = [...lead.messages].reverse().find((m) => m.from === 'agent');

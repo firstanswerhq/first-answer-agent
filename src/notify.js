@@ -12,7 +12,7 @@ const oneLine = (s, n) => ascii(s).slice(0, n);
 
 // The alert goes to a public relay, so it carries only fixed text built in code: the business name, the customer's
 // first name, a category from the safety flags and an optional https dashboard link. Never model or customer text.
-export const CATEGORIES = ['Possible medical emergency', 'Urgent request (emergency wording)', 'Message looked like an instruction attack', 'Angry customer', 'Customer asked for a person', 'Request outside our services', 'Needs a person'];
+export const CATEGORIES = ['Possible medical emergency', 'Urgent request (emergency wording)', 'Message looked like an instruction attack', 'Angry customer', 'Customer asked for a person', 'Request outside our services', 'Medication or clinical question', 'Allergy or health question', 'Tax or legal advice question', 'Insurance or billing question', 'Contract or fee question', 'Color correction request', 'Needs a person'];
 
 export class Notifier {
   /**

@@ -58,7 +58,7 @@
   },
   "alwaysHuman": [
     { "id": "correction", "label": "color corrections and fixes to another salon's work", "phrases": ["color correction", "colour correction", "fix my color", "fix my colour", "fix what another salon", "another salon ruined", "turned orange", "went orange", "came out orange", "too orange", "brassy"] },
-    { "id": "health", "label": "allergies, product ingredients, patch tests or medical conditions", "reply": "Allergy, ingredient and product-safety questions go to our stylists, who can check the products and set up a patch test if needed. I have passed this to a teammate who will follow up with you directly.", "phrases": ["allergic", "allergy", "patch test", "sensitive scalp", "pregnant", "chemotherapy", "alopecia", "ingredient", "is it safe", "safe to use", "safe for", "medication", "medicine", "eczema", "psoriasis", "dermatitis", "reaction to"] }
+    { "id": "health", "label": "allergies, product ingredients, patch tests or medical conditions", "reply": "Allergy, ingredient and product-safety questions go to our stylists, who can check the products and set up a patch test if needed. I have passed this to a teammate who will follow up with you directly.", "phrases": ["allergic", "allergy", "patch test", "sensitive scalp", "pregnant", "chemotherapy", "alopecia", "ingredient", "is it safe", "safe to use", "safe for", "medication", "medicine", "eczema", "psoriasis", "dermatitis", "reaction to", "ammonia", "ppd", "paraben", "sulfate", "formaldehyde", "hypoallergenic", "toxic", "what is in your", "what's in your", "what chemicals", "gluten", "vegan"] }
   ],
   "outOfScope": ["manicure", "nails", "pedicure", "massage", "waxing", "tattoo", "lash", "facial"],
   "scenarios": [

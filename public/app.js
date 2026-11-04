@@ -253,6 +253,7 @@ function factsHtml(l, speedup) {
   const q = l.qualification; const rows = [];
   const add = (k, v) => rows.push(html`<dt>${k}</dt><dd>${v}</dd>`);
   add('First reply', l.replyTimeSec == null ? 'Not yet' : l.seed ? `${replyText(l.replyTimeSec, l.lastRunMode)} (simulated)` : `${secs(l.replyTimeSec)} (measured)`);
+  if (l.confirmNeeded) add('Teammate to confirm', l.confirmNeeded);
   add('Answered by', (l.answeredBy || l.lastReplyBy) === 'safety' ? 'Safety rules' : (l.answeredBy || l.lastReplyBy) === 'model' ? 'AI model' : (l.answeredBy || l.lastReplyBy) === 'rules' ? 'Built-in rules' : l.lastRunMode === 'model' ? 'AI model' : l.lastRunMode === 'offline' ? 'Built-in rules' : 'Pending');
   if (q) {
     add('Service', q.serviceLabel);

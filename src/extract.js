@@ -92,6 +92,8 @@ export function requestedDay(text, today) {
   const num = t.match(/\b(\d{1,2})\/(\d{1,2})\b/);
   const explicit = mon ? iso(MONTHS.findIndex((x) => x.startsWith(mon[1])) + 1, Number(mon[2])) : num ? iso(Number(num[1]), Number(num[2])) : null;
   if (explicit && explicit >= today) return { date: explicit, dow: dowOf(explicit), weekday: false };
+  if (/\btoday\b/.test(t)) return { date: today, dow: dowOf(today), weekday: false, rel: 'today' };
+  if (/\btomorrow\b/.test(t)) return { date: addDay(today, 1), dow: dowOf(addDay(today, 1)), weekday: false, rel: 'tomorrow' };
   for (let i = 0; i < 7; i += 1) {
     const date = addDay(today, i);
     if (namesWeekday(t, dowOf(date))) return { date, dow: dowOf(date), weekday: true };
@@ -100,19 +102,40 @@ export function requestedDay(text, today) {
 }
 
 /**
- * The clock hour (0-23) the customer asked for, or null. Understands "9am", "at 1 pm", "10:00 am", "at 14:00". A time with minutes
- * other than :00 gives null (appointments start on the hour). "9 year old", dates and prices are not times.
+ * The clock time the customer asked for as { hour (0-23), minute }, or null. Understands "9am", "at 1 pm", "10:30 am", "at 14:00",
+ * "noon", "half past 9" and a bare "at 9" / "Thursday 9" (read as business hours: 7-11 is morning, 1-6 is afternoon).
+ * "9 year old", dates and prices are not times.
  */
-export function requestedHour(text) {
+export function requestedClock(text) {
   const t = String(text || '').toLowerCase();
   let m = /\b(1[0-2]|0?[1-9])(?::([0-5]\d))?\s?([ap])\.?m\b/.exec(t);
-  if (m) {
-    if (m[2] && m[2] !== '00') return null;
-    return (Number(m[1]) % 12) + (m[3] === 'p' ? 12 : 0);
-  }
-  m = /\bat (1[0-9]|2[0-3]|0?[7-9]):00\b/.exec(t);
-  if (m) return Number(m[1]);
+  if (m) return { hour: (Number(m[1]) % 12) + (m[3] === 'p' ? 12 : 0), minute: Number(m[2] || 0) };
+  if (/\bnoon\b/.test(t)) return { hour: 12, minute: 0 };
+  const guess = (h) => (h >= 7 && h <= 11 ? h : h === 12 ? 12 : h >= 1 && h <= 6 ? h + 12 : null);
+  m = /\bhalf past (1[0-2]|[1-9])\b/.exec(t);
+  if (m && guess(Number(m[1])) != null) return { hour: guess(Number(m[1])), minute: 30 };
+  m = /\bat (1[0-9]|2[0-3]|0?[7-9]):([0-5]\d)\b/.exec(t);
+  if (m) return { hour: Number(m[1]), minute: Number(m[2]) };
+  m = /(?:\bat|\baround|\babout|@|\b(?:mon|tues|wednes|thurs|fri|satur|sun)day)\s*(1[0-2]|[1-9])(?::([0-5]\d))?\b(?!\s*(?:[/.-]\d|th\b|st\b|nd\b|rd\b|years?|yrs?|months?|people|kids|children|patients|teeth|minutes?|mins?|hours?|dollars?|%|\$|\d))/.exec(t);
+  if (m && guess(Number(m[1])) != null) return { hour: guess(Number(m[1])), minute: Number(m[2] || 0) };
   return null;
+}
+
+/** "morning", "afternoon" or "evening" when the customer gave a part of the day, else null. */
+export const partOfDay = (text) => (/\bmorning\b/i.test(text) ? 'morning' : /\bafternoon\b/i.test(text) ? 'afternoon' : /\bevening\b/i.test(text) ? 'evening' : null);
+
+/** An explicit date earlier than today ("Nov 1", "11/1"), or null. Weekday names and later dates are not past. */
+export function pastDay(text, today) {
+  const t = String(text || '').toLowerCase();
+  const year = Number(today.slice(0, 4));
+  const mon = t.match(new RegExp(`\\b(${MONTHS.map((x) => x.slice(0, 3)).join('|')})[a-z]*\\.? (\\d{1,2})(?:st|nd|rd|th)?\\b`));
+  const num = t.match(/\b(\d{1,2})\/(\d{1,2})\b/);
+  const mm = mon ? MONTHS.findIndex((x) => x.startsWith(mon[1])) + 1 : num ? Number(num[1]) : 0;
+  const dd = mon ? Number(mon[2]) : num ? Number(num[2]) : 0;
+  if (!mm || mm > 12 || !dd || dd > 31) return null;
+  const date = `${year}-${String(mm).padStart(2, '0')}-${String(dd).padStart(2, '0')}`;
+  if (new Date(`${date}T00:00:00Z`).getUTCMonth() !== mm - 1) return null;
+  return date < today ? date : null;
 }
 
 /** Does this offered slot fall on the day the customer named? */

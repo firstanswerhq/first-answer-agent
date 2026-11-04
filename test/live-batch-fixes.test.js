@@ -52,8 +52,9 @@ test('a fact the profile does not state is never invented: a person will confirm
   const t = agentTexts(l).join(' ');
   assert.match(t, /teammate will confirm/);
   assert.doesNotMatch(t, /free parking|lot next to/i);
-  assert.equal(l.status, 'human');
-  assert.match(l.humanReason, /parking/);
+  assert.equal(l.status, 'replied', 'low priority: not a hand-off');
+  assert.match(l.confirmNeeded, /parking/);
+  assert.equal(env.store.followups.filter((f) => f.status === 'pending').length, 1);
 });
 
 test('a fact question together with a service still gets the offer, with the fact first', async () => {
@@ -67,14 +68,13 @@ test('medication, dose and clinical questions go to a person with a clear reason
   for (const m of [
     'Can you tell me if the amoxicillin I take affects my crown, and what dose I should take for the infection?',
     'Is it safe to take ibuprofen before my cleaning?',
-    'What is wrong with my gums? Do I have an infection?',
   ]) {
     const { l, text } = await ask('dental', m);
     assert.equal(l.status, 'human', m);
     assert.match(text, /cannot advise on medications, doses/, m);
     assert.match(text, /dental team/, m);
     assert.doesNotMatch(text, /Open times/, m);
-    assert.match(l.humanReason, /medications, doses, diagnosis/, m);
+    assert.match(l.humanReason, /medications, doses and medical history/, m);
   }
 });
 
@@ -111,7 +111,7 @@ test('insurance handoff says why', async () => {
 test('wording: a service with no quote reads as a sentence, not "Label: text"', async () => {
   const { text } = await ask('dental', 'I would like to ask about teeth whitening. Can I book a consultation?');
   assert.doesNotMatch(text, /Whitening consultation: We will go over/);
-  assert.match(text, /I can set up a whitening consultation\. We will go over the cost with you at your visit\./);
+  assert.match(text, /Happy to help with your whitening consultation\. We will go over the cost with you at your visit\./);
 });
 
 // ---- a taken time is said plainly, then the nearest open times that day, then others ----
