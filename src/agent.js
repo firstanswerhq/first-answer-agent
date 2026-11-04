@@ -20,6 +20,12 @@ const ALERT_STEP = {
 
 // ", Dana" or "" when the name is not usable; "Dana, " or "".
 const comma = (n) => { const f = firstName(n); return f === 'there' ? '' : `, ${f}`; };
+/** Fixed urgent wording: the profile's safety note plus the phone number. */
+function urgentText(config, lead, extra = false) {
+  const phone = config.business.phone;
+  const head = extra ? 'Important: ' : `${nameLead(lead.name)}this sounds urgent. `;
+  return `${head}${config.profile.urgency.safetyNote} I have marked it urgent for our team and a person will follow up. If you do not hear from us within 15 minutes, please call us at ${phone}. - ${config.business.agentName} (AI)`;
+}
 const nameLead = (n) => { const f = firstName(n); return f === 'there' ? '' : `${f}, `; };
 
 export const newSharedBudget = () => ({ modelRunStamps: [], ipRunStamps: new Map(), stats: { fallbacks: [], modelRuns: 0, offlineRuns: 0, lastModelOk: null, lastError: '', lastModel: '', lastRunMode: null } });
@@ -460,6 +466,22 @@ export class Agent {
   async enforce(ctx, fx, step) {
     const { lead, flags } = ctx;
     const biz = this.config.business.name;
+    // An urgent or emergency message always gets the safety note and the business phone in this run's replies, whoever wrote them
+    // (the model, the rules, or the holding fallback after rejected replies).
+    if (flags.emergency || flags.medical) {
+      const phoneDigits = String(this.config.business.phone || '').replace(/\D/g, '');
+      const note = String(this.config.profile.urgency.safetyNote || '').slice(0, 24).toLowerCase();
+      const mine = lead.messages.filter((m) => m.from === 'agent' && m.ts >= ctx.run.startMs);
+      const covered = mine.some((m) => String(m.text).replace(/\D/g, '').includes(phoneDigits) && (/911/.test(m.text) || (note && m.text.toLowerCase().includes(note))));
+      if (!covered) {
+        step({ kind: 'guard', title: 'Guardrail: the urgent reply did not carry the safety note and the phone number, so the software sent them' });
+        const prevWriter = ctx.writer;
+        ctx.writer = 'safety';
+        fx.deliver(flags.medical ? `${medicalText(this.config, flags)} - ${this.config.business.agentName} (AI)` : urgentText(this.config, lead, mine.length > 0));
+        ctx.writer = prevWriter === 'model' && mine.length ? 'model' : 'safety';
+        ctx.sentReply = true;
+      }
+    }
     if (mustEscalate(flags) && lead.status !== 'human') {
       step({ kind: 'guard', title: 'Guardrail: a required handoff was missing, so the software escalated', detail: flags.reasons.join('; ') });
       if (!ctx.sentReply) fx.deliver(`${nameLead(lead.name)}I have passed this to a teammate who will follow up with you directly. - ${this.config.business.agentName} (AI)`);
