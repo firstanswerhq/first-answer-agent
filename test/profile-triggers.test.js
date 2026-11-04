@@ -70,3 +70,13 @@ for (const name of ['dental', 'salon', 'accounting']) {
     for (const m of HUMAN_BY_DESIGN[name]) assert.equal(mustEscalate(classify(m, profile)), true, m);
   });
 }
+
+test('[dental] every way of saying bleeding will not stop is urgent, and ordinary gum talk is not', () => {
+  const profile = loadProfile('dental');
+  for (const m of ['My gums are bleeding and will not stop', 'I cannot stop the bleeding', "won't stop bleeding", "bleeding won't stop", 'can not stop bleeding', "I can't stop the bleeding", 'my gum will not stop bleeding', 'the bleeding does not stop', "bleeding doesn't stop", 'cant stop my bleeding', 'It is bleeding and wont stop', 'I am unable to stop the bleeding']) {
+    assert.equal(mustEscalate(classify(m, profile)), true, m);
+  }
+  for (const m of ['My gums bleed a little when I floss', 'Do you treat bleeding gums?', 'I stopped flossing because my gums are sore', 'Can I stop by tomorrow to pick up a form?']) {
+    assert.equal(mustEscalate(classify(m, profile)), false, m);
+  }
+});

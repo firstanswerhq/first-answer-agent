@@ -43,7 +43,7 @@
     { "id": "urgent_visit", "label": "Urgent dental visit", "group": "b", "price": null, "keywords": ["toothache", "tooth hurts", "tooth is hurting", "aching", "chipped", "cracked tooth", "broken tooth", "sensitive tooth"] }
   ],
   "urgency": {
-    "emergencyPhrases": ["severe pain", "unbearable pain", "knocked out", "tooth fell out", "bleeding (that )?(will not|won't|wont|does not|doesn't) stop", "can't stop (the )?bleeding", "swelling in (my|his|her|their) (face|jaw|neck)", "(face|jaw) is (swollen|swelling)", "abscess(es)?\\b", "trouble (breathing|swallowing)", "can't (breathe|swallow)"],
+    "emergencyPhrases": ["severe pain", "unbearable pain", "knocked out", "tooth fell out", "bleeding (and |that |which )?(will not|won't|wont|does not|doesn't|doesnt|is not|isn't) stop\\b", "(will not|won't|wont|can't|cant|cannot|can not|unable to|does not|doesn't) stop (the |my |his |her )?bleeding\\b", "swelling in (my|his|her|their) (face|jaw|neck)", "(face|jaw) is (swollen|swelling)", "abscess(es)?\\b", "trouble (breathing|swallowing)", "can't (breathe|swallow)"],
     "urgentWords": ["asap", "urgent", "today", "soon", "tonight", "as soon as possible"],
     "label": "Dental emergency",
     "defaultService": "urgent_visit",
