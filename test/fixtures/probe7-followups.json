@@ -1,0 +1,82 @@
+[
+ {
+  "first": "Is there anything open this week for an exam?",
+  "offerText": "Hi Ada! I'm the Brightwater scheduling assistant (AI). Yes \u2014 we have openings this week for a cleaning and checkup ($110-190): Thu Nov 5 at 10:00 AM, 1:00 PM, or 3:00 PM. If you're a brand-new patient and want the new patient exam with X-rays instead, just say so and I'll adjust. Which time works? - Brightwater scheduling assistant (AI)",
+  "offers": [
+   "2026-11-05T10:00",
+   "2026-11-05T13:00",
+   "2026-11-05T15:00"
+  ],
+  "followup": "the first one",
+  "recordedBooked": true
+ },
+ {
+  "first": "Looking for an exam next week",
+  "offerText": "Hi Bo! I'm the Brightwater Family Dental scheduling assistant (AI). We have openings next week: Mon Nov 9 at 8:00 AM, 11:00 AM, or 1:00 PM. A cleaning and checkup is $110-$190 and takes about an hour. Which time works for you? - Brightwater scheduling assistant (AI)",
+  "offers": [
+   "2026-11-09T08:00",
+   "2026-11-09T11:00",
+   "2026-11-09T13:00"
+  ],
+  "followup": "earliest please",
+  "recordedBooked": false
+ },
+ {
+  "first": "Need a kid cleaning after school next week, he is 8",
+  "offerText": "Hi Cy, this is the Brightwater scheduling assistant (AI). Happy to get your 8-year-old in for a cleaning and checkup next week. After-school openings: Mon, Nov 9 at 2:00 PM, 3:00 PM, or 4:00 PM. The visit runs about an hour and the cost is typically $110-$190. Which time works? - Brightwater scheduling assistant (AI)",
+  "offers": [
+   "2026-11-09T14:00",
+   "2026-11-09T15:00",
+   "2026-11-09T16:00"
+  ],
+  "followup": "option 2",
+  "recordedBooked": true
+ },
+ {
+  "first": "Do you have a Wednesday afternoon?",
+  "offerText": "Hi Di! This is the Brightwater scheduling assistant (AI). Happy to look at Wednesday afternoons for you \u2014 what would you like to come in for: a cleaning and checkup, a new patient exam, or something else? - Brightwater scheduling assistant (AI)",
+  "offers": [],
+  "followup": "yes that works",
+  "recordedBooked": false
+ },
+ {
+  "first": "Thursday morning work for you guys?",
+  "offerText": "Hi Ed, this is the Brightwater scheduling assistant (AI). Thursday morning we have 11:00 AM open; 1:00 PM and 2:00 PM are also free that day. What would you like to come in for \u2014 a cleaning and checkup, a new patient exam, or something else? - Brightwater scheduling assistant (AI)",
+  "offers": [
+   "2026-11-05T11:00",
+   "2026-11-05T13:00",
+   "2026-11-05T14:00"
+  ],
+  "followup": "the second one",
+  "recordedBooked": false
+ },
+ {
+  "first": "What is the earliest you have?",
+  "offerText": "Hi Fi! I'm the Brightwater scheduling assistant (AI). Our earliest openings are: Thu, Nov 5 at 11:00 AM, 1:00 PM, or 2:00 PM. Which visit do you need \u2014 a cleaning and checkup, a new patient exam with X-rays, or something else? - Brightwater scheduling assistant (AI)",
+  "offers": [
+   "2026-11-05T11:00",
+   "2026-11-05T13:00",
+   "2026-11-05T14:00"
+  ],
+  "followup": "sure, book it",
+  "recordedBooked": false
+ },
+ {
+  "first": "Anything sometime Monday?",
+  "offerText": "Hi Gus, thanks for reaching out to Brightwater Family Dental. Happy to help: what would you like to book (for example a cleaning, an exam, a filling or a whitening consultation)? - Brightwater scheduling assistant (AI)",
+  "offers": [],
+  "followup": "the first time",
+  "recordedBooked": false
+ },
+ {
+  "first": "cleaning next week please",
+  "offerText": "Hi Hope! I'm the Brightwater scheduling assistant (AI). Happy to get you in for a cleaning and checkup next week \u2014 open times: Mon, Nov 9 at 8:00 AM, 11:00 AM, or 1:00 PM. That visit runs about an hour and is $110-190. Which works for you? - Brightwater scheduling assistant (AI)",
+  "offers": [
+   "2026-11-09T08:00",
+   "2026-11-09T11:00",
+   "2026-11-09T13:00"
+  ],
+  "followup": "the last one",
+  "recordedBooked": true
+ }
+]

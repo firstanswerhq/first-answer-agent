@@ -1,7 +1,7 @@
 // Offline rules engine. It follows the SAME path as the model: qualify, check the
 // calendar, reply, book, schedule a follow-up, escalate. It calls the very same
 // guarded functions. Deterministic, no network.
-import { requestedClock, partOfDay, pastDay, detectService, detectServices, detectLocation, wantsOutsideHours, pickSlot, slotCandidates, declinesSlots, requestedDay, slotOnDay } from './extract.js';
+import { requestedClock, partOfDay, pastDay, detectService, detectServices, detectLocation, wantsOutsideHours, pickSlot, slotCandidates, declinesSlots, requestedDay, slotOnDay, windowOf, picksOffered } from './extract.js';
 import { firstName, money } from './util.js';
 import { CHANGE_REQUEST, isOffTopic } from './safety.js';
 import { slotLabel, addDays, dateOf, localNow, isOpenNow, dateLabel, listSlots, slotsForDate, fmtClock } from './calendar.js';
@@ -65,7 +65,18 @@ export async function runRules(ctx, fx, trigger) {
   if (service === 'other' && !flags.emergency && !flags.handoff && !flags.topic) {
     const generic = latest.match(/\b(exam|check-?up|cleaning|consultation|appointment|visit|session|booking)\b/i);
     const asksTimes = requestedDay(latest, dateOf(localNow(ctx.now(), config.business.tz))) || /\b(asap|as soon as possible|soonest|earliest|right away|openings?|availab\w*|anything open|open (?:today|tomorrow))\b/i.test(latest);
-    if (generic && asksTimes) {
+    const offeredNow = lead.offeredSlots || [];
+    const picking = trigger !== 'new_lead' && offeredNow.length && picksOffered(latest, offeredNow);
+    const plainWhen = /\b(?:mornings?|afternoons?|asap|as soon as possible|soonest|earliest|right away|openings?|availab\w*|anything|something|sometime|this week|next week|tomorrow|today|open)\b/i.test(latest);
+    if (picking) {
+      // The customer picked one of the times already offered: never ask the visit type again. Use the one from the inquiry, else the main service.
+      const fromInquiry = detectService(customerText, config);
+      service = fromInquiry !== 'other' ? fromInquiry : (customerText.match(/\b(exam|check-?up)\b/i) && config.services.find((x) => /exam|check/i.test(x.label) && !/\bnew\b/i.test(x.label))?.id) || config.services.find((x) => x.price && !/\bnew\b/i.test(x.label))?.id || 'other';
+      ctx.serviceDefaulted = service !== 'other';
+    } else if (!generic && (asksTimes || plainWhen) && !(/\b(?:are you open|do you open|what(?:'s| is| are)? (?:your |the )?hours|what time do you (?:open|close)|open on)\b/i.test(latest) && !/\b(?:openings?|availab\w*|appointments?|book\w*|schedul\w*|slots?)\b/i.test(latest)) && !flags.offTopic && !isOffTopic(latest, config.profile) && (requestedDay(latest, dateOf(localNow(ctx.now(), config.business.tz))) || /\b(?:asap|as soon as possible|soonest|earliest|this week|next week|tomorrow|today|openings?|availab\w*|mornings?|afternoons?)\b/i.test(latest) || windowOf(latest))) {
+      // A day or "ASAP" with no service word: still a request for times, so show real ones for the main service.
+      service = config.services.find((x) => x.price && !/\bnew\b/i.test(x.label))?.id || 'other';
+    } else if (generic && asksTimes) {
       const word = generic[1].toLowerCase().replace('-', '');
       const saidNew = /\bnew\b/i.test(latest);
       const named = config.services.filter((x) => new RegExp(`\\b${word}`, 'i').test(String(x.label).replace('-', '')));
@@ -201,7 +212,7 @@ export async function runRules(ctx, fx, trigger) {
     const chosen = pickSlot(latest, offered);
     if (chosen) {
       const b = await fx.call('book_appointment', { slot_id: chosen, note: '' });
-      if (b.ok) { await reply(`Booked, ${first}: ${b.label}. ${wording.bookedAfter}`); return; }
+      if (b.ok) { await reply(`Booked, ${first}: ${b.label}${ctx.serviceDefaulted ? ` for your ${lc(q.service_label)}` : ''}. ${wording.bookedAfter}${ctx.serviceDefaulted ? ` If you wanted a different visit, just reply here and a teammate will adjust it.` : ''}`); return; }
       if (b.code === 'visitor_cap' || b.code === 'demo_calendar_full') {
         // Say what happened and bring in a person, instead of offering the same times again.
         await reply(b.code === 'visitor_cap'
@@ -246,7 +257,8 @@ export async function runRules(ctx, fx, trigger) {
   // A specific time on a specific day: say plainly whether it is open. If it is taken, offer the nearest open times that day
   // first (closest to the time asked for), then the next ones after it.
   const clockReq = !declines && reqDay ? requestedClock(latest) : null;
-  const part = !declines && reqDay && !clockReq ? partOfDay(latest) : null;
+  const win = !declines && !clockReq ? windowOf(latest) : null;
+  const part = !declines && reqDay && !clockReq ? (partOfDay(latest) || (win ? 'window' : null)) : null;
   const pastWhen = !declines && !reqDay ? pastDay(latest, todayLocal) : null;
   let timeNote = '';
   let noteDone = false; // the note already says what is open, so nothing more needs adding after it
@@ -276,14 +288,22 @@ export async function runRules(ctx, fx, trigger) {
       sameDay = [...openList].sort((x, y) => dist(x) - dist(y) || y.slot_id.localeCompare(x.slot_id));
       sameDay = [...sameDay.slice(0, 3).sort((x, y) => x.slot_id.localeCompare(y.slot_id)), ...sameDay.slice(3)];
     } else {
-      const inPart = (sl) => (part === 'morning' ? hourOf(sl) < 12 : part === 'afternoon' ? hourOf(sl) >= 12 && hourOf(sl) < 16 : hourOf(sl) >= 16);
-      const label = reqDay.rel === 'today' ? `this ${part}` : `${dayWord} ${part}`;
+      const inPart = (sl) => (part === 'window' ? win.test(hourOf(sl)) : part === 'morning' ? hourOf(sl) < 12 : part === 'afternoon' ? hourOf(sl) >= 12 && hourOf(sl) < 16 : hourOf(sl) >= 16);
+      const label = part === 'window' ? (reqDay.rel === 'today' ? `today ${win.label}` : `${dayWord} ${win.label}`) : reqDay.rel === 'today' ? `this ${part}` : `${dayWord} ${part}`;
       const hit = openList.filter(inPart);
       if (hit.length) { timeNote = `Here is what is open ${label}. `; noteDone = true; sameDay = [...hit, ...openList.filter((sl) => !inPart(sl))]; }
       else if (slotsForDate(reqDay.date, config.hours).length) timeNote = `I do not have anything open ${label}. `;
     }
     const others = cal.slots.filter((sl) => sl.slot_id.slice(0, 10) !== reqDay.date);
     if (sameDay.length) cal.slots = [...sameDay, ...others];
+  }
+  let anyDayNote = '';
+  if (cal.ok && !reqDay && !declines && (partOfDay(latest) || win)) {
+    const wanted = win ? win.label : partOfDay(latest) === 'morning' ? 'in the morning' : partOfDay(latest) === 'afternoon' ? 'in the afternoon' : 'in the evening';
+    const inW = (sl) => { const h = Number(sl.slot_id.slice(11, 13)); return win ? win.test(h) : partOfDay(latest) === 'morning' ? h < 12 : partOfDay(latest) === 'afternoon' ? h >= 12 && h < 16 : h >= 16; };
+    const hit = cal.slots.filter(inW);
+    if (hit.length) { cal.slots = [...hit, ...cal.slots.filter((sl) => !inW(sl))]; anyDayNote = `Here is what is open ${wanted}. `; }
+    else anyDayNote = `I do not have anything open ${wanted} soon, so here are the nearest times. `;
   }
   if (cal.ok) { cal.slots = cal.slots.slice(0, 3); lead.offeredSlots = cal.slots.map((sl) => sl.slot_id); }
   if (!cal.ok || !cal.slots.length) {
@@ -312,7 +332,8 @@ export async function runRules(ctx, fx, trigger) {
       dayNote = `${reqDay.rel ? upper1(reqDay.rel) : dateLabel(reqDay.date)} is ${hol}, and I do not know our holiday hours, so a teammate will confirm holiday hours. These times follow our regular schedule and are not confirmed. `;
       lead.confirmNeeded = lead.confirmNeeded || `Customer asked about ${hol} (${reqDay.date}); a teammate should confirm holiday hours.`;
     }
-  } else if (pastWhen) dayNote = `${dateLabel(pastWhen)} has already passed, so here are the next open times. `;
+  } else if (anyDayNote) dayNote = anyDayNote;
+  else if (pastWhen) dayNote = `${dateLabel(pastWhen)} has already passed, so here are the next open times. `;
   else if (wantsNextWeek && cal.slots.every((sl) => sl.slot_id.slice(0, 10) >= nextMonday)) dayNote = 'Here is what is open next week. ';
   const inLoc = loc.needed && loc.text ? ` in ${loc.text}` : '';
   const body = q.price_range ? `${price.replace(/ usually runs/, inLoc + ' usually runs')}` : `Happy to help with your ${lc(q.service_label)}${inLoc}. ${price}`;

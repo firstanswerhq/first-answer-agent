@@ -124,7 +124,29 @@ export function requestedClock(text) {
 }
 
 /** "morning", "afternoon" or "evening" when the customer gave a part of the day, else null. */
-export const partOfDay = (text) => (/\bmorning\b/i.test(text) ? 'morning' : /\bafternoon\b/i.test(text) ? 'afternoon' : /\bevening\b/i.test(text) ? 'evening' : null);
+export const partOfDay = (text) => (/\bmornings?\b/i.test(text) ? 'morning' : /\bafternoons?\b/i.test(text) ? 'afternoon' : /\bevenings?\b/i.test(text) ? 'evening' : null);
+
+/** "after 3", "before 10 am": a window of start hours as { test(hour), label }, or null. Bare 1-6 are afternoon, 7-11 morning. */
+export function windowOf(text) {
+  const m = /\b(after|before|earlier than|later than)\s+(1[0-2]|[1-9])(?::([0-5]\d))?\s?(a\.?m|p\.?m)?\b(?!\s*(?:years?|people|kids|children))/i.exec(String(text || ''));
+  if (!m) return null;
+  let h = Number(m[2]);
+  if (m[4]) h = (h % 12) + (/^p/i.test(m[4]) ? 12 : 0);
+  else if (h >= 1 && h <= 6) h += 12;
+  const after = /after|later/i.test(m[1]);
+  const clock = `${h % 12 || 12}${m[3] ? ':' + m[3] : ''} ${h >= 12 ? 'PM' : 'AM'}`;
+  return { test: (x) => (after ? x >= h : x < h), label: `${after ? 'after' : 'before'} ${clock}` };
+}
+
+/** Could this short customer message be choosing among times already offered (a number, "the second one", "earliest", "yes", a time)? */
+export function picksOffered(text, slots) {
+  if (!slots?.length) return false;
+  const t = String(text || '').trim();
+  if (t.length > 80) return false;
+  if (pickSlot(t, slots)) return true;
+  if (/^(?:yes|yep|yeah|sure|ok|okay|that works|works for me|sounds good|perfect|book it|let'?s do it)\b/i.test(t)) return true;
+  return slotCandidates(t, slots).length > 1;
+}
 
 /** An explicit date earlier than today ("Nov 1", "11/1"), or null. Weekday names and later dates are not past. */
 export function pastDay(text, today) {

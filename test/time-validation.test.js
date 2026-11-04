@@ -74,6 +74,6 @@ test('model_timeout during a booking follow-up: the rules still honor the pick',
   const offered = [...l.offeredSlots];
   env.agent.llm = fakeLlm([() => { clock.advance(19000); return reply(call('qualify_lead', { service: 'checkup', urgency: 'routine' })); }, reply(call('send_reply', { text: 'Booked!' }))]);
   const { done } = env.svc.addCustomerMessage(l.id, 'The first time you offered works great, please book that one.'); await done;
-  assert.equal(l.lastFallbackReason, 'model_timeout');
+  assert.equal(l.lastFallbackReason, 'offer_pick'); // a pick among offered times never waits for the model
   assert.equal(env.store.bookingForLead(l.id)?.slot_id, offered[0]);
 });

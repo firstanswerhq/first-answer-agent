@@ -4,6 +4,7 @@
 import { Functions, toolDefs } from './functions.js';
 import { classify, mustEscalate, CHANGE_REQUEST } from './safety.js';
 import { runRules, medicalText } from './rules.js';
+import { picksOffered } from './extract.js';
 import { LlmError } from './llm.js';
 import { rid, firstName } from './util.js';
 import { localNow, isOpenNow } from './calendar.js';
@@ -322,6 +323,9 @@ export class Agent {
     let handledInCode = false;
     const fastPath = !flags.medical && (flags.injection || flags.complaint || !!flags.topic || (flags.emergency && !config.limits.emergencyHolds));
 
+    const lastAgentText = [...lead.messages].reverse().find((m) => m.from === 'agent')?.text || '';
+    const pickRoute = trigger === 'customer_reply' && !flags.any && !store.bookingForLead(lead.id) && !!lead.offeredSlots?.length
+      && /\b\d{1,2}(?::\d\d)?\s?(?:a\.?m|p\.?m)\b/i.test(lastAgentText) && picksOffered(lastCustomer?.text || '', lead.offeredSlots);
     const globalOk = this.underHourlyCap();
     const ipOk = this.underIpCap(ipKey);
     if (flags.medical) {
@@ -333,6 +337,13 @@ export class Agent {
       ctx.writer = 'safety';
       ctx.fallbackReason = 'safety_path';
       step({ kind: 'mode', title: 'Checked in code, handed to a person', detail: `No AI call needed; a safe reply is sent now. ${flags.reasons.join('; ')}` });
+      await runRules(ctx, fx, trigger);
+    } else if (pickRoute) {
+      // A short reply that chooses one of the times already offered is handled by software: it books that time, or asks which one.
+      handledInCode = true;
+      ctx.writer = 'rules';
+      ctx.fallbackReason = 'offer_pick';
+      step({ kind: 'mode', title: 'The customer chose among the times already offered, so the built-in rules handled it', detail: 'No AI call needed' });
       await runRules(ctx, fx, trigger);
     } else if (!config.forceOffline && this.llm?.configured && globalOk && ipOk) {
       this.reserveModelRun(ipKey);
