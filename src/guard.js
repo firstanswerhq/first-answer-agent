@@ -92,6 +92,7 @@ export function calendarProblem(text, slotIds) {
   const hours = new Set(h24.map((h) => h % 12 || 12));
   const nums = [...bare.matchAll(/(?<![\d:.])(1[0-2]|[1-9])(?::[0-5]\d)?(?!\d)/g)].map((m) => Number(m[1]));
   for (const m of bare.matchAll(/(?<![\d:])(1[3-9]|2[0-3]):[0-5]\d(?!\d)/g)) nums.push(Number(m[1]) % 12 || 12);
+  for (const m of bare.matchAll(/(?<![\d:])(0[6-9]|1[0-9]|2[0-3])[0-5]0(?:\s?hours?)?(?!\d)/g)) if (/hours?|h\b/i.test(m[0])) nums.push(Number(m[1]) % 12 || 12);
   const WORD = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12 };
   for (const m of bare.matchAll(/\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)(?: o'?clock|\s?(?:[ap]\.?m\b))/gi)) nums.push(WORD[m[1].toLowerCase()]);
   if (nums.some((n) => hours.has(n))) return null;
