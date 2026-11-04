@@ -308,7 +308,7 @@ export class Functions {
     // Only the model's own wording is checked for booking claims; the software's fixed texts are written after a real booking.
     const booking = store.bookingForLead(lead.id);
     const model = this.ctx.writer === 'model';
-    return { model, offeredSlots: model && !booking ? this.ctx.calendarOffer || null : null, booked: !!booking || this.ctx.writer !== 'model', booking: this.ctx.writer === 'model' ? booking : null, ownPhones: [config.business.phone] };
+    return { model, offeredSlots: model && !booking ? this.ctx.calendarOffer || null : null, booked: !!booking || this.ctx.writer !== 'model', booking: this.ctx.writer === 'model' ? booking : null, ownPhones: [config.business.phone], knownRanges: (config.services || []).map((x) => x.price).filter((x) => x && x.high > 0) };
   }
 
   // 4. send_reply

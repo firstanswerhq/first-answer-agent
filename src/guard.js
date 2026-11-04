@@ -159,7 +159,9 @@ export function checkOutboundRule(rawText, lead, opts = {}) {
   if (LEAK.test(text)) return { id: 'leak', message: 'Message appears to reveal internal instructions.' };
   const amounts = amountsIn(text);
   if (amounts.length) {
-    const ranges = [lead?.qualification?.priceRange, lead?.qualification?.alsoPriceRange].filter(Boolean);
+    let ranges = [lead?.qualification?.priceRange, lead?.qualification?.alsoPriceRange].filter(Boolean);
+    // Before qualify_lead ran, any approved range from the price book may be quoted (for example a duration answer that mentions the usual cost).
+    if (!lead?.qualification && opts.knownRanges?.length) ranges = opts.knownRanges;
     if (!ranges.length) return { id: 'price', message: 'No price may be quoted for this service. Say the cost is confirmed in person, or escalate_to_human.' };
     const bad = amounts.find((a) => !ranges.some((pr) => a >= pr.low && a <= pr.high));
     if (bad !== undefined) return { id: 'price', message: `Price ${money(bad)} is outside the price book range${ranges.length > 1 ? 's' : ''} ${ranges.map((pr) => `${money(pr.low)}-${money(pr.high)}`).join(' and ')}. Quote only ${ranges.length > 1 ? 'those ranges' : 'that range'} or escalate_to_human.` };
