@@ -96,7 +96,16 @@ export function requestedDay(text, today) {
   if (/\btomorrow\b/.test(t)) return { date: addDay(today, 1), dow: dowOf(addDay(today, 1)), weekday: false, rel: 'tomorrow' };
   for (let i = 0; i < 7; i += 1) {
     const date = addDay(today, i);
-    if (namesWeekday(t, dowOf(date))) return { date, dow: dowOf(date), weekday: true };
+    if (namesWeekday(t, dowOf(date))) {
+      // "next Thursday" is the Thursday of next week, not the one coming up this week
+      const nextTok = new RegExp(`\\bnext\\s+(?:${WEEKDAYS[dowOf(date)].slice(0, 3)}[a-z]*)\\b`).test(t);
+      if (nextTok) {
+        const mon = addDay(today, -((dowOf(today) + 6) % 7));
+        const d2 = date < addDay(mon, 7) ? addDay(date, 7) : date;
+        return { date: d2, dow: dowOf(d2), weekday: false };
+      }
+      return { date, dow: dowOf(date), weekday: true };
+    }
   }
   return null;
 }
@@ -126,16 +135,34 @@ export function requestedClock(text) {
 /** "morning", "afternoon" or "evening" when the customer gave a part of the day, else null. */
 export const partOfDay = (text) => (/\bmornings?\b/i.test(text) ? 'morning' : /\bafternoons?\b/i.test(text) ? 'afternoon' : /\bevenings?\b/i.test(text) ? 'evening' : null);
 
-/** "after 3", "before 10 am": a window of start hours as { test(hour), label }, or null. Bare 1-6 are afternoon, 7-11 morning. */
+/** A window of start hours as { test(hour), label }, or null: after/before N, between A and B, after lunch, before noon. Bare 1-6 are afternoon, 7-11 morning. */
 export function windowOf(text) {
-  const m = /\b(after|before|earlier than|later than)\s+(1[0-2]|[1-9])(?::([0-5]\d))?\s?(a\.?m|p\.?m)?\b(?!\s*(?:years?|people|kids|children))/i.exec(String(text || ''));
-  if (!m) return null;
-  let h = Number(m[2]);
-  if (m[4]) h = (h % 12) + (/^p/i.test(m[4]) ? 12 : 0);
-  else if (h >= 1 && h <= 6) h += 12;
-  const after = /after|later/i.test(m[1]);
-  const clock = `${h % 12 || 12}${m[3] ? ':' + m[3] : ''} ${h >= 12 ? 'PM' : 'AM'}`;
-  return { test: (x) => (after ? x >= h : x < h), label: `${after ? 'after' : 'before'} ${clock}` };
+  const t = String(text || '');
+  const hr = (n, ap) => (ap ? (Number(n) % 12) + (/^p/i.test(ap) ? 12 : 0) : Number(n) >= 1 && Number(n) <= 6 ? Number(n) + 12 : Number(n));
+  const fmt = (h) => `${h % 12 || 12} ${h >= 12 ? 'PM' : 'AM'}`;
+  let m = /\bbetween\s+(1[0-2]|[1-9])(?::[0-5]\d)?\s?(a\.?m|p\.?m)?\s+(?:and|to|&)\s+(1[0-2]|[1-9])(?::[0-5]\d)?\s?(a\.?m|p\.?m)?\b/i.exec(t);
+  if (m) {
+    const e = hr(m[3], m[4]);
+    let b = hr(m[1], m[2] || (m[4] && Number(m[1]) <= Number(m[3]) ? m[4] : null));
+    if (b >= e) b -= 12;
+    return { test: (x) => x >= b && x < e, label: `between ${fmt(b)} and ${fmt(e)}` };
+  }
+  if (/\bafter lunch\b/i.test(t)) return { test: (x) => x >= 13, label: 'after lunch' };
+  m = /\b(after|before|earlier than|later than)\s+(1[0-2]|[1-9])(?::([0-5]\d))?\s?(a\.?m|p\.?m)?\b(?!\s*(?:years?|people|kids|children))/i.exec(t);
+  if (m) {
+    const h = hr(m[2], m[4]);
+    const after = /after|later/i.test(m[1]);
+    return { test: (x) => (after ? x >= h : x < h), label: `${after ? 'after' : 'before'} ${h % 12 || 12}${m[3] ? ':' + m[3] : ''} ${h >= 12 ? 'PM' : 'AM'}` };
+  }
+  if (/\b(?:after|before)\s+noon\b/i.test(t)) return /after/i.test(t.match(/\b(after|before)\s+noon/i)[1]) ? { test: (x) => x >= 12, label: 'after noon' } : { test: (x) => x < 12, label: 'before noon' };
+  return null;
+}
+
+/** A request for a clock time that none of the offered slots has ("can you do 2 pm instead"). */
+export function asksOtherTime(text, slots) {
+  const t = String(text || '');
+  if (!slots?.length || t.length > 100 || windowOf(t) || pickSlot(t, slots) || slotCandidates(t, slots).length) return false;
+  return !!requestedClock(t) && /\b(?:instead|rather|can you do|could you do|how about|what about|do you have|is .{1,12} (?:open|available)|any chance)\b/i.test(t);
 }
 
 /** Could this short customer message be choosing among times already offered (a number, "the second one", "earliest", "yes", a time)? */
@@ -203,7 +230,10 @@ export function pickSlot(text, slots) {
   if (!slots?.length) return null;
   const yes = /^(yes|yep|yeah|sure|ok|okay|that works|works for me|sounds good|perfect|book it|let'?s do it)\b/.test(t.trim());
   // The offers are numbered "1) ... 2) ...", so a bare number picks that option: "2", "2)", "#2", "number 2", "I will take 2".
-  const num = /^\s*(?:#|no\.?\s*|number\s*|option\s*)?([1-9])\s*[.)]?\s*(?:please|pls|thanks|thank you)?\s*[.!]*\s*$/.exec(t) || /\b(?:take|pick|choose|want|go with|book)\s+(?:number\s+|option\s+|#)?([1-9])\b(?!\s*(?::|a\.?m|p\.?m))/.exec(t);
+  const NUMW = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6 };
+  const numWord = /^\s*(?:(?:ok(?:ay)?|yes|yeah|yep|sure)[,!.]?\s+)?(?:(?:i(?:'ll| will)? (?:take|pick|choose|want)|let'?s (?:do|go with)|go with|book|take)\s+)?(?:the\s+)?(?:number|option|choice|#)\s*(one|two|three|four|five|six)\b/.exec(t);
+  if (numWord && slots[NUMW[numWord[1]] - 1]) return slots[NUMW[numWord[1]] - 1];
+  const num = /^\s*(?:(?:ok(?:ay)?|yes|yeah|yep|sure)[,!.]?\s+)?(?:the\s+)?(?:#|no\.?\s*|number\s*|option\s*)?([1-9])(?:(?:st|nd|rd|th)?\s+(?:one|option|choice|slot))?\s*[.)]?\s*(?:please|pls|thanks|thank you)?\s*[.!]*\s*$/.exec(t) || /\b(?:take|pick|choose|want|go with|book)\s+(?:number\s+|option\s+|#)?([1-9])\b(?!\s*(?::|a\.?m|p\.?m))/.exec(t);
   if (num && slots[Number(num[1]) - 1]) return slots[Number(num[1]) - 1];
   const wi = wordPick(t, slots);
   if (wi) return wi;
@@ -228,11 +258,13 @@ function wordPick(t, slots) {
   let m = /\b(?:the\s+)?(first|second|third)\s+(?:one|option|choice|slot|time\s+(?:you|that)\s+(?:offered|mentioned|gave|listed|suggested|sent)|(?:you|that)\s+(?:offered|mentioned|gave|listed|suggested)|offered|mentioned|of those|of them)\b/.exec(t)
     || /\b(?:book|take|pick|choose|want|go with|do)\s+(?:the\s+)?(first|second|third)\b(?!\s+(?:time|visit|appointment|child|kid|day of))/.exec(t);
   if (m) return slots[ORD[m[1]]] || null;
+  if (/\bthe (?:earlier|sooner) (?:one|time|option|slot)\b/.test(t) && n >= 2) return slots[0];
+  if (/\bthe (?:later|latter) (?:one|time|option|slot)\b/.test(t) && n >= 2) return slots[n - 1];
   if (/\b(?:the\s+)?(?:earliest|soonest)(?:\s+(?:one|time|option|slot))?\b/.test(t) && !/\b(?:any|anything|available|openings?)\b/.test(t)) return slots[0];
   if (/\b(?:the\s+)?last\s+(?:one|option|slot|time\s+(?:you|that)\s+(?:offered|mentioned))\b|\b(?:book|take|pick|choose|go with)\s+(?:the\s+)?last\b/.test(t)) return slots[n - 1];
   if (n === 1 && /\b(?:that|this)\s+one\b|\b(?:book|take|pick|choose)\s+(?:that|it)\b/.test(t)) return slots[0];
   // A bare hour: "11 works", "the 2 one", "Tuesday at 2". The hour must match exactly one offered slot (and the named weekday, if any).
-  const h = /^\W*(?:the\s+)?(1[0-2]|[1-9])(?::00)?\s*(?:o'?clock\s*)?(?:works|is good|is fine|is great|sounds good|please|one)?\W*$/.exec(t) || /\b(?:on\s+)?(?:sunday|monday|tuesday|wednesday|thursday|friday|saturday)\s+at\s+(1[0-2]|[1-9])(?::00)?\b(?!\s*(?::|a\.?m|p\.?m))/.exec(t);
+  const h = /\bthe (?:one|time|slot) at (1[0-2]|[1-9])(?::00)?\b(?!\s*(?::|a\.?m|p\.?m))/.exec(t) || /^\W*(?:the\s+)?(1[0-2]|[1-9])(?::00)?\s*(?:o'?clock\s*)?(?:works|is good|is fine|is great|sounds good|please|one)?\W*$/.exec(t) || /\b(?:on\s+)?(?:sunday|monday|tuesday|wednesday|thursday|friday|saturday)\s+at\s+(1[0-2]|[1-9])(?::00)?\b(?!\s*(?::|a\.?m|p\.?m))/.exec(t);
   if (h) {
     const hit = slots.filter((id) => (Number(id.slice(11, 13)) % 12 || 12) === Number(h[1]) && (!WEEKDAYS.some((_, i) => namesWeekday(t, i)) || WEEKDAYS.some((_, i) => namesWeekday(t, i) && slotDow(id) === i)));
     if (hit.length === 1) return hit[0];
@@ -247,4 +279,18 @@ function slotDow(id) {
 
 export function declinesSlots(text) {
   return /\b(none|neither|different|another|other (day|time)|later|next week|doesn'?t work|don'?t work|can'?t make|not (good|available)|no thanks?)\b/i.test(text);
+}
+
+/**
+ * A pure availability request: a day, "tomorrow", "next week", "ASAP" or a time window, asking what is open, with no other content
+ * (no price, insurance, family or symptom talk). Software answers these from the calendar without a model call.
+ */
+export function isAvailabilityRequest(text, today) {
+  const t = String(text || '').trim();
+  if (!t || t.length > 100) return false;
+  if (/\b(?:how much|costs?|prices?|insurance|accept|parking|where|why|what (?:is|are|does|do)|how (?:long|do)|do you (?:take|accept|offer|do|work|treat)|can you (?:help|tell|explain)|pain|\w*ache\w*|sore|infect\w*|abscess|fever|hurt|hurts|broken|bleed\w*|swollen|swelling|emergency|urgent|wife|husband|son|daughter|kids?|child|children|year[- ]old|both|family|new patient|cancel|reschedul\w*|move my|change my|refund|complain\w*|hours|what time|do you (?:open|close)|are you open)\b/i.test(t) && !/\b(?:openings?|availab\w*)\b/i.test(t)) return false;
+  if (/\b(?:how much|costs?|prices?|insurance|wife|husband|son|daughter|kids?|child|children|year[- ]old|both|family|pain|hurt|broken|swollen|emergency|cancel|reschedul\w*|refund)\b/i.test(t)) return false;
+  const when = requestedDay(t, today) || windowOf(t) || /\b(?:tomorrow|today|this week|next week|asap|as soon as possible|soonest|earliest|first available|mornings?|afternoons?)\b/i.test(t);
+  const asks = /\b(?:anything|any|open|openings?|availab\w*|do you have|can i (?:come|get|book|see)|could i (?:come|get)|is .{1,25}(?:free|open|available)|soonest|earliest|first available|asap|looking for|need|want|would like|possible)\b/i.test(t);
+  return !!when && (asks || t.length <= 40);
 }

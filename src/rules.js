@@ -1,10 +1,10 @@
 // Offline rules engine. It follows the SAME path as the model: qualify, check the
 // calendar, reply, book, schedule a follow-up, escalate. It calls the very same
 // guarded functions. Deterministic, no network.
-import { requestedClock, partOfDay, pastDay, detectService, detectServices, detectLocation, wantsOutsideHours, pickSlot, slotCandidates, declinesSlots, requestedDay, slotOnDay, windowOf, picksOffered } from './extract.js';
+import { requestedClock, partOfDay, pastDay, detectService, detectServices, detectLocation, wantsOutsideHours, pickSlot, slotCandidates, declinesSlots, requestedDay, slotOnDay, windowOf, picksOffered, asksOtherTime } from './extract.js';
 import { firstName, money } from './util.js';
 import { CHANGE_REQUEST, isOffTopic } from './safety.js';
-import { slotLabel, addDays, dateOf, localNow, isOpenNow, dateLabel, listSlots, slotsForDate, fmtClock } from './calendar.js';
+import { slotLabel, addDays, dateOf, localNow, isOpenNow, dateLabel, listSlots, slotsForDate, fmtClock, openSlots } from './calendar.js';
 import { factAnswers, missingFactText, holidayName } from './facts.js';
 
 const SIGN = (config) => ` - ${config.business.agentName} (AI)`;
@@ -59,12 +59,13 @@ export async function runRules(ctx, fx, trigger) {
   if (lead.qualification?.service && lead.qualification.service !== 'other' && service === 'other') service = lead.qualification.service;
   let loc = detectLocation(customerText, config);
   if (!loc.known && lead.qualification?.location) loc = { text: lead.qualification.location, known: true, inArea: lead.qualification.serviceAreaOk, needed: true };
+  if (lead.serviceDefaulted && detectService(customerText, config) !== 'other') lead.serviceDefaulted = false; // the customer named the visit themselves
   if (flags.emergency && service === 'other' && urgency.defaultService) service = urgency.defaultService;
   // A vague service word with a day, a time or "as soon as possible" ("an exam Thursday at 9", "an appointment ASAP") is still a request for times:
   // pick the service that word names (or the first priced one) instead of asking what to book.
   if (service === 'other' && !flags.emergency && !flags.handoff && !flags.topic) {
     const generic = latest.match(/\b(exam|check-?up|cleaning|consultation|appointment|visit|session|booking)\b/i);
-    const asksTimes = requestedDay(latest, dateOf(localNow(ctx.now(), config.business.tz))) || /\b(asap|as soon as possible|soonest|earliest|right away|openings?|availab\w*|anything open|open (?:today|tomorrow))\b/i.test(latest);
+    const asksTimes = requestedDay(latest, dateOf(localNow(ctx.now(), config.business.tz))) || /\b(this week|next week|sometime|asap|as soon as possible|soonest|earliest|right away|openings?|availab\w*|anything open|open (?:today|tomorrow))\b/i.test(latest);
     const offeredNow = lead.offeredSlots || [];
     const picking = trigger !== 'new_lead' && offeredNow.length && picksOffered(latest, offeredNow);
     const plainWhen = /\b(?:mornings?|afternoons?|asap|as soon as possible|soonest|earliest|right away|openings?|availab\w*|anything|something|sometime|this week|next week|tomorrow|today|open)\b/i.test(latest);
@@ -72,10 +73,11 @@ export async function runRules(ctx, fx, trigger) {
       // The customer picked one of the times already offered: never ask the visit type again. Use the one from the inquiry, else the main service.
       const fromInquiry = detectService(customerText, config);
       service = fromInquiry !== 'other' ? fromInquiry : (customerText.match(/\b(exam|check-?up)\b/i) && config.services.find((x) => /exam|check/i.test(x.label) && !/\bnew\b/i.test(x.label))?.id) || config.services.find((x) => x.price && !/\bnew\b/i.test(x.label))?.id || 'other';
-      ctx.serviceDefaulted = service !== 'other';
+      if (service !== 'other') lead.serviceDefaulted = true;
     } else if (!generic && (asksTimes || plainWhen) && !(/\b(?:are you open|do you open|what(?:'s| is| are)? (?:your |the )?hours|what time do you (?:open|close)|open on)\b/i.test(latest) && !/\b(?:openings?|availab\w*|appointments?|book\w*|schedul\w*|slots?)\b/i.test(latest)) && !flags.offTopic && !isOffTopic(latest, config.profile) && (requestedDay(latest, dateOf(localNow(ctx.now(), config.business.tz))) || /\b(?:asap|as soon as possible|soonest|earliest|this week|next week|tomorrow|today|openings?|availab\w*|mornings?|afternoons?)\b/i.test(latest) || windowOf(latest))) {
       // A day or "ASAP" with no service word: still a request for times, so show real ones for the main service.
       service = config.services.find((x) => x.price && !/\bnew\b/i.test(x.label))?.id || 'other';
+      if (service !== 'other') lead.serviceDefaulted = true;
     } else if (generic && asksTimes) {
       const word = generic[1].toLowerCase().replace('-', '');
       const saidNew = /\bnew\b/i.test(latest);
@@ -201,18 +203,33 @@ export async function runRules(ctx, fx, trigger) {
 
   const todayLocal = dateOf(localNow(ctx.now(), config.business.tz));
   const declines = declinesSlots(latest);
-  const reqDay = declines ? null : requestedDay(latest, todayLocal);
+  let reqDay = declines ? null : requestedDay(latest, todayLocal);
   const offered = lead.offeredSlots || [];
+  // "Can you do 2 pm instead?": a time that was not offered is never booked silently. If it is open, offer it and wait for a yes.
+  let otherTime = false;
+  if (!declines && !reqDay && trigger !== 'new_lead' && offered.length && asksOtherTime(latest, offered)) {
+    const ck = requestedClock(latest);
+    const date = offered[0].slice(0, 10);
+    const wanted = `${date}T${String(ck.hour).padStart(2, '0')}:00`;
+    const info = listSlots(ctx.store, config, ctx.now(), date, 1).find((x) => x.slot_id === wanted);
+    if (!ck.minute && info?.status === 'open') {
+      lead.offeredSlots = [wanted];
+      await reply(`${dateLabel(date, true).split(',')[0]} at ${fmtClock(`${String(ck.hour).padStart(2, '0')}:00`)} is open. Want me to book it?`);
+      return;
+    }
+    otherTime = true;
+    reqDay = { date, dow: new Date(`${date}T12:00:00Z`).getUTCDay(), weekday: false };
+  }
   // The customer named a day (or date) and none of the windows already offered is on it.
   const dayMismatch = !!reqDay && offered.length > 0 && !offered.some((id) => slotOnDay(id, reqDay));
   let bookNote = '';
 
   // 5. Customer is choosing among offered windows.
-  if (offered.length && lead.messages.filter((m) => m.from === 'agent').length > 0 && trigger !== 'new_lead' && !dayMismatch) {
+  if (offered.length && lead.messages.filter((m) => m.from === 'agent').length > 0 && trigger !== 'new_lead' && !dayMismatch && !otherTime) {
     const chosen = pickSlot(latest, offered);
     if (chosen) {
       const b = await fx.call('book_appointment', { slot_id: chosen, note: '' });
-      if (b.ok) { await reply(`Booked, ${first}: ${b.label}${ctx.serviceDefaulted ? ` for your ${lc(q.service_label)}` : ''}. ${wording.bookedAfter}${ctx.serviceDefaulted ? ` If you wanted a different visit, just reply here and a teammate will adjust it.` : ''}`); return; }
+      if (b.ok) { await reply(`Booked, ${first}: ${b.label}${lead.serviceDefaulted ? ` for your ${lc(q.service_label)}` : ''}. ${wording.bookedAfter}${lead.serviceDefaulted ? ` If you wanted a different visit type, just reply and a teammate will adjust.` : ''}`); return; }
       if (b.code === 'visitor_cap' || b.code === 'demo_calendar_full') {
         // Say what happened and bring in a person, instead of offering the same times again.
         await reply(b.code === 'visitor_cap'
@@ -256,11 +273,12 @@ export async function runRules(ctx, fx, trigger) {
   const cal = await fx.call('check_calendar', { days: 10, limit: 6, ...(sinceDate ? { earliest_date: sinceDate } : {}) });
   // A specific time on a specific day: say plainly whether it is open. If it is taken, offer the nearest open times that day
   // first (closest to the time asked for), then the next ones after it.
-  const clockReq = !declines && reqDay ? requestedClock(latest) : null;
-  const win = !declines && !clockReq ? windowOf(latest) : null;
+  const win = !declines ? windowOf(latest) : null;
+  const clockReq = !declines && reqDay && !win ? requestedClock(latest) : null;
   const part = !declines && reqDay && !clockReq ? (partOfDay(latest) || (win ? 'window' : null)) : null;
   const pastWhen = !declines && !reqDay ? pastDay(latest, todayLocal) : null;
   let timeNote = '';
+  let windowOnly = false;
   let noteDone = false; // the note already says what is open, so nothing more needs adding after it
   if (cal.ok && reqDay && (clockReq || part)) {
     const dayName = dateLabel(reqDay.date, true).split(',')[0];
@@ -288,22 +306,25 @@ export async function runRules(ctx, fx, trigger) {
       sameDay = [...openList].sort((x, y) => dist(x) - dist(y) || y.slot_id.localeCompare(x.slot_id));
       sameDay = [...sameDay.slice(0, 3).sort((x, y) => x.slot_id.localeCompare(y.slot_id)), ...sameDay.slice(3)];
     } else {
-      const inPart = (sl) => (part === 'window' ? win.test(hourOf(sl)) : part === 'morning' ? hourOf(sl) < 12 : part === 'afternoon' ? hourOf(sl) >= 12 && hourOf(sl) < 16 : hourOf(sl) >= 16);
+      const inPart = (sl) => (part === 'window' ? win.test(hourOf(sl)) : part === 'morning' ? hourOf(sl) < 12 : part === 'afternoon' ? hourOf(sl) >= 12 && hourOf(sl) < 17 : hourOf(sl) >= 17);
       const label = part === 'window' ? (reqDay.rel === 'today' ? `today ${win.label}` : `${dayWord} ${win.label}`) : reqDay.rel === 'today' ? `this ${part}` : `${dayWord} ${part}`;
       const hit = openList.filter(inPart);
-      if (hit.length) { timeNote = `Here is what is open ${label}. `; noteDone = true; sameDay = [...hit, ...openList.filter((sl) => !inPart(sl))]; }
-      else if (slotsForDate(reqDay.date, config.hours).length) timeNote = `I do not have anything open ${label}. `;
+      if (hit.length) { timeNote = `Here is what is open ${label}. `; noteDone = true; sameDay = hit; windowOnly = true; }
+      else if (slotsForDate(reqDay.date, config.hours).length) timeNote = `Nothing is open ${label}. `;
     }
     const others = cal.slots.filter((sl) => sl.slot_id.slice(0, 10) !== reqDay.date);
-    if (sameDay.length) cal.slots = [...sameDay, ...others];
+    if (windowOnly) cal.slots = sameDay; // only slots inside the window are listed under a window claim
+    else if (sameDay.length) cal.slots = [...sameDay, ...others];
   }
   let anyDayNote = '';
   if (cal.ok && !reqDay && !declines && (partOfDay(latest) || win)) {
-    const wanted = win ? win.label : partOfDay(latest) === 'morning' ? 'in the morning' : partOfDay(latest) === 'afternoon' ? 'in the afternoon' : 'in the evening';
-    const inW = (sl) => { const h = Number(sl.slot_id.slice(11, 13)); return win ? win.test(h) : partOfDay(latest) === 'morning' ? h < 12 : partOfDay(latest) === 'afternoon' ? h >= 12 && h < 16 : h >= 16; };
-    const hit = cal.slots.filter(inW);
-    if (hit.length) { cal.slots = [...hit, ...cal.slots.filter((sl) => !inW(sl))]; anyDayNote = `Here is what is open ${wanted}. `; }
-    else anyDayNote = `I do not have anything open ${wanted} soon, so here are the nearest times. `;
+    const pod = partOfDay(latest);
+    const inW = win ? (h) => win.test(h) : pod === 'morning' ? (h) => h < 12 : pod === 'afternoon' ? (h) => h >= 12 && h < 17 : (h) => h >= 17;
+    const wanted = win ? win.label : pod === 'morning' ? 'in the morning' : pod === 'afternoon' ? 'in the afternoon' : 'in the evening';
+    const wide = openSlots(ctx.store, config, ctx.now(), sinceDate, 21, 200).map((x) => ({ slot_id: x.slot_id, label: x.label }));
+    const hit = wide.filter((x) => inW(Number(x.slot_id.slice(11, 13))));
+    if (hit.length) { cal.slots = hit; anyDayNote = `Here is what is open ${wanted}. `; }
+    else anyDayNote = `Nothing is open ${wanted} in the next few weeks; these are the nearest times. `;
   }
   if (cal.ok) { cal.slots = cal.slots.slice(0, 3); lead.offeredSlots = cal.slots.map((sl) => sl.slot_id); }
   if (!cal.ok || !cal.slots.length) {

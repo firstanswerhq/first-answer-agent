@@ -262,6 +262,8 @@ function fallbackText(code) {
   if (kind === 'loop_limit') return 'model did not finish';
   if (kind === 'quota') return 'hourly AI limit reached';
   if (kind === 'offline') return 'AI model switched off or not connected';
+  if (kind === 'offer_pick') return 'the customer chose among times already offered';
+  if (kind === 'availability_lookup') return 'availability lookup';
   if (kind === 'safety_path') return 'urgent or sensitive message handled in code';
   return '';
 }

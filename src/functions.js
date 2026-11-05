@@ -2,6 +2,7 @@
 // comes from the model or from the offline rules engine: validate arguments, enforce
 // guardrails in code, write state, and record a timeline step.
 import { findZip, pickSlot } from './extract.js';
+import { shownSlots } from './timecheck.js';
 import { cleanText, money, rid, round2, firstName } from './util.js';
 import { openSlots, listSlots, localNow, isRealSlot, isBookableNow, slotLabel, isOpenNow, isValidDate, dateOf, DATE_RE, feedFor, calendarSource, slotCheck, calendarLabel } from './calendar.js';
 
@@ -368,7 +369,7 @@ export class Functions {
           bad = checkOutboundRule(a.text, lead, this.guardOpts());
           if (!bad) return this.deliver(a.text);
           const first = firstName(lead.name);
-          return this.deliver(`Booked${first === 'there' ? '' : ', ' + first}: ${b.label}. ${config.wording.bookedAfter}`);
+          return this.deliver(`Booked${first === 'there' ? '' : ', ' + first}: ${b.label}${lead.serviceDefaulted ? ` for your ${String(lead.qualification?.serviceLabel || 'visit').toLowerCase()}` : ''}. ${config.wording.bookedAfter}${lead.serviceDefaulted ? ' If you wanted a different visit type, just reply and a teammate will adjust.' : ''}`);
         }
       }
     }
@@ -403,6 +404,8 @@ export class Functions {
       for (let i = 0; i < 4 && sig.test(body); i += 1) body = body.replace(sig, '');
       text = `${body.replace(/[\s\-–—]+$/, '')} - ${tail}`;
     }
+    // The slots the customer was actually shown: a later "yes", "the second one" or "11" is read against exactly these.
+    if (this.ctx.writer === 'model') lead.offeredSlots = shownSlots(text, this.timeCheckOpts(), lead.offeredSlots || []);
     const ts = this.ctx.now();
     const msg = { id: rid('M'), ts, from: 'agent', text, simulated: true, by: this.ctx.writer || 'rules', ...(this.ctx.writer !== 'model' && this.ctx.fallbackReason ? { fallbackReason: this.ctx.fallbackReason } : {}), ...extra };
     lead.messages.push(msg);

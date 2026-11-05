@@ -4,10 +4,10 @@
 import { Functions, toolDefs } from './functions.js';
 import { classify, mustEscalate, CHANGE_REQUEST } from './safety.js';
 import { runRules, medicalText } from './rules.js';
-import { picksOffered } from './extract.js';
+import { picksOffered, asksOtherTime, isAvailabilityRequest } from './extract.js';
 import { LlmError } from './llm.js';
 import { rid, firstName } from './util.js';
-import { localNow, isOpenNow } from './calendar.js';
+import { localNow, isOpenNow, dateOf } from './calendar.js';
 
 const ALERT_STEP = {
   sent: { ok: true, title: "Alert sent to the owner's phone" },
@@ -325,7 +325,9 @@ export class Agent {
 
     const lastAgentText = [...lead.messages].reverse().find((m) => m.from === 'agent')?.text || '';
     const pickRoute = trigger === 'customer_reply' && !flags.any && !store.bookingForLead(lead.id) && !!lead.offeredSlots?.length
-      && /\b\d{1,2}(?::\d\d)?\s?(?:a\.?m|p\.?m)\b/i.test(lastAgentText) && picksOffered(lastCustomer?.text || '', lead.offeredSlots);
+      && /\b\d{1,2}(?::\d\d)?\s?(?:a\.?m|p\.?m)\b/i.test(lastAgentText) && (picksOffered(lastCustomer?.text || '', lead.offeredSlots) || asksOtherTime(lastCustomer?.text || '', lead.offeredSlots));
+    const availRoute = !pickRoute && (trigger === 'new_lead' || trigger === 'customer_reply') && !flags.any && !store.bookingForLead(lead.id)
+      && isAvailabilityRequest(lastCustomer?.text || '', dateOf(localNow(this.now(), config.business.tz)));
     const globalOk = this.underHourlyCap();
     const ipOk = this.underIpCap(ipKey);
     if (flags.medical) {
@@ -344,6 +346,13 @@ export class Agent {
       ctx.writer = 'rules';
       ctx.fallbackReason = 'offer_pick';
       step({ kind: 'mode', title: 'The customer chose among the times already offered, so the built-in rules handled it', detail: 'No AI call needed' });
+      await runRules(ctx, fx, trigger);
+    } else if (availRoute) {
+      // A plain "what is open" request (a day, a window, tomorrow, next week, ASAP) is answered from the calendar by software: faster, and always real times.
+      handledInCode = true;
+      ctx.writer = 'rules';
+      ctx.fallbackReason = 'availability_lookup';
+      step({ kind: 'mode', title: 'A plain availability request, so the built-in rules answered from the calendar', detail: 'No AI call needed' });
       await runRules(ctx, fx, trigger);
     } else if (!config.forceOffline && this.llm?.configured && globalOk && ipOk) {
       this.reserveModelRun(ipKey);
