@@ -1,7 +1,7 @@
 // The six functions the agent can call. Every call goes through the same path whether it
 // comes from the model or from the offline rules engine: validate arguments, enforce
 // guardrails in code, write state, and record a timeline step.
-import { findZip, strictPick } from './extract.js';
+import { findZip, strictPick, asksOtherTime } from './extract.js';
 import { shownSlots } from './timecheck.js';
 import { cleanText, money, rid, round2, firstName } from './util.js';
 import { openSlots, listSlots, localNow, isRealSlot, isBookableNow, slotLabel, isOpenNow, isValidDate, dateOf, DATE_RE, feedFor, calendarSource, slotCheck, calendarLabel } from './calendar.js';
@@ -204,7 +204,7 @@ export class Functions {
     try {
       if (this.counts[name] > (name === 'send_reply' ? 3 : 4)) throw new ValidationError('Call limit for this function reached in this run');
       args = validateArgs(schema, rawArgs);
-      result = await this[name](args);
+      result = await this[name](args, source);
     } catch (err) {
       result = { ok: false, error: err instanceof ValidationError ? err.message : 'Function failed' };
       if (name === 'send_reply' && this.ctx.writer === 'model') this.noteReject(err instanceof ValidationError && /long|max|characters|at most/i.test(err.message) ? 'too_long' : 'invalid_args');
@@ -267,7 +267,7 @@ export class Functions {
   }
 
   // 3. book_appointment
-  async book_appointment(a) {
+  async book_appointment(a, source) {
     const { store, config, lead, flags } = this.ctx;
     // The only await comes first: everything below is one synchronous check-and-write, so two runs cannot take one slot.
     await feedFor(config)?.ensureFresh(this.ctx.now());
@@ -277,6 +277,11 @@ export class Functions {
     if (!q) return { ok: false, error: 'Call qualify_lead before book_appointment.' };
     if (!q.inScope) return { ok: false, error: 'This request is not something the business schedules; escalate_to_human.' };
     if (q.serviceAreaOk !== true) return { ok: false, error: q.serviceAreaOk === false ? 'Location is outside the service area; escalate_to_human.' : 'Service area is unconfirmed; ask the customer for a ZIP or neighborhood.' };
+    // A time the customer only ASKED about ("can you do 4 instead?") is offered and confirmed first; it is never booked on a question.
+    if (this.ctx.writer === 'model' && source !== 'guardrail' && !this.customerConfirmed(a.slot_id)) {
+      this.noteReject('unconfirmed_booking');
+      return { ok: false, code: 'unconfirmed_booking', error: 'The customer has not confirmed this time yet. Tell them whether it is open and ask "Want me to book it?" with send_reply; book only after they say yes.' };
+    }
     if (!isRealSlot(a.slot_id, config.hours)) return { ok: false, error: 'That is not a valid appointment time. Business hours: ' + config.hours.text + '. Use a slot_id from check_calendar.' };
     const nowL = localNow(this.ctx.now(), config.business.tz);
     if (!isBookableNow(a.slot_id, nowL, config)) return { ok: false, error: `That time is in the past or too soon (${config.minLeadMinutes / 60} hours notice required).` };
@@ -303,6 +308,16 @@ export class Functions {
     if (lead.status !== 'human') lead.status = 'booked';
     this.cancelFollowups('booked');
     return { ok: true, booking_id: booking.id, slot_id: a.slot_id, label: slotLabel(a.slot_id, config.hours.windowHours), kind: booking.kind };
+  }
+
+  /** True when the latest customer message is an explicit yes/pick of this slot or an outright booking request, not a question about a time. */
+  customerConfirmed(slotId) {
+    const { lead } = this.ctx;
+    const last = [...lead.messages].reverse().find((m) => m.from === 'customer')?.text || '';
+    const offered = lead.offeredSlots || [];
+    if (offered.length && strictPick(last, offered) === slotId) return true;
+    const question = /\?|\b(?:can|could|would|do|does|is|are|how|what)\b.{0,30}\b(?:you|it|that|there)\b|\b(?:how|what) about\b|\binstead\b|\banything\b|\bavailab/i.test(last);
+    return !question && /\b(?:book|schedule|reserve|put me down|sign me up|i(?:'ll| will) take|take it|go ahead)\b/i.test(last) && !asksOtherTime(last, offered);
   }
 
   // The first reason a model reply was refused (a rule id only, never any text); used to explain a fallback to the rules.
