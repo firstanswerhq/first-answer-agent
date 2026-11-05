@@ -30,6 +30,10 @@ if (process.env.PROBE_MODEL !== '0') {
   agent.probeModel().then((ok) => { if (ok === true) console.log('Model check passed: the inference endpoint answered a test call.'); else if (ok === false) console.warn(`Model check FAILED: ${agent.status().lastError}. Running in offline rules mode.`); });
 }
 
+// Background re-check so a recovered model flips the banner back by itself (MODEL_PROBE_INTERVAL_MS; 0 disables).
+const probeEvery = Number(process.env.MODEL_PROBE_INTERVAL_MS ?? 300_000);
+if (process.env.PROBE_MODEL !== '0' && probeEvery > 0) setInterval(() => { agent.maybeRecheck().catch(() => {}); }, probeEvery).unref();
+
 async function shutdown() {
   scheduler.stop();
   await store.flush();

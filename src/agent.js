@@ -178,6 +178,27 @@ export class Agent {
   get ipRunStamps() { return this.shared.ipRunStamps; }
   get stats() { return this.shared.stats; }
 
+  /** Shown as unreachable only after 3 failed attempts in a row, or when the model has never answered and the last attempt failed. One slow call does not flap the banner. */
+  modelDown() {
+    const st = this.stats;
+    return (st.consecutiveFailures || 0) >= 3 || (st.lastModelOk === false && !st.everOk);
+  }
+
+  noteModel(ok, err) {
+    const st = this.stats;
+    st.lastModelAt = this.now();
+    if (ok) { st.lastModelOk = true; st.lastError = ''; st.consecutiveFailures = 0; st.everOk = true; }
+    else { st.lastModelOk = false; st.lastError = String(err?.message || err).slice(0, 160); st.consecutiveFailures = (st.consecutiveFailures || 0) + 1; }
+  }
+
+  /** Background re-check: one tiny test call when the last attempt failed, or the model has not been used for 10 minutes. Not counted in the hourly quota or lead stats. */
+  async maybeRecheck() {
+    if (!this.llm?.configured || this.config.forceOffline) return null;
+    const idle = this.now() - (this.stats.lastModelAt || 0) > 600_000;
+    if (this.stats.lastModelOk === false || idle) return this.probeModel();
+    return null;
+  }
+
   /** Honest description of the current mode for the header badge and /api/health. */
   status() {
     const configured = !!(this.llm?.configured) && !this.config.forceOffline;
@@ -186,7 +207,7 @@ export class Agent {
     if (this.config.forceOffline) label = 'Backup mode: built-in rules';
     else if (!this.llm?.configured) label = 'Backup mode: built-in rules (AI model not connected)';
     else if (!this.underHourlyCap()) { mode = MODE_OFFLINE; label = 'Backup mode: built-in rules (hourly AI limit reached)'; }
-    else if (this.stats.lastModelOk === false) { mode = MODE_OFFLINE; label = 'Backup mode: built-in rules (AI model unreachable)'; }
+    else if (this.modelDown()) { mode = MODE_OFFLINE; label = 'Backup mode: built-in rules (AI model unreachable)'; }
     else label = 'AI model';
     return {
       mode, label,
@@ -197,7 +218,8 @@ export class Agent {
       configuredModel: this.llm?.configured ? this.llm.model : null,
       inferenceConfigured: !!this.llm?.configured,
       lastError: this.stats.lastError || null,
-      modelVerified: configured && this.stats.lastModelOk === true,
+      modelVerified: configured && !this.modelDown() && (this.stats.lastModelOk === true || !!this.stats.everOk),
+      consecutiveModelFailures: this.stats.consecutiveFailures || 0,
       modelRuns: this.stats.modelRuns, offlineRuns: this.stats.offlineRuns,
     };
   }
@@ -210,10 +232,10 @@ export class Agent {
     if (!this.llm?.configured || this.config.forceOffline || typeof this.llm.ping !== 'function') return null;
     try {
       const r = await this.llm.ping();
-      this.stats.lastModelOk = true; this.stats.lastModel = r.model; this.stats.lastError = ''; this.stats.verifiedAt = this.now();
+      this.noteModel(true); this.stats.lastModel = r.model; this.stats.verifiedAt = this.now();
       return true;
     } catch (err) {
-      this.stats.lastModelOk = false; this.stats.lastError = String(err.message || err).slice(0, 160);
+      this.noteModel(false, err);
       return false;
     }
   }
@@ -407,11 +429,9 @@ export class Agent {
           await runRules(ctx, fx, trigger);
         }
         this.stats.modelRuns += 1;
-        this.stats.lastModelOk = true;
-        this.stats.lastError = '';
+        this.noteModel(true);
       } catch (err) {
-        this.stats.lastModelOk = false;
-        this.stats.lastError = String(err.message || err).slice(0, 160);
+        this.noteModel(false, err);
         modelNote = this.stats.lastError;
         runInfo.mode = MODE_OFFLINE;
         ctx.writer = 'rules';

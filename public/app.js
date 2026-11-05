@@ -418,11 +418,15 @@ function renderGuardrails() {
       <div class="card"><div class="card-head"><h2>Always handed to a person</h2></div><div class="card-body"><ul class="rules">
         <li><b>${c.urgency.label}:</b> flagged urgent for a person to call. The customer is told: "${c.urgency.safetyNote}"</li>
         <li><b>Possible medical emergencies</b> in any business: the customer is told to call 911, and the inquiry is flagged for a person.</li>
-        <li><b>Complaints and angry ${c.business.customerWord}s.</b></li>
+        <li><b>Complaints, angry ${c.business.customerWord}s and billing disputes</b> (with a phone alert to the owner).</li>
         ${c.alwaysHuman.map((t) => R(html`<li><b>${upper1(t.replace(/\.$/, ''))}.</b></li>`))}
         <li><b>Schedule changes</b> to an existing booking, or anyone asking for a person.</li>
         <li><b>Out of scope${c.serviceArea ? ' or out of area' : ''}</b> requests, and unclear requests after two questions.</li>
         <li><b>If the AI repeatedly tries something not allowed.</b></li></ul></div></div>
+      <div class="card"><div class="card-head"><h2>Confirmed by a teammate</h2></div><div class="card-body"><ul class="rules">
+        ${(c.confirmByTeammate || []).map((t) => R(html`<li><b>${upper1(t.replace(/\.$/, ''))}.</b></li>`))}
+        <li><b>Payment methods, financing, payment plans, warranty and sliding-scale questions.</b></li>
+        <li>The assistant says a teammate will confirm, answers any scheduling question in the same message, and flags the inquiry on the dashboard. No phone alert is sent for these.</li></ul></div></div>
       ${c.serviceArea ? R(html`<div class="card"><div class="card-head"><h2>Service area</h2></div><div class="card-body"><div class="pillbox">${c.serviceArea.cities.map((x) => R(html`<span>${x}</span>`))}</div></div></div>`) : ''}
       <div class="card"><div class="card-head"><h2>Approved price ranges</h2></div><div class="card-body" style="padding:0"><table class="table"><thead><tr><th>Service</th><th>Price range</th></tr></thead><tbody>${priced.map((p) => R(html`<tr><td>${p.label}</td><td>$${p.price.low.toLocaleString()}–$${p.price.high.toLocaleString()}</td></tr>`))}</tbody></table><p class="sub" style="padding:12px 16px">${quote.length ? `No price quoted by the assistant for: ${quote.join(', ')}. ${c.wording.noQuote}` : 'Every service has a configured range.'}</p></div></div>
     </div>

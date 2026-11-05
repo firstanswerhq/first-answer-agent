@@ -145,7 +145,7 @@ export async function createApp({ config, store = new Store({ file: config.dataF
     feed?.ensureFresh(now()); // warm the cache in the background; never awaited and never throws
     res.json({
       ok: true, version: VERSION, mode: st.mode, modeLabel: st.label, model: st.model,
-      inferenceConfigured: st.inferenceConfigured, modelVerified: st.modelVerified, lastError: st.lastError, quotaReached: st.quotaReached, modelRunsLastHour: st.modelRunsLastHour, modelRunCap: st.modelRunCap, uptimeSec: Math.round((now() - startedAt) / 1000),
+      inferenceConfigured: st.inferenceConfigured, modelVerified: st.modelVerified, consecutiveModelFailures: st.consecutiveModelFailures, lastError: st.lastError, quotaReached: st.quotaReached, modelRunsLastHour: st.modelRunsLastHour, modelRunCap: st.modelRunCap, uptimeSec: Math.round((now() - startedAt) / 1000),
       leads: store.leads.length, pendingFollowups: store.followups.filter((f) => f.status === 'pending').length,
       fallbackReasons: agent.fallbackReasons(), ruleHandled: agent.ruleHandled(), notify: notifier.status(), calendar: calendarHealth(config), business: config.business.name, followupSpeedup: config.followupSpeedup,
     });
@@ -159,7 +159,7 @@ export async function createApp({ config, store = new Store({ file: config.dataF
       business: config.business, wording: config.wording, hours: config.hours, hoursText: config.hours.text,
       serviceArea: config.serviceArea, followupSpeedup: config.followupSpeedup, maxSteps: config.maxSteps, sources: SOURCES,
       services: config.services.map((x) => ({ id: x.id, label: x.label, group: x.group, price: x.price })),
-      alwaysHuman: p.alwaysHuman.map((t) => t.label), urgency: { label: p.urgency.label, safetyNote: p.urgency.safetyNote },
+      alwaysHuman: p.alwaysHuman.filter((t) => t.id !== 'insurance').map((t) => t.label), confirmByTeammate: p.alwaysHuman.filter((t) => t.id === 'insurance').map((t) => t.label), urgency: { label: p.urgency.label, safetyNote: p.urgency.safetyNote },
       agent: agent.status(),
     });
   });
