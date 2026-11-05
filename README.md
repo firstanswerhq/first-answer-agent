@@ -28,13 +28,13 @@ Demo data is fictional and no text or email is ever sent. Please use made-up det
 | Handoff to a person | **Real phone alert plus dashboard status.** When an inquiry is handed to a person, the app sends a push notification to the owner's phone through [ntfy](https://ntfy.sh) (only if `NTFY_TOPIC` is set; see the environment table) and marks the inquiry "Needs a Human" in the dashboard. The alert carries the business name, the customer's first name and a fixed category such as "Angry customer" built in code, never a phone number or any message text. |
 | Intake channels | The **website form is the only real intake channel.** Inquiries shown as "Text message" or "Phone call" are simulated examples and carry a "simulated source" tag in the dashboard. |
 | Customers and sample inquiries | **Simulated** (fictional names, 555 numbers) |
-| The calendar | **Demo calendar by default.** Unless you connect one (see the section below on connecting one), it is the app's own calendar. An optional **read-only** Google Calendar feed can make one business's real busy times block slots; the app never writes to it. The Calendar page, the agent's timeline and `/api/health` always say which calendar was used. Customers can download a calendar file or open a Google Calendar link for a booked demo appointment; that is a sample event in their own calendar, not a booking in any system. |
+| The calendar | **A real, read-only Google Calendar feed is connected on the live demo** (its Busy blocks show on the Calendar page); without a feed, the app uses its own demo calendar. Bookings are saved in the app only. An optional **read-only** Google Calendar feed can make one business's real busy times block slots; the app never writes to it. The Calendar page, the agent's timeline and `/api/health` always say which calendar was used. Customers can download a calendar file or open a Google Calendar link for a booked demo appointment; that is a sample event in their own calendar, not a booking in any system. |
 
 If the AI model is not connected, cannot be reached or has reached its hourly limit, the app switches to **backup mode**: built-in rules that follow the same steps and use the same safety checks. The header badge and `/api/health` say which mode is active. The badge shows a model name only while the AI model is really answering, and `/api/health` reports `modelVerified: true` only after a real test call to the model succeeded.
 
 ## Why it matters
 
-Customers hate waiting on hold, getting voicemail or hearing "someone will call you back", especially when the owner is with another client, on a job site or closed for the night, and the person who finally answers may not know the answer. First Answer Agent answers right away, any hour, and knows the business's hours, services, prices and openings. It asks the one question it needs, offers open times from the demo calendar, books the visit in the app, and brings in a person only when needed, telling the customer so. The dashboard shows how long each reply actually took and whether the AI model or the built-in rules wrote it.
+Customers hate waiting for a callback: voicemail, "someone will call you back", a wait while the owner is with another client, on a job site or closed for the night, and the person who finally answers may not know the answer. With First Answer Agent there is no waiting on hold, voicemail or callbacks: the customer gets an answer right on the page (the website form is the intake channel in this prototype), any hour. The agent knows the business's hours, services, prices and openings. It asks the one question it needs, offers open times from the demo calendar, books the visit in the app, and brings in a person only when needed, telling the customer so. The dashboard shows how long each reply actually took and whether the AI model or the built-in rules wrote it.
 
 ## What you can see in the app
 
@@ -62,11 +62,11 @@ Taken on the live deployment (<https://155-138-206-164.sslip.io>) with the real 
 
 ![Inquiry detail with the step list](docs/screenshots/02-dental-inquiry-detail.jpg)
 
-**3. Calendar.** One week of booked and open appointment times from the app's own calendar, including "too soon", closed and not-bookable slots.
+**3. Calendar.** One week of booked and open appointment times. On the live demo a read-only Google Calendar feed is connected, and its Busy blocks (titles hidden) appear on the Calendar page next to the app's own demo bookings, plus "too soon", closed and not-bookable slots. Retaken from the live app on Nov 4, 2026.
 
 ![Calendar for the dental office](docs/screenshots/03-dental-calendar.jpg)
 
-**4. Results.** Median reply time of live replies with the AI model and built-in rules shown separately, plus a reply time bar per inquiry. The dashboard counts all traffic, including test traffic; see "Measured on the live deployment" for the controlled 30-inquiry test.
+**4. Results.** Median reply time of live replies with the AI model and built-in rules shown separately, plus a reply time bar per inquiry. This is a live screenshot retaken on Nov 4, 2026 and it counts all traffic, including seed and test inquiries (for example, "Needs a person 23 (9%)" includes earlier guardrail test messages). "Appointments booked" shows 0 because demo bookings are released after 30 minutes, so it reads low at any moment. See "Measured on the live deployment" for the controlled 30-inquiry test.
 
 ![Results screen](docs/screenshots/04-dental-results.jpg)
 
@@ -107,6 +107,7 @@ Taken on the live deployment (<https://155-138-206-164.sslip.io>) with the real 
 * Built-in rules answered simple availability and pick requests in about 0.4 s (median). The AI model answered open-ended questions in about 7 s (median). The safety checks apply to both.
 * **0 of 110 offered times** were invented, busy or closed (each offered time was checked against the calendar).
 * **527 automated tests** pass (`npm test`).
+* "7 of 7 live refusals" (used on the deck): in a live run on Nov 4, a customer answered an offered time with a refusal such as "no thanks" seven times and nothing was booked. "192 offline refusal flows": end-to-end flows (dental, salon and accounting profiles, one or three offered times, built-in rules or a model that tries to book the first offered slot, 16 refusal phrasings) run by a separate AI reviewer session (its review 23); all 192 created no booking. Those reviewer scripts are not part of `npm test` and are not in this repository, so treat these two numbers as reported results, not something you can re-run here.
 * The 0.4 s figure is for rules-first replies. An older single-reply figure of about 7.9 s for built-in rules was a fallback that ran after a failed model attempt, which is why it was slow.
 * The live Results screen counts everything that has hit the app, including seed and test traffic, so its totals and percentages differ from this controlled test. Do not compare the two. Reply time is measured from the inquiry arriving to the first reply.
 * "Independent review rounds" (about 23) means separate AI reviewer sessions that tested the code adversarially. They are not human audits.
