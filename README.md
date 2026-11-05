@@ -34,7 +34,7 @@ If the AI model is not connected, cannot be reached or has reached its hourly li
 
 ## Why it matters
 
-For a small business, the first one to answer usually gets the booking. Owners and front-desk staff are with a customer, on the phone or closed for the night. First Answer Agent gives every new inquiry a useful, honest first reply, asks the one question it needs, offers open times from the demo calendar, and sends anything risky straight to a person. The dashboard shows how long each reply actually took and whether the AI model or the built-in rules wrote it.
+Customers hate waiting on hold, getting voicemail or hearing "someone will call you back", especially when the owner is with another client, on a job site or closed for the night, and the person who finally answers may not know the answer. First Answer Agent answers right away, any hour, and knows the business's hours, services, prices and openings. It asks the one question it needs, offers open times from the demo calendar, books the visit in the app, and brings in a person only when needed, telling the customer so. The dashboard shows how long each reply actually took and whether the AI model or the built-in rules wrote it.
 
 ## What you can see in the app
 
