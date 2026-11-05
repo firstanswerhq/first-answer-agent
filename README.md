@@ -66,7 +66,7 @@ Taken on the live deployment (<https://155-138-206-164.sslip.io>) with the real 
 
 ![Calendar for the dental office](docs/screenshots/03-dental-calendar.jpg)
 
-**4. Results.** Median reply time of live replies with the AI model and built-in rules shown separately, plus a reply time bar per inquiry. Numbers are from a frozen snapshot, discussed under "Measured on the live deployment".
+**4. Results.** Median reply time of live replies with the AI model and built-in rules shown separately, plus a reply time bar per inquiry. The dashboard counts all traffic, including test traffic; see "Measured on the live deployment" for the controlled 30-inquiry test.
 
 ![Results screen](docs/screenshots/04-dental-results.jpg)
 
@@ -100,12 +100,17 @@ Taken on the live deployment (<https://155-138-206-164.sslip.io>) with the real 
 
 ## Measured on the live deployment
 
-Frozen snapshot from the Results screen of the live app: **Nov 4, 2026, about 10:25 AM Central**, dental office, live replies only, sample data excluded (screenshot 4).
+**30-inquiry test, Nov 4, 2026 (evening, Central).** We sent 30 scripted inquiries (20 dental, 5 salon, 5 accounting) to the live app, about 14 seconds apart, 15 of them with follow-up messages. This is a small sample of our own test messages, not real customers.
 
-* **Typical reply time (median): 7.0 s over 9 live replies.**
-* AI model: 6.5 s (7 replies). Built-in rules: 7.9 s (2 replies); these include the time spent asking the model first, so backup mode is not instant.
-* 9 of 9 inquiries answered; 2 booked (22%); 3 needed a person (33%).
-* This is a small sample. The live dashboard keeps changing as visitors try it, so the numbers you see there will differ. Reply time is measured from the inquiry arriving to the first reply.
+* **30 of 30 answered. 6 booked (20%)**: the customer picked an offered time during the run; the rest asked questions or did not pick. **0 needed a person**: these were plain scheduling and info questions. Hand-offs (emergencies, angry customers) are covered separately by the guardrail tests and the phone-alert test.
+* **First reply time: median 4.6 s, p90 11.5 s, max 13.5 s.**
+* Built-in rules answered simple availability and pick requests in about 0.4 s (median). The AI model answered open-ended questions in about 7 s (median). The safety checks apply to both.
+* **0 of 110 offered times** were invented, busy or closed (each offered time was checked against the calendar).
+* **527 automated tests** pass (`npm test`).
+* The 0.4 s figure is for rules-first replies. An older single-reply figure of about 7.9 s for built-in rules was a fallback that ran after a failed model attempt, which is why it was slow.
+* The live Results screen counts everything that has hit the app, including seed and test traffic, so its totals and percentages differ from this controlled test. Do not compare the two. Reply time is measured from the inquiry arriving to the first reply.
+* "Independent review rounds" (about 23) means separate AI reviewer sessions that tested the code adversarially. They are not human audits.
+* Demo follow-up timers run 60x faster than real time (`FOLLOWUP_SPEEDUP`, default 60).
 
 What the agent did on the live model for a price question (screenshot 2): the customer asked how much a cleaning and checkup costs for an adult who pays out of pocket. The AI model called `qualify_lead`, then `check_calendar` (4 open windows found), and wrote a reply that quoted the approved range ($110-$190 for a cleaning and checkup) and offered open times from the demo calendar (Wed Nov 4 at 2:00 PM, Thu Nov 5 at 9:00, 10:00 or 11:00 AM). The reply was a simulated send.
 
@@ -295,7 +300,7 @@ Leave `DOMAIN` empty and nothing changes: the app listens on port 80 over plain 
 ## Tests
 
 ```bash
-npm test      # node --test: all tests pass at the time of writing
+npm test      # node --test: 527 tests pass (Nov 4, 2026)
 ```
 
 The same flows (price question and booking, urgent situation, angry customer, prompt injection, after-hours, vague message, always-human topics, medical emergencies, sample day, the assistant's instructions and action definitions) run against all three profiles, plus function validation, approved-price and outgoing-message checks, booking conflicts and demo limits, the safety screening, the built-in rules, follow-up timers, the tool-calling loop against mocked and real local OpenAI-compatible servers, API validation, rate limiting, demo protection, the business switcher and its isolation, wording checks, persistence, and the deploy and update scripts.
