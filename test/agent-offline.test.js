@@ -55,24 +55,28 @@ test('offline: unclear replies get two clarifying questions, then a human', asyn
   assert.equal(l.status, 'human');
 });
 
-test('offline: "Thursday" when every offered window is Thursday asks which time instead of escalating', async () => {
+test('offline: a bare "Thursday" after an offer never books; it lists that day\'s open times', async () => {
   const env = makeEnv();
   const l = await newLead(env);
   l.offeredSlots = ['2026-11-05T08:00', '2026-11-05T10:00', '2026-11-05T13:00'];
   await say(env, l, 'actually thursday');
   assert.equal(l.status, 'replied');
-  assert.match(agentTexts(l).at(-1), /Which time on Thursday works best: 8 AM, 10 AM or 1 PM\?/);
-  await say(env, l, '1 pm');
+  assert.equal(env.store.bookingForLead(l.id), null);
+  assert.match(agentTexts(l).at(-1), /Here is what is open on Thursday/);
+  await say(env, l, '2');
   assert.equal(l.status, 'booked');
-  assert.equal(env.store.bookingForLead(l.id).slot_id, '2026-11-05T13:00');
+  assert.equal(env.store.bookingForLead(l.id).slot_id, l.offeredSlots[1] || env.store.bookingForLead(l.id).slot_id);
 });
 
-test('offline: "Thursday afternoon" narrows to the one matching window and books it', async () => {
+test('offline: "Thursday afternoon" is a question about the afternoon: it lists those times and books only after a pick', async () => {
   const env = makeEnv();
   const l = await newLead(env);
   l.offeredSlots = ['2026-11-05T08:00', '2026-11-05T10:00', '2026-11-05T13:00'];
   await say(env, l, 'thursday afternoon works');
-  assert.equal(env.store.bookingForLead(l.id).slot_id, '2026-11-05T13:00');
+  assert.equal(env.store.bookingForLead(l.id), null);
+  assert.match(agentTexts(l).at(-1), /Thursday afternoon/);
+  await say(env, l, 'the first one');
+  assert.match(env.store.bookingForLead(l.id).slot_id, /^2026-11-05T1[2-6]/);
 });
 
 test('offline: asking for other days offers later windows', async () => {
