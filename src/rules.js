@@ -1,7 +1,7 @@
 // Offline rules engine. It follows the SAME path as the model: qualify, check the
 // calendar, reply, book, schedule a follow-up, escalate. It calls the very same
 // guarded functions. Deterministic, no network.
-import { requestedClock, partOfDay, pastDay, detectService, detectServices, detectLocation, wantsOutsideHours, pickSlot, slotCandidates, declinesSlots, requestedDay, slotOnDay, windowOf, picksOffered, asksOtherTime } from './extract.js';
+import { requestedClock, partOfDay, pastDay, detectService, detectServices, detectLocation, wantsOutsideHours, pickSlot, slotCandidates, declinesSlots, requestedDay, slotOnDay, windowOf, picksOffered, asksOtherTime, strictPick } from './extract.js';
 import { firstName, money } from './util.js';
 import { CHANGE_REQUEST, isOffTopic } from './safety.js';
 import { slotLabel, addDays, dateOf, localNow, isOpenNow, dateLabel, listSlots, slotsForDate, fmtClock, openSlots } from './calendar.js';
@@ -209,6 +209,12 @@ export async function runRules(ctx, fx, trigger) {
   let otherTime = false;
   if (!declines && !reqDay && trigger !== 'new_lead' && offered.length && asksOtherTime(latest, offered)) {
     const ck = requestedClock(latest);
+    const days = [...new Set(offered.map((id) => id.slice(0, 10)))];
+    if (days.length > 1) {
+      const names = days.map((d) => dateLabel(d, true).split(',')[0]);
+      await reply(`Which day did you mean, ${names.slice(0, -1).join(', ')} or ${names.at(-1)}? I will check that time for you.`);
+      return;
+    }
     const date = offered[0].slice(0, 10);
     const wanted = `${date}T${String(ck.hour).padStart(2, '0')}:00`;
     const info = listSlots(ctx.store, config, ctx.now(), date, 1).find((x) => x.slot_id === wanted);
@@ -225,8 +231,10 @@ export async function runRules(ctx, fx, trigger) {
   let bookNote = '';
 
   // 5. Customer is choosing among offered windows.
-  if (offered.length && lead.messages.filter((m) => m.from === 'agent').length > 0 && trigger !== 'new_lead' && !dayMismatch && !otherTime) {
-    const chosen = pickSlot(latest, offered);
+  // A day alone ("Thursday?") after an offer is a question about that day, never a pick: it falls through to that day's open times.
+  const dayAsk = !!reqDay && !strictPick(latest, offered) && !/\d/.test(latest);
+  if (offered.length && lead.messages.filter((m) => m.from === 'agent').length > 0 && trigger !== 'new_lead' && !dayMismatch && !otherTime && !dayAsk) {
+    const chosen = strictPick(latest, offered);
     if (chosen) {
       const b = await fx.call('book_appointment', { slot_id: chosen, note: '' });
       if (b.ok) { await reply(`Booked, ${first}: ${b.label}${lead.serviceDefaulted ? ` for your ${lc(q.service_label)}` : ''}. ${wording.bookedAfter}${lead.serviceDefaulted ? ` If you wanted a different visit type, just reply and a teammate will adjust.` : ''}`); return; }
@@ -250,7 +258,7 @@ export async function runRules(ctx, fx, trigger) {
         return;
       }
       const clock = (id) => { const h = Number(id.slice(11, 13)); return `${h % 12 || 12} ${h >= 12 ? 'PM' : 'AM'}`; };
-      let ask = `Which of these works best: ${offered.map((id, i) => `${i + 1}) ${dateLabel(dateOf(id))} ${clock(id)}`).join('  ')}? Reply with the number or the time.`;
+      let ask = offered.length === 1 ? `Would you like me to book ${dateLabel(dateOf(offered[0]))} ${clock(offered[0])}? Reply yes, or tell me another day or time.` : `Which of these works best: ${offered.map((id, i) => `${i + 1}) ${dateLabel(dateOf(id))} ${clock(id)}`).join('  ')}? Reply with the number or the time.`;
       if (several.length > 1) {
         const days = new Set(several.map((i) => offered[i].slice(0, 10)));
         const dayName = days.size === 1 ? new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', weekday: 'long' }).format(new Date(`${[...days][0]}T12:00:00Z`)) : '';

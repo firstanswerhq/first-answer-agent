@@ -1,7 +1,7 @@
 // The six functions the agent can call. Every call goes through the same path whether it
 // comes from the model or from the offline rules engine: validate arguments, enforce
 // guardrails in code, write state, and record a timeline step.
-import { findZip, pickSlot } from './extract.js';
+import { findZip, strictPick } from './extract.js';
 import { shownSlots } from './timecheck.js';
 import { cleanText, money, rid, round2, firstName } from './util.js';
 import { openSlots, listSlots, localNow, isRealSlot, isBookableNow, slotLabel, isOpenNow, isValidDate, dateOf, DATE_RE, feedFor, calendarSource, slotCheck, calendarLabel } from './calendar.js';
@@ -361,7 +361,7 @@ export class Functions {
     // book that time through the normal guarded path (same caps and checks), then confirm.
     if (bad?.id === 'booking_claim' && this.ctx.writer === 'model' && !this.ctx.store.bookingForLead(lead.id) && lead.offeredSlots?.length && !this.ctx.pickBooked) {
       const last = [...lead.messages].reverse().find((m) => m.from === 'customer')?.text || '';
-      const pick = pickSlot(last, lead.offeredSlots);
+      const pick = strictPick(last, lead.offeredSlots);
       if (pick) {
         this.ctx.pickBooked = true;
         const b = await this.call('book_appointment', { slot_id: pick, note: '' }, 'guardrail');

@@ -94,6 +94,13 @@ export function requestedDay(text, today) {
   if (explicit && explicit >= today) return { date: explicit, dow: dowOf(explicit), weekday: false };
   if (/\btoday\b/.test(t)) return { date: today, dow: dowOf(today), weekday: false, rel: 'today' };
   if (/\btomorrow\b/.test(t)) return { date: addDay(today, 1), dow: dowOf(addDay(today, 1)), weekday: false, rel: 'tomorrow' };
+  // "Thursday the 12th": the date wins; a weekday that does not match that date is not guessed
+  const wn = t.match(/\b(sun|mon|tue|tues|wed|weds|thu|thur|thurs|fri|sat)[a-z]*\.?,?\s+the\s+(\d{1,2})(?:st|nd|rd|th)\b/);
+  if (wn) {
+    const wd = WEEKDAYS.findIndex((w) => w.startsWith(wn[1].slice(0, 3)));
+    for (let i = 0; i < 70; i += 1) { const date = addDay(today, i); if (Number(date.slice(8)) === Number(wn[2]) && dowOf(date) === wd) return { date, dow: wd, weekday: false }; }
+    return null;
+  }
   for (let i = 0; i < 7; i += 1) {
     const date = addDay(today, i);
     if (namesWeekday(t, dowOf(date))) {
@@ -148,7 +155,7 @@ export function windowOf(text) {
     return { test: (x) => x >= b && x < e, label: `between ${fmt(b)} and ${fmt(e)}` };
   }
   if (/\bafter lunch\b/i.test(t)) return { test: (x) => x >= 13, label: 'after lunch' };
-  m = /\b(after|before|earlier than|later than)\s+(1[0-2]|[1-9])(?::([0-5]\d))?\s?(a\.?m|p\.?m)?\b(?!\s*(?:years?|people|kids|children))/i.exec(t);
+  m = /\b(after|before|earlier than|later than)\s+(1[0-2]|[1-9])(?::([0-5]\d))?\s?(a\.?m|p\.?m)?\b(?!\s*(?:years?|yrs?|people|persons?|kids|children|weeks?|days?|months?|visits?|minutes?|mins?|hours?|hrs?|times?|more|of\b|appointments?))/i.exec(t);
   if (m) {
     const h = hr(m[2], m[4]);
     const after = /after|later/i.test(m[1]);
@@ -165,14 +172,34 @@ export function asksOtherTime(text, slots) {
   return !!requestedClock(t) && /\b(?:instead|rather|can you do|could you do|how about|what about|do you have|is .{1,12} (?:open|available)|any chance)\b/i.test(t);
 }
 
-/** Could this short customer message be choosing among times already offered (a number, "the second one", "earliest", "yes", a time)? */
+/**
+ * A pick that software may act on (book): the WHOLE message is a pick. Bare yes/ok/sure/that works/book it, or a number, ordinal, "earliest"
+ * or time that matches a shown option, with no negation, question, extra clause or other person. Anything else returns null (the model or a question handles it).
+ * A bare yes returns the only shown slot, and null when several were shown.
+ */
+export function strictPick(text, slots) {
+  if (typeof text !== 'string' || !slots?.length) return null;
+  const t = text.trim().toLowerCase();
+  if (!t || t.length > 90) return null;
+  if (/\?|n't|\b(?:no|nope|not|never|but|cancel\w*|except|instead|also|too|and|or|how|what|why|when|where|who|wife|husband|son|daughter|kids?|child\w*|mom|mother|dad|father|friend|people|persons?|appointments|everyone|both|anything|else|another|different|other|rather)\b/.test(t)) return null;
+  const rest = t
+    .replace(/\b(?:yes|yeah|yep|yup|ok|okay|sure|please|pls|thanks|thank you|great|perfect|sounds good|that works|works for me|works|book it|book that|book|let'?s do it|go ahead|i'?ll take|i will take|take|i'?ll|i will|i'?d like|would like|want|then)\b/g, ' ')
+    .replace(/[^a-z0-9:]+/g, ' ').trim();
+  if (!rest || rest === 'it' || rest === 'that' || rest === 'that one' || rest === 'it is') return slots.length === 1 ? slots[0] : null;
+  const named = WEEKDAYS.some((_, i) => namesWeekday(rest, i));
+  if (named && !/\d/.test(rest)) return null; // a day alone is a question about that day, not a pick
+  const got = pickSlot(rest, slots);
+  if (!got) return null;
+  const n = /^(?:the\s+)?(?:number\s+|option\s+|#)?([1-9])$/.exec(rest);
+  if (n && slots[Number(n[1]) - 1] !== got) return null;
+  return got;
+}
+
+/** Could this short customer message be choosing among times already offered? Only a strict, whole-message pick counts. */
 export function picksOffered(text, slots) {
   if (!slots?.length) return false;
-  const t = String(text || '').trim();
-  if (t.length > 80) return false;
-  if (pickSlot(t, slots)) return true;
-  if (/^(?:yes|yep|yeah|sure|ok|okay|that works|works for me|sounds good|perfect|book it|let'?s do it)\b/i.test(t)) return true;
-  return slotCandidates(t, slots).length > 1;
+  if (strictPick(text, slots)) return true;
+  return slots.length > 1 && /^\s*(?:yes|yeah|yep|sure|ok|okay|that works|works for me|sounds good|perfect|book it|let'?s do it)(?:[,\s]+(?:please|pls|that works|book it))?\s*[.!]*\s*$/i.test(String(text || ''));
 }
 
 /** An explicit date earlier than today ("Nov 1", "11/1"), or null. Weekday names and later dates are not past. */
@@ -226,7 +253,9 @@ export function slotCandidates(text, slots) {
 
 // Pick one of the offered slots from a customer's reply, or return null if unclear.
 export function pickSlot(text, slots) {
+  if (typeof text !== 'string') return null;
   const t = text.toLowerCase();
+  if (/^\s*(?:no|nope|not)\b(?!\.)/.test(t)) return null; // a refusal is not a pick ("No. 2" with a period still is)
   if (!slots?.length) return null;
   const yes = /^(yes|yep|yeah|sure|ok|okay|that works|works for me|sounds good|perfect|book it|let'?s do it)\b/.test(t.trim());
   // The offers are numbered "1) ... 2) ...", so a bare number picks that option: "2", "2)", "#2", "number 2", "I will take 2".
@@ -282,15 +311,31 @@ export function declinesSlots(text) {
 }
 
 /**
- * A pure availability request: a day, "tomorrow", "next week", "ASAP" or a time window, asking what is open, with no other content
- * (no price, insurance, family or symptom talk). Software answers these from the calendar without a model call.
+ * A pure availability request, decided by a WHITELIST: the message may contain only availability vocabulary (days, dates, times, times of day,
+ * windows, "anything", "open", "available", "do you have", "can I come", ASAP, please/thanks) and the names of the business's own services.
+ * Any other content word (a symptom, a person, a document, a question about cost or access) sends the message to the AI model.
+ * Several different days ("Saturday or Sunday", "Monday through Wednesday") also go to the model.
  */
-export function isAvailabilityRequest(text, today) {
+const AVAIL_WORDS = new Set(('a an the i we you me my it is are was be do does can could would will to of in on at for by from and or if so ' +
+  'hi hello hey please pls thanks thank anything any something sometime some open opening openings available availability avail free ' +
+  'have has get got come see book schedule scheduling appointment appointments visit slot slots time times there ' +
+  'today tomorrow tonight morning mornings afternoon afternoons evening evenings noon lunch midday week next this after before between around about ' +
+  'asap soon soonest earliest first possible as early earlier later latest like looking need want hoping wondering check ' +
+  'am pm oclock o\'clock st nd rd th january february march april may june july august september october november december ' +
+  'jan feb mar apr jun jul aug sep sept oct nov dec monday tuesday wednesday thursday friday saturday sunday mon tue tues wed weds thu thur thurs fri sat sun ' +
+  'what whats what\'s your thing day days').split(/\s+/));
+export function isAvailabilityRequest(text, today, serviceWords = []) {
   const t = String(text || '').trim();
   if (!t || t.length > 100) return false;
-  if (/\b(?:how much|costs?|prices?|insurance|accept|parking|where|why|what (?:is|are|does|do)|how (?:long|do)|do you (?:take|accept|offer|do|work|treat)|can you (?:help|tell|explain)|pain|\w*ache\w*|sore|infect\w*|abscess|fever|hurt|hurts|broken|bleed\w*|swollen|swelling|emergency|urgent|wife|husband|son|daughter|kids?|child|children|year[- ]old|both|family|new patient|cancel|reschedul\w*|move my|change my|refund|complain\w*|hours|what time|do you (?:open|close)|are you open)\b/i.test(t) && !/\b(?:openings?|availab\w*)\b/i.test(t)) return false;
-  if (/\b(?:how much|costs?|prices?|insurance|wife|husband|son|daughter|kids?|child|children|year[- ]old|both|family|pain|hurt|broken|swollen|emergency|cancel|reschedul\w*|refund)\b/i.test(t)) return false;
-  const when = requestedDay(t, today) || windowOf(t) || /\b(?:tomorrow|today|this week|next week|asap|as soon as possible|soonest|earliest|first available|mornings?|afternoons?)\b/i.test(t);
-  const asks = /\b(?:anything|any|open|openings?|availab\w*|do you have|can i (?:come|get|book|see)|could i (?:come|get)|is .{1,25}(?:free|open|available)|soonest|earliest|first available|asap|looking for|need|want|would like|possible)\b/i.test(t);
-  return !!when && (asks || t.length <= 40);
+  if (!(requestedDay(t, today) || windowOf(t) || /\b(?:tomorrow|today|this week|next week|asap|as soon as possible|soonest|earliest|first available|mornings?|afternoons?)\b/i.test(t))) return false;
+  if (/\b(?:are you open|do you (?:open|close)|hours|closed|closing|opens?\b.*\b(?:at|until)\b)/i.test(t) && !/\b(?:openings?|availab\w*)\b/i.test(t)) return false; // hours questions are answered from the business facts
+  const allowed = new Set([...AVAIL_WORDS, ...serviceWords.map((w) => String(w).toLowerCase())]);
+  const words = t.toLowerCase().replace(/(\d)(am|pm)\b/g, '$1 $2').split(/[^a-z0-9'\/:]+/).filter(Boolean);
+  for (const w of words) {
+    if (/^\d{1,2}(?::\d{2})?$/.test(w) || /^\d{1,2}\/\d{1,2}$/.test(w) || /^\d{1,2}(?:st|nd|rd|th)$/.test(w)) continue;
+    if (!allowed.has(w)) return false;
+  }
+  const dayNames = new Set(WEEKDAYS.filter((_, i) => namesWeekday(t.toLowerCase(), i)));
+  if (dayNames.size > 1) return false;
+  return true;
 }
