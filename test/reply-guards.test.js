@@ -61,7 +61,7 @@ test('a real booking made by book_appointment may be confirmed in the model\'s o
   ]);
   const env = makeEnv({ llm });
   void env0;
-  const l = await newLead(env);
+  const l = await newLead(env, { message: 'Please book me a cleaning Thursday at 9am. It is for my daughter.' });
   assert.ok(env.store.bookingForLead(l.id));
   assert.ok(agentTexts(l).some((t) => /all set for Thursday/.test(t)));
 });

@@ -72,7 +72,7 @@ test('e2e: after a real booking the model says it moved the appointment; the lie
     { status: 200, json: { model: 'fake-model-1', choices: [{ message: { role: 'assistant', content: 'You are all set for Friday at 1:00 PM instead. Your appointment is confirmed.' } }] } },
   ]);
   const env = makeEnv({ llm });
-  const l = await newLead(env);
+  const l = await newLead(env, { message: 'Please book me a cleaning Thursday at 9am. It is for my daughter.' });
   assert.ok(env.store.bookingForLead(l.id));
   await say(env, l, 'Can you move it to Friday 1pm?');
   const texts = agentTexts(l);
