@@ -90,12 +90,25 @@ export function requestedDay(text, today) {
   const iso = (m, d) => { const date = `${year}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`; return Number.isNaN(Date.parse(date)) || new Date(`${date}T00:00:00Z`).getUTCMonth() !== m - 1 ? null : date; };
   const mon = t.match(new RegExp(`\\b(${MONTHS.map((x) => x.slice(0, 3)).join('|')})[a-z]*\\.? (\\d{1,2})(?:st|nd|rd|th)?\\b`));
   const num = t.match(/\b(\d{1,2})\/(\d{1,2})\b/);
+  if (num) { // "Thursday 11/6" when 11/6 is a Friday: do not guess
+    const ex = iso(Number(num[1]), Number(num[2]));
+    const wdn = t.match(/\b(sun|mon|tue|tues|wed|weds|thu|thur|thurs|fri|sat)[a-z]*\.?,?\s+(?:the\s+)?\d{1,2}\/\d{1,2}\b/);
+    if (ex && wdn && dowOf(ex) !== WEEKDAYS.findIndex((w) => w.startsWith(wdn[1].slice(0, 3)))) return null;
+  }
   const explicit = mon ? iso(MONTHS.findIndex((x) => x.startsWith(mon[1])) + 1, Number(mon[2])) : num ? iso(Number(num[1]), Number(num[2])) : null;
   if (explicit && explicit >= today) return { date: explicit, dow: dowOf(explicit), weekday: false };
   if (/\btoday\b/.test(t)) return { date: today, dow: dowOf(today), weekday: false, rel: 'today' };
   if (/\btomorrow\b/.test(t)) return { date: addDay(today, 1), dow: dowOf(addDay(today, 1)), weekday: false, rel: 'tomorrow' };
+  const wk = t.match(/\ba week from (?:this )?(sun|mon|tue|tues|wed|weds|thu|thur|thurs|fri|sat)[a-z]*/);
+  if (wk) {
+    const wd = WEEKDAYS.findIndex((w) => w.startsWith(wk[1].slice(0, 3)));
+    let i = 0;
+    while (i < 7 && dowOf(addDay(today, i)) !== wd) i += 1;
+    const date = addDay(today, i + 7);
+    return { date, dow: wd, weekday: false };
+  }
   // "Thursday the 12th": the date wins; a weekday that does not match that date is not guessed
-  const wn = t.match(/\b(sun|mon|tue|tues|wed|weds|thu|thur|thurs|fri|sat)[a-z]*\.?,?\s+the\s+(\d{1,2})(?:st|nd|rd|th)\b/);
+  const wn = t.match(/\b(sun|mon|tue|tues|wed|weds|thu|thur|thurs|fri|sat)[a-z]*\.?,?\s+the\s+(\d{1,2})(?:st|nd|rd|th)?\b(?!\s*(?::|a\.?m|p\.?m|o'?clock))/);
   if (wn) {
     const wd = WEEKDAYS.findIndex((w) => w.startsWith(wn[1].slice(0, 3)));
     for (let i = 0; i < 70; i += 1) { const date = addDay(today, i); if (Number(date.slice(8)) === Number(wn[2]) && dowOf(date) === wd) return { date, dow: wd, weekday: false }; }
@@ -166,10 +179,19 @@ export function windowOf(text) {
 }
 
 /** A request for a clock time that none of the offered slots has ("can you do 2 pm instead"). */
+/** "can you do 4 instead", "how about 4", "what about 3", "is 4 open": a bare hour read as business hours (7-11 AM, 12, 1-6 PM). */
+export function bareHourOf(text) {
+  const m = /\b(?:(?:can|could) you do|how about|what about|do you have|any chance of|is|are you open at)\s+(1[0-2]|[1-9])(?::([0-5]\d))?\b(?!\s*(?:years?|people|kids|weeks|days|months|times|of\b))|\b(1[0-2]|[1-9])(?::([0-5]\d))?\s+instead\b/i.exec(String(text || ''));
+  if (!m) return null;
+  const n = Number(m[1] || m[3]);
+  const hour = n >= 7 && n <= 11 ? n : n === 12 ? 12 : n >= 1 && n <= 6 ? n + 12 : null;
+  return hour == null ? null : { hour, minute: Number(m[2] || m[4] || 0) };
+}
+
 export function asksOtherTime(text, slots) {
   const t = String(text || '');
   if (!slots?.length || t.length > 100 || windowOf(t) || pickSlot(t, slots) || slotCandidates(t, slots).length) return false;
-  return !!requestedClock(t) && /\b(?:instead|rather|can you do|could you do|how about|what about|do you have|is .{1,12} (?:open|available)|any chance)\b/i.test(t);
+  return !!(requestedClock(t) || bareHourOf(t)) && /\b(?:instead|rather|can you do|could you do|how about|what about|do you have|is .{1,12} (?:open|available)|any chance)\b/i.test(t);
 }
 
 /**
@@ -179,17 +201,24 @@ export function asksOtherTime(text, slots) {
  */
 export function strictPick(text, slots) {
   if (typeof text !== 'string' || !slots?.length) return null;
-  const t = text.trim().toLowerCase();
+  const t = text.trim().toLowerCase().replace(/\b(?:sounds|looks) good\b/g, 'sounds_ok');
   if (!t || t.length > 90) return null;
-  if (/\?|n't|\b(?:no|nope|not|never|but|cancel\w*|except|instead|also|too|and|or|how|what|why|when|where|who|wife|husband|son|daughter|kids?|child\w*|mom|mother|dad|father|friend|people|persons?|appointments|everyone|both|anything|else|another|different|other|rather)\b/.test(t)) return null;
+  if (/\?|n't|\b(?:no|nope|not|never|but|cancel\w*|except|instead|also|too|and|or|how|what|why|when|where|who|wife|husband|son|daughter|kids?|child\w*|mom|mother|dad|father|friend|people|persons?|appointments|everyone|both|anything|else|another|different|other|rather|thanks?|thank|thx|bad|worse|terrible|early|late|morning|thing|hate|prefer|good)\b/.test(t)) return null;
   const rest = t
-    .replace(/\b(?:yes|yeah|yep|yup|ok|okay|sure|please|pls|thanks|thank you|great|perfect|sounds good|that works|works for me|works|book it|book that|book|let'?s do it|go ahead|i'?ll take|i will take|take|i'?ll|i will|i'?d like|would like|want|then)\b/g, ' ')
+    .replace(/\b(?:yes|yeah|yep|yup|ok|okay|sure|please|pls|thanks|thank you|great|perfect|sounds_ok|that works|works for me|works|book it|book that|book|let'?s do it|go ahead|i'?ll take|i will take|take|i'?ll|i will|i'?d like|would like|want|then)\b/g, ' ')
     .replace(/[^a-z0-9:]+/g, ' ').trim();
-  if (!rest || rest === 'it' || rest === 'that' || rest === 'that one' || rest === 'it is') return slots.length === 1 ? slots[0] : null;
+  if (!rest || rest === 'it' || rest === 'that' || rest === 'that one' || rest === 'it is') {
+    // only an explicit affirmative books; "thanks" or a lone "please" never does
+    return slots.length === 1 && /\b(?:yes|yeah|yep|yup|ok|okay|sure|that works|works for me|sounds_ok|book it|book that|let'?s do it|go ahead|perfect|great|please book)\b/.test(t) ? slots[0] : null;
+  }
   const named = WEEKDAYS.some((_, i) => namesWeekday(rest, i));
   if (named && !/\d/.test(rest)) return null; // a day alone is a question about that day, not a pick
   const got = pickSlot(rest, slots);
   if (!got) return null;
+  if (named) { // "Thursday at 9am" books only a slot that is at exactly that time
+    const ck = requestedClock(rest) || bareHourOf(rest);
+    if (ck && (ck.minute !== 0 || ck.hour !== Number(got.slice(11, 13)))) return null;
+  }
   const n = /^(?:the\s+)?(?:number\s+|option\s+|#)?([1-9])$/.exec(rest);
   if (n && slots[Number(n[1]) - 1] !== got) return null;
   return got;

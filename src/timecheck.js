@@ -17,6 +17,7 @@ const HOURS_OPEN = /\b(?:we open|opens? at|open from|open until|open till)\b/i; 
 const NON_OFFER = /\b(?:hours|closes?|closed|closing|before|after|between|around noon|reminders?|remind|text you|call you|call us|call any|finished|finish\w*|ends?|arriv\w*|early|wrap\w*|deadline|due|arranged|rather than|instead of|other than|except|excluding|besides)\b|\b(?:by|until|till)\s+(?:\d|noon|midday)|\bthrough\s+(?:\d|the\b|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)|(?:sun|mon|tue|wed|thu|fri|sat))|\bopen\s+\d{1,2}(?::\d\d)?\s?(?:am|pm)?\s?[-–]/i;
 const TAKEN = /\b(?:taken|booked|booked up|unavailable|not available|isn'?t available|is not available|aren'?t available|fully booked|already booked|no openings?|nothing (?:is )?open|not offered|filled(?: up)?|gone|(?<!not )full|busy|reserved|no longer|not open|isn'?t open|is not open|aren'?t open|isn'?t free|is not free|can'?t do|cannot do|can'?t make|passed|too soon|already has|has an appointment|don'?t have|do not have|won'?t work|doesn'?t work|no availability|spoken for|not an option|not a start time|isn'?t a start time|is lunch|lunch|not offered|don'?t schedule|do not schedule|out of room|no good|someone has|has someone|closed to)\b/i;
 const NEG = /\b(?:no|not|nothing|never|can'?t|cannot|won'?t|doesn'?t|don'?t|isn'?t|aren'?t|wasn'?t|unfortunately|afraid)\b|n't\b/i;
+const NOT_TAKEN = /\bnot (?:full|booked|busy|taken|reserved|unavailable|closed)\b|\b(?:isn'?t|is not|aren'?t) (?:full|booked|busy|taken|reserved)\b/i; // "is not taken" is an offer
 const POSITIVE = /\b(?:is|are|still) (?:open|available|free)\b|\bworks\b|\bi (?:can|could) (?:do|offer|fit|book|get)\b|\bwe (?:can|could) (?:do|offer|fit|book|get)\b|\bi have\b|\bhow about\b/i;
 
 const addDays = (date, n) => { const [y, m, d] = date.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10); };
@@ -73,6 +74,8 @@ function expandLists(t) {
 function plain(t) {
   t = t.replace(new RegExp(`\\b(${DAY_RE}|jan|feb|mar|apr|jun|jul|aug|sept?|oct|nov|dec)\\.`, 'gi'), '$1');
   t = t.replace(new RegExp(`\\b(${WORD_RE})\\s+(thirty|fifteen|forty[- ]five)\\b`, 'gi'), (_m, n, w) => `${WORDNUM[n.toLowerCase()]}:${/thirty/i.test(w) ? '30' : /fifteen/i.test(w) ? '15' : '45'}`);
+  t = t.replace(new RegExp(`\\b(?:a\\s+)?quarter\\s+(to|past|after)\\s+(${WORD_RE}|\\d{1,2})\\b`, 'gi'), (_m, w, n) => { const h = WORDNUM[String(n).toLowerCase()] || Number(n); return /to/i.test(w) ? `${h - 1 || 12}:45` : `${h}:15`; });
+  t = t.replace(/(?<![\w:.])(\d{1,2})(?::([0-5]\d))?\s?([ap])(?![a-z])\.?/gi, (_m, h, mm, ap) => `${h}${mm ? ':' + mm : ''} ${ap.toLowerCase()}m`);
   t = expandLists(t);
   return t
     .replace(/\bbetween (\S+(?: \S+)?) and /gi, 'between $1 to ')
@@ -96,7 +99,7 @@ export function timeProblem(text, o) {
 export function shownSlots(text, o, hint = []) {
   if (!o?.today || typeof o.openOn !== 'function') return [];
   const { shown, dayless } = scan(text, o);
-  const out = [...shown];
+  const out = [...new Set(shown)];
   for (const hm of dayless) { const hit = hint.find((id) => id.slice(11, 16) === hm && !out.includes(id)); if (hit) out.push(hit); }
   return out;
 }
@@ -151,7 +154,7 @@ function scan(text, { today, openOn, anyOpen }) {
       const OFFER_CUE = /\b(?:available|open times?|i can|i could|we can|we have|works?|would|option|slot|how about|offer|(?:is|are) (?:open|available))\b/i;
       const nonOffer = NON_OFFER.test(clause) || (HOURS_OPEN.test(clause) && !days.length) || (prevNon && !OFFER_CUE.test(clause));
       prevNon = nonOffer;
-      const exempt = TAKEN.test(clause) || nonOffer || dayRange || /\bnothing\b/i.test(clause) || (NEG.test(clause) && !POSITIVE.test(clause));
+      const exempt = (TAKEN.test(clause) && !NOT_TAKEN.test(clause)) || nonOffer || dayRange || /\bnothing\b/i.test(clause) || (NEG.test(clause) && !POSITIVE.test(clause) && !NOT_TAKEN.test(clause));
       if (mismatch) bad.push('the weekday and the date do not agree');
       // a day named in this clause wins; otherwise the day carried from the previous clause or an earlier offer sentence
       const carried = sentenceDay || (prevOffer ? lastDay : null);
