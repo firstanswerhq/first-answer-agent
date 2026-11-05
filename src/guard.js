@@ -129,11 +129,18 @@ function changeProblem(text) {
   return null;
 }
 
+// "I'll lock it in", "I'm holding that for you": a promise to hold a time. Only fine as a conditional offer ("just confirm and I'll lock it in").
+const LOCK = /\b(?:lock(?:ed|ing)?|hold(?:ing)?|reserv(?:e|ed|ing)|pencil(?:ed|ing)?)\s+(?:it|that|this|that time|the time|the slot|you|your \w+)(?:\s+(?:in|down|for you))?\b|\bhold(?:ing)? (?:it|that|this) for you\b/i;
+const COND = /\b(?:confirm|if you|once you|when you|just say|just reply|reply|let me know|want me to|would you like|shall i|should i|can i|may i|tell me|say yes|up to you)\b|\?/i;
+function lockClaim(text) {
+  return text.split(/(?<=[.!?])\s+|\n+/).some((sen) => LOCK.test(sen) && !COND.test(sen) && !NEGATED_BOOKED.test(sen) && !/\b(?:cannot|can't|unable|not|never|won't)\b/i.test(sen));
+}
+
 function bookingProblem(text, opts) {
   const claimClause = (c) => (BOOKING_CLAIM.test(c) || SEE_YOU.test(c)) && !NEGATED_BOOKED.test(c) && (SEE_YOU.test(c) || !NOT_A_CLAIM.test(c));
   if (opts.booked === false) {
     // Sentence by sentence first, then clause by clause: a negation in another clause does not excuse a claim.
-    if (clausesOf(text).some(claimClause)) return { id: 'booking_claim', message: 'Message says an appointment is booked or confirmed, but no appointment has been booked for this customer. Offer times with check_calendar and book only when they choose one.' };
+    if (clausesOf(text).some(claimClause) || lockClaim(text)) return { id: 'booking_claim', message: 'Message says an appointment is booked or confirmed, but no appointment has been booked for this customer. Offer times with check_calendar and book only when they choose one.' };
     return opts.model ? changeProblem(text) : null;
   }
   const b = opts.booking;
