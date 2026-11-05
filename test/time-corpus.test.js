@@ -43,16 +43,16 @@ async function optsFor(profile) {
   return { env, l, fx, opts: fx.timeCheckOpts() };
 }
 
-test('reviewer corpus: no good reply is rejected (118 replies)', async () => {
+test('reviewer corpus: no good reply is rejected (212 replies from reviews 18 and 19)', async () => {
   const falseRejects = [];
   for (const p of Object.keys(good)) { const { opts } = await optsFor(p); for (const t of good[p]) if (timeProblem(t, opts)) falseRejects.push(`[${p}] ${t}`); }
   assert.deepEqual(falseRejects, []);
 });
 
-test('reviewer corpus: bad replies are rejected (at most 2 misses of 53)', async () => {
+test('reviewer corpus: bad replies are rejected (at most 4 misses of 113; the reviewers confirmed 4 of their listed lines are genuinely open times)', async () => {
   const miss = [];
   for (const p of Object.keys(bad)) { const { opts } = await optsFor(p); for (const t of bad[p]) if (!timeProblem(t, opts)) miss.push(`[${p}] ${t}`); }
-  assert.ok(miss.length <= 2, miss.join('\n'));
+  assert.ok(miss.length <= 4, miss.join('\n'));
 });
 
 test('the open list is built once per request and cleared by a booking', async () => {
@@ -70,4 +70,12 @@ test('with a booking, a reschedule offer is still checked but the booked time ma
   assert.equal(timeProblem('You are booked for Thursday, Nov 5 at 11:00 AM.', opts), null);
   assert.equal(timeProblem('I can move you to Thursday Nov 5 at 9:00 AM instead.', opts)?.id, 'bad_time');
   void env; void l;
+});
+
+test('unusual taken wording is exempt, and a parenthetical hours note does not excuse an offer of a closed day', async () => {
+  const { opts } = await optsFor('dental');
+  for (const t of ["Nothing at 10 on Friday I'm afraid, it's taken. I can offer Friday 8 AM.", '10 AM isn\'t a start time we use. The openings Thursday are 9, 11, 1 and 3.', 'Thursday at 12 is lunch, but 1 PM Thursday is open.',
+    "Thursday at 9 AM won't work, but 10 AM is open.", 'We have no availability Thursday at 9 AM; 11 AM is open.', 'Thursday 9 AM is spoken for, 10 AM is open.', 'Nothing is available at Friday 10 AM, but 8 AM is open.', 'Friday 10 AM is not an option, 8 AM is.', "Thursday at 9 AM doesn't work, 11 AM does.", "We're out of room Thursday at 9 AM, but 11 AM is open."]) assert.equal(timeProblem(t, opts), null, t);
+  assert.equal(timeProblem('Saturday at 10 AM is open (the office closes at 5 on weekdays).', opts)?.id, 'bad_time');
+  assert.equal(timeProblem("Hi Liam, thanks for reaching out! Friday 10:00 is open - would you like me to book you for a cleaning and checkup then? It usually takes about an hour. Just confirm and I'll lock it in.", opts)?.id, 'bad_time');
 });

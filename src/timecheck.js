@@ -10,11 +10,13 @@ const WORDNUM = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, 
 const WORD_RE = Object.keys(WORDNUM).join('|');
 // day cues, in one pass: [weekday] month day | day month | weekday the 12th | next weekday | weekday | tomorrow | today
 const DAY_TOKEN = new RegExp(`\\b(?:(next)\\s+)?(?:(${DAY_RE})\\.?,?\\s+)?(${MON_RE})\\s+(\\d{1,2})(?:st|nd|rd|th)?\\b|\\b(?:(${DAY_RE})\\.?,?\\s+)?(?:the\\s+)?(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?(${MON_RE})|\\b(?:(next)\\s+)?(${DAY_RE})\\b(?:,?\\s+the\\s+(\\d{1,2})(?:st|nd|rd|th)\\b)?|\\b(tomorrow|today)\\b`, 'gi');
-const TIME_TOKEN = /(?<![\d:$.])(\d{1,2})(?::([0-5]\d))?\s?(a\.?m\.?|p\.?m\.?)(?![a-z])|(?<![\d:$.])(1[3-9]|2[0-3]):([0-5]\d)(?!\d)|\bnoon\b|(?<![\d:$.])(\d{1,2})(?::([0-5]\d))?\s?(?:o'?clock\b|in the (morning|afternoon|evening)\b)/gi;
+const TIME_TOKEN = /(?<![\d:$.])(\d{1,2})(?::([0-5]\d))?\s?(a\.?m\.?|p\.?m\.?)(?![a-z])|(?<![\d:$.])(1[3-9]|2[0-3]):([0-5]\d)(?!\d)|\bnoon\b|(?<![\d:$.])(\d{1,2})(?::([0-5]\d))?\s?(?:o'?clock\b|in the (morning|afternoon|evening)\b)|(?<![\d:$.])(1[0-2]|[1-9]):([0-5]\d)(?![\d:])(?!\s?(?:a\.?m|p\.?m|o'?clock))/gi;
 const AT_BARE = /\bat\s+(\d{1,2})(?::([0-5]\d))?\b(?!\s*(?:a\.?m|p\.?m|minutes?|mins?|hours?|years?|:|%|o'?clock))/gi;
 // Things that are not offers: the time is a deadline, an hours statement, an end time, a contact window, a reminder, or excluded.
 const NON_OFFER = /\b(?:hours|we open|opens? at|open from|open until|open till|closes?|closed|closing|until|till|by|before|after|between|around noon|reminders?|remind|text you|call you|call us|call any|finished|ends?|deadline|due|through|arranged|rather than|instead of|other than|except|excluding|besides)\b|\bopen\s+\d{1,2}(?::\d\d)?\s?(?:am|pm)?\s?[-–]/i;
-const TAKEN = /\b(?:taken|booked|booked up|unavailable|not available|isn'?t available|is not available|aren'?t available|fully booked|already booked|no openings?|nothing (?:is )?open|not offered|filled(?: up)?|gone|full|busy|reserved|no longer|not open|isn'?t open|is not open|aren'?t open|isn'?t free|is not free|can'?t do|cannot do|can'?t make|passed|too soon|already has|has an appointment|don'?t have|do not have)\b/i;
+const TAKEN = /\b(?:taken|booked|booked up|unavailable|not available|isn'?t available|is not available|aren'?t available|fully booked|already booked|no openings?|nothing (?:is )?open|not offered|filled(?: up)?|gone|full|busy|reserved|no longer|not open|isn'?t open|is not open|aren'?t open|isn'?t free|is not free|can'?t do|cannot do|can'?t make|passed|too soon|already has|has an appointment|don'?t have|do not have|won'?t work|doesn'?t work|no availability|spoken for|not an option|not a start time|isn'?t a start time|is lunch|lunch|not offered|don'?t schedule|do not schedule|out of room|no good|someone has|has someone|closed to)\b/i;
+const NEG = /\b(?:no|not|nothing|never|can'?t|cannot|won'?t|doesn'?t|don'?t|isn'?t|aren'?t|wasn'?t|unfortunately|afraid)\b|n't\b/i;
+const POSITIVE = /\b(?:is|are|still) (?:open|available|free)\b|\bworks\b|\bi (?:can|could) (?:do|offer|fit|book|get)\b|\bwe (?:can|could) (?:do|offer|fit|book|get)\b|\bi have\b|\bhow about\b/i;
 
 const addDays = (date, n) => { const [y, m, d] = date.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10); };
 const dowOf = (date) => { const [y, m, d] = date.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d)).getUTCDay(); };
@@ -66,16 +68,32 @@ function plain(t) {
 }
 
 /** Returns { id: 'bad_time', message } when the reply offers a time that is not an open slot, otherwise null. */
-export function timeProblem(text, { today, openOn, anyOpen, nearest = '' }) {
-  if (!today || typeof openOn !== 'function') return null;
+export function timeProblem(text, o) {
+  const { bad } = scan(text, o);
+  if (!bad.length) return null;
+  return { id: 'bad_time', message: `Only offer these exact open times: ${o.nearest || 'call check_calendar for the real list'}. The reply offered a time that is not an open slot (${bad.slice(0, 2).join(', ')}). Use only times from check_calendar, spelled exactly, or say a requested time is taken.` };
+}
+
+/** The open slot ids a reply actually shows the customer (in order), e.g. ["2026-11-05T10:00"]. Times with no day are matched against `hint` slot ids by hour. */
+export function shownSlots(text, o, hint = []) {
+  if (!o?.today || typeof o.openOn !== 'function') return [];
+  const { shown, dayless } = scan(text, o);
+  const out = [...shown];
+  for (const hm of dayless) { const hit = hint.find((id) => id.slice(11, 16) === hm && !out.includes(id)); if (hit) out.push(hit); }
+  return out;
+}
+
+function scan(text, { today, openOn, anyOpen }) {
   const bad = [];
+  const shown = [];
+  const dayless = [];
   let lastDay = null;
   let prevOffer = false;
   for (const sentence of plain(String(text)).split(/(?<=[.!?])\s+|\n+/)) {
     let sentenceHadOffer = false;
     let sentenceDay = null;
     let prevNon = false;
-    for (const clause of sentence.split(/[,;]\s*|\s(?:but|and|though|however|instead)\s|\s[-–—]\s/i)) {
+    for (const clause of sentence.split(/[,;()]\s*|\s(?:but|and|though|however|instead)\s|\s[-–—]\s/i)) {
       if (!clause.trim()) continue;
       const days = [];
       let mismatch = false;
@@ -91,6 +109,7 @@ export function timeProblem(text, { today, openOn, anyOpen, nearest = '' }) {
         if (/^noon$/i.test(m[0])) h = 12;
         else if (m[3]) { if (Number(m[1]) > 12 || Number(m[1]) < 1) continue; h = (Number(m[1]) % 12) + (/^p/i.test(m[3]) ? 12 : 0); min = Number(m[2] || 0); }
         else if (m[4]) { h = Number(m[4]); min = Number(m[5]); }
+        else if (m[9]) { const n = Number(m[9]); h = n >= 7 && n <= 11 ? n : n === 12 ? 12 : (n % 12) + 12; min = Number(m[10]); }
         else { const n = Number(m[6]); if (n < 1 || n > 12) continue; min = Number(m[7] || 0); h = m[8] ? ((n % 12) + (/^m/i.test(m[8]) ? 0 : 12)) : (n >= 8 && n <= 11 ? n : (n % 12) + 12); }
         times.push({ at: m.index, end: m.index + m[0].length, h, min });
       }
@@ -110,10 +129,10 @@ export function timeProblem(text, { today, openOn, anyOpen, nearest = '' }) {
       // the end of a range ("9:00 AM-10:00 AM") is not a start time
       const starts = times.filter((x, i) => !(i > 0 && /^\s*(?:[-–]|to|until)\s*$/i.test(clause.slice(times[i - 1].end, x.at))) && !times.some((y, j) => j !== i && y.at === x.at));
       const dayRange = new RegExp(`${DAY_RE}\\s?(?:[-–]|through|to)\\s?${DAY_RE}`, 'i').test(clause);
-      const OFFER_CUE = /\b(?:available|open times?|i can|i could|we can|we have|works?|would|option|slot|how about|offer)\b/i;
+      const OFFER_CUE = /\b(?:available|open times?|i can|i could|we can|we have|works?|would|option|slot|how about|offer|(?:is|are) (?:open|available))\b/i;
       const nonOffer = NON_OFFER.test(clause) || (prevNon && !OFFER_CUE.test(clause));
       prevNon = nonOffer;
-      const exempt = TAKEN.test(clause) || nonOffer || dayRange;
+      const exempt = TAKEN.test(clause) || nonOffer || dayRange || /\bnothing\b/i.test(clause) || (NEG.test(clause) && !POSITIVE.test(clause));
       if (mismatch) bad.push('the weekday and the date do not agree');
       // a day named in this clause wins; otherwise the day carried from the previous clause or an earlier offer sentence
       const carried = sentenceDay || (prevOffer ? lastDay : null);
@@ -124,8 +143,8 @@ export function timeProblem(text, { today, openOn, anyOpen, nearest = '' }) {
         const hh = String(x.h).padStart(2, '0');
         const mm = String(x.min).padStart(2, '0');
         let ok;
-        if (before?.date) ok = x.min === 0 && openOn(before.date).has(`${hh}:00`);
-        else ok = typeof anyOpen === 'function' ? anyOpen(`${hh}:${mm}`) : true;
+        if (before?.date) { ok = x.min === 0 && openOn(before.date).has(`${hh}:00`); if (ok) shown.push(`${before.date}T${hh}:00`); }
+        else { ok = typeof anyOpen === 'function' ? anyOpen(`${hh}:${mm}`) : true; if (ok) dayless.push(`${hh}:${mm}`); }
         sentenceHadOffer = true;
         if (!ok) bad.push(`${before?.date || 'day not named'} ${hh}:${mm}`);
       }
@@ -136,6 +155,5 @@ export function timeProblem(text, { today, openOn, anyOpen, nearest = '' }) {
     prevOffer = sentenceHadOffer;
     if (!sentenceHadOffer) lastDay = lastDay; // a stale date does not leak: prevOffer gates it
   }
-  if (!bad.length) return null;
-  return { id: 'bad_time', message: `Only offer these exact open times: ${nearest || 'call check_calendar for the real list'}. The reply offered a time that is not an open slot (${bad.slice(0, 2).join(', ')}). Use only times from check_calendar, spelled exactly, or say a requested time is taken.` };
+  return { bad, shown, dayless };
 }
