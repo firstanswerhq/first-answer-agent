@@ -130,7 +130,7 @@ function changeProblem(text) {
 }
 
 // "I'll lock it in", "I'm holding that for you": a promise to hold a time. Only fine as a conditional offer ("just confirm and I'll lock it in").
-const LOCK = /\b(?:lock(?:ed|ing)?|hold(?:ing)?|reserv(?:e|ed|ing)|pencil(?:ed|ing)?)\s+(?:it|that|this|that time|the time|the slot|you|your \w+)(?:\s+(?:in|down|for you))?\b|\bhold(?:ing)? (?:it|that|this) for you\b/i;
+const LOCK = /\b(?:i(?:'ve| have|'m| am|'ll| will)|we(?:'ve| have|'re| are|'ll| will))\s+(?:now\s+|already\s+|just\s+|also\s+)?(?:locked|lock|locking|holding|hold|held|reserved|reserve|reserving|penciled|pencilled|pencil)\s+(?:it|that|this|you|(?:that|the|this|your) (?:time|slot|spot|appointment|visit))\b(?:\s+(?:in|down|for you))?|\b(?:that|the|this|your) (?:time|slot|spot|appointment) (?:is|has been) (?:locked|held|reserved)\b/i;
 const COND = /\b(?:confirm|if you|once you|when you|just say|just reply|reply|let me know|want me to|would you like|shall i|should i|can i|may i|tell me|say yes|up to you)\b|\?/i;
 function lockClaim(text) {
   return text.split(/(?<=[.!?])\s+|\n+/).some((sen) => LOCK.test(sen) && !COND.test(sen) && !NEGATED_BOOKED.test(sen) && !/\b(?:cannot|can't|unable|not|never|won't)\b/i.test(sen));

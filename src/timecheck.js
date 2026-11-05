@@ -3,18 +3,19 @@
 // The reply is read clause by clause. A clause that says a time is taken, closed or excluded, or that only mentions a time as a deadline,
 // an hours statement, a duration or an end time, exempts the times in THAT clause only.
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
-const DAYNAMES = [['sun', 'sunday'], ['mon', 'monday'], ['tue', 'tues', 'tuesday'], ['wed', 'wednesday'], ['thu', 'thur', 'thurs', 'thursday'], ['fri', 'friday'], ['sat', 'saturday']];
-const DAY_RE = '(?:sunday|monday|tuesday|wednesday|thursday|friday|saturday|sun|mon|tues?|wed|thurs?|thu|fri|sat)';
+const DAYNAMES = [['sun', 'sunday'], ['mon', 'monday'], ['tue', 'tues', 'tuesday'], ['wed', 'weds', 'wednesday'], ['thu', 'thur', 'thurs', 'thursday'], ['fri', 'friday'], ['sat', 'saturday']];
+const DAY_RE = '(?:sunday|monday|tuesday|wednesday|thursday|friday|saturday|sun|mon|tues?|weds?|thurs?|thu|fri|sat)';
 const MON_RE = '(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\\.?';
 const WORDNUM = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12 };
 const WORD_RE = Object.keys(WORDNUM).join('|');
 // day cues, in one pass: [weekday] month day | day month | weekday the 12th | next weekday | weekday | tomorrow | today
-const DAY_TOKEN = new RegExp(`\\b(?:(next)\\s+)?(?:(${DAY_RE})\\.?,?\\s+)?(${MON_RE})\\s+(\\d{1,2})(?:st|nd|rd|th)?\\b|\\b(?:(${DAY_RE})\\.?,?\\s+)?(?:the\\s+)?(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?(${MON_RE})|\\b(?:(next)\\s+)?(${DAY_RE})\\b(?:,?\\s+the\\s+(\\d{1,2})(?:st|nd|rd|th)\\b)?|\\b(tomorrow|today)\\b`, 'gi');
-const TIME_TOKEN = /(?<![\d:$.])(\d{1,2})(?::([0-5]\d))?\s?(a\.?m\.?|p\.?m\.?)(?![a-z])|(?<![\d:$.])(1[3-9]|2[0-3]):([0-5]\d)(?!\d)|\bnoon\b|(?<![\d:$.])(\d{1,2})(?::([0-5]\d))?\s?(?:o'?clock\b|in the (morning|afternoon|evening)\b)|(?<![\d:$.])(1[0-2]|[1-9]):([0-5]\d)(?![\d:])(?!\s?(?:a\.?m|p\.?m|o'?clock))/gi;
+const DAY_TOKEN = new RegExp(`\\b(?:(next)\\s+)?(?:(${DAY_RE})\\.?,?\\s+)?(${MON_RE})\\s+(\\d{1,2})(?:st|nd|rd|th)?\\b|\\b(?:(${DAY_RE})\\.?,?\\s+)?(?:the\\s+)?(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?(${MON_RE})|\\b(?:(next)\\s+)?(${DAY_RE})\\b(?:,?\\s+the\\s+(\\d{1,2})(?:st|nd|rd|th)\\b)?|\\b(tomorrow|today)\\b|(?<![\\d/])\\b(1[0-2]|[1-9])\\/([1-3]?\\d)\\b(?![\\d/])|\\bthe\\s+(\\d{1,2})(?:st|nd|rd|th)\\b(?!\\s+(?:of|child|kid))`, 'gi');
+const TIME_TOKEN = /(?<![\d:$.])(\d{1,2})(?::([0-5]\d))?\s?(a\.?m\.?|p\.?m\.?)(?![a-z])|(?<![\d:$.])(1[3-9]|2[0-3]):([0-5]\d)(?!\d)|\b(?:noon|midday|midnight)\b|(?<![\d:$.])(\d{1,2})(?::([0-5]\d))?\s?(?:o'?clock\b|in the (morning|afternoon|evening)\b)|(?<![\d:$.])(1[0-2]|[1-9]):([0-5]\d)(?![\d:])(?!\s?(?:a\.?m|p\.?m|o'?clock))/gi;
 const AT_BARE = /\bat\s+(\d{1,2})(?::([0-5]\d))?\b(?!\s*(?:a\.?m|p\.?m|minutes?|mins?|hours?|years?|:|%|o'?clock))/gi;
 // Things that are not offers: the time is a deadline, an hours statement, an end time, a contact window, a reminder, or excluded.
-const NON_OFFER = /\b(?:hours|we open|opens? at|open from|open until|open till|closes?|closed|closing|until|till|by|before|after|between|around noon|reminders?|remind|text you|call you|call us|call any|finished|ends?|deadline|due|through|arranged|rather than|instead of|other than|except|excluding|besides)\b|\bopen\s+\d{1,2}(?::\d\d)?\s?(?:am|pm)?\s?[-–]/i;
-const TAKEN = /\b(?:taken|booked|booked up|unavailable|not available|isn'?t available|is not available|aren'?t available|fully booked|already booked|no openings?|nothing (?:is )?open|not offered|filled(?: up)?|gone|full|busy|reserved|no longer|not open|isn'?t open|is not open|aren'?t open|isn'?t free|is not free|can'?t do|cannot do|can'?t make|passed|too soon|already has|has an appointment|don'?t have|do not have|won'?t work|doesn'?t work|no availability|spoken for|not an option|not a start time|isn'?t a start time|is lunch|lunch|not offered|don'?t schedule|do not schedule|out of room|no good|someone has|has someone|closed to)\b/i;
+const HOURS_OPEN = /\b(?:we open|opens? at|open from|open until|open till)\b/i; // an hours statement only when the clause names no day
+const NON_OFFER = /\b(?:hours|closes?|closed|closing|before|after|between|around noon|reminders?|remind|text you|call you|call us|call any|finished|finish\w*|ends?|arriv\w*|early|wrap\w*|deadline|due|arranged|rather than|instead of|other than|except|excluding|besides)\b|\b(?:by|until|till)\s+(?:\d|noon|midday)|\bthrough\s+(?:\d|the\b|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)|(?:sun|mon|tue|wed|thu|fri|sat))|\bopen\s+\d{1,2}(?::\d\d)?\s?(?:am|pm)?\s?[-–]/i;
+const TAKEN = /\b(?:taken|booked|booked up|unavailable|not available|isn'?t available|is not available|aren'?t available|fully booked|already booked|no openings?|nothing (?:is )?open|not offered|filled(?: up)?|gone|(?<!not )full|busy|reserved|no longer|not open|isn'?t open|is not open|aren'?t open|isn'?t free|is not free|can'?t do|cannot do|can'?t make|passed|too soon|already has|has an appointment|don'?t have|do not have|won'?t work|doesn'?t work|no availability|spoken for|not an option|not a start time|isn'?t a start time|is lunch|lunch|not offered|don'?t schedule|do not schedule|out of room|no good|someone has|has someone|closed to)\b/i;
 const NEG = /\b(?:no|not|nothing|never|can'?t|cannot|won'?t|doesn'?t|don'?t|isn'?t|aren'?t|wasn'?t|unfortunately|afraid)\b|n't\b/i;
 const POSITIVE = /\b(?:is|are|still) (?:open|available|free)\b|\bworks\b|\bi (?:can|could) (?:do|offer|fit|book|get)\b|\bwe (?:can|could) (?:do|offer|fit|book|get)\b|\bi have\b|\bhow about\b/i;
 
@@ -34,6 +35,11 @@ function resolveDay(m, today) {
   let wd = null; let date = null; let far = false;
   if (m[3]) { wd = m[2] ? dayIdx(m[2]) : null; date = monthDate(monIdx(m[3]), Number(m[4])); }
   else if (m[7]) { wd = m[5] ? dayIdx(m[5]) : null; date = monthDate(monIdx(m[7]), Number(m[6])); }
+  else if (m[12]) { wd = null; date = monthDate(Number(m[12]) - 1, Number(m[13])); }
+  else if (m[14]) { // "the 5th": the next date with that day of the month
+    for (let i = 0; i < 45 && !date; i += 1) { const d = addDays(today, i); if (Number(d.slice(8)) === Number(m[14])) date = d; }
+    return { date, mismatch: !date };
+  }
   else if (m[9]) {
     wd = dayIdx(m[9]);
     if (m[10]) { // "Thursday the 12th": the next date with that day of the month that falls on that weekday
@@ -55,7 +61,19 @@ function resolveDay(m, today) {
 }
 
 /** Pre-process wording: spelled-out hours and "half past". */
+function expandLists(t) {
+  const N = '\\d{1,2}(?::[0-5]\\d)?(?:\\s?[ap]\\.?m\\.?)?';
+  // "at 10, 11 or 12" / "Thursday: 10, 11 or 12" / "at 10 and also 1": every number in the list is a time
+  t = t.replace(new RegExp(`((?:\\bat\\b|(?<=[a-z]):)\\s+)(${N})((?:\\s*(?:,|;|\\bor\\b|\\band\\b|\\balso\\b|&)\\s*(?:also\\s+)?${N}(?![\\d/%]))+)`, 'gi'), (_m, lead, first, rest) => `${lead}${first}${rest.replace(new RegExp(`(${N})(?![\\d/%])`, 'g'), (num) => `, at ${num.trim()}`).replace(/(?:\\s*(?:,|;|\\bor\\b|\\band\\b|\\balso\\b|&)\\s*(?:also\\s+)?)+(?=, at)/gi, '')}`);
+  // "Thursday at 10 works, or 12."
+  t = t.replace(/\b(at\s+\d{1,2}(?::[0-5]\d)?(?:\s?[ap]\.?m\.?)?\s+(?:works|is open|is available|is free|are open|are available))\s*,?\s*(?:or|and)\s+(\d{1,2})(?![\d:%/])(?!\s?(?:a\.?m|p\.?m|minutes|mins|hours|years))/gi, '$1, at $2');
+  return t;
+}
+
 function plain(t) {
+  t = t.replace(new RegExp(`\\b(${DAY_RE}|jan|feb|mar|apr|jun|jul|aug|sept?|oct|nov|dec)\\.`, 'gi'), '$1');
+  t = t.replace(new RegExp(`\\b(${WORD_RE})\\s+(thirty|fifteen|forty[- ]five)\\b`, 'gi'), (_m, n, w) => `${WORDNUM[n.toLowerCase()]}:${/thirty/i.test(w) ? '30' : /fifteen/i.test(w) ? '15' : '45'}`);
+  t = expandLists(t);
   return t
     .replace(/\bbetween (\S+(?: \S+)?) and /gi, 'between $1 to ')
     .replace(new RegExp(`\\bhalf past (${WORD_RE}|\\d{1,2})\\b`, 'gi'), (_m, n) => `at ${WORDNUM[n.toLowerCase()] || n}:30`)
@@ -106,7 +124,8 @@ function scan(text, { today, openOn, anyOpen }) {
       const times = [];
       for (const m of clause.matchAll(TIME_TOKEN)) {
         let h; let min = 0;
-        if (/^noon$/i.test(m[0])) h = 12;
+        if (/^(?:noon|midday)$/i.test(m[0])) h = 12;
+        else if (/^midnight$/i.test(m[0])) h = 0;
         else if (m[3]) { if (Number(m[1]) > 12 || Number(m[1]) < 1) continue; h = (Number(m[1]) % 12) + (/^p/i.test(m[3]) ? 12 : 0); min = Number(m[2] || 0); }
         else if (m[4]) { h = Number(m[4]); min = Number(m[5]); }
         else if (m[9]) { const n = Number(m[9]); h = n >= 7 && n <= 11 ? n : n === 12 ? 12 : (n % 12) + 12; min = Number(m[10]); }
@@ -130,7 +149,7 @@ function scan(text, { today, openOn, anyOpen }) {
       const starts = times.filter((x, i) => !(i > 0 && /^\s*(?:[-–]|to|until)\s*$/i.test(clause.slice(times[i - 1].end, x.at))) && !times.some((y, j) => j !== i && y.at === x.at));
       const dayRange = new RegExp(`${DAY_RE}\\s?(?:[-–]|through|to)\\s?${DAY_RE}`, 'i').test(clause);
       const OFFER_CUE = /\b(?:available|open times?|i can|i could|we can|we have|works?|would|option|slot|how about|offer|(?:is|are) (?:open|available))\b/i;
-      const nonOffer = NON_OFFER.test(clause) || (prevNon && !OFFER_CUE.test(clause));
+      const nonOffer = NON_OFFER.test(clause) || (HOURS_OPEN.test(clause) && !days.length) || (prevNon && !OFFER_CUE.test(clause));
       prevNon = nonOffer;
       const exempt = TAKEN.test(clause) || nonOffer || dayRange || /\bnothing\b/i.test(clause) || (NEG.test(clause) && !POSITIVE.test(clause));
       if (mismatch) bad.push('the weekday and the date do not agree');
@@ -139,9 +158,13 @@ function scan(text, { today, openOn, anyOpen }) {
       for (const x of starts) {
         const before = days.filter((d) => d.at < x.at && d.date).at(-1) || (carried ? { date: carried } : null) || days.find((d) => d.date) || null;
         sentenceHadOffer = sentenceHadOffer || !!days.length;
-        if (exempt) continue;
         const hh = String(x.h).padStart(2, '0');
         const mm = String(x.min).padStart(2, '0');
+        if (exempt) {
+          // an offer phrased with a hedge ("is open at 10 AM, hours are 8 to 5") still tells the customer that slot, so a later "yes" can book it
+          if (before?.date && x.min === 0 && !TAKEN.test(clause) && !nonOffer && !dayRange && OFFER_CUE.test(clause) && openOn(before.date).has(`${hh}:00`)) shown.push(`${before.date}T${hh}:00`);
+          continue;
+        }
         let ok;
         if (before?.date) { ok = x.min === 0 && openOn(before.date).has(`${hh}:00`); if (ok) shown.push(`${before.date}T${hh}:00`); }
         else { ok = typeof anyOpen === 'function' ? anyOpen(`${hh}:${mm}`) : true; if (ok) dayless.push(`${hh}:${mm}`); }
