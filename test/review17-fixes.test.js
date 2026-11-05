@@ -37,7 +37,7 @@ test('a question-only reply to a scheduling request is non-final: nudge, then ca
   const txt = (c) => ({ status: 200, json: { choices: [{ finish_reason: 'stop', message: { content: c } }] } });
   const Q = 'Quick question so I book the right visit: is this your first time at our office?';
   const llm = fakeLlm([txt(Q), reply(call('send_reply', { text: 'I have Thursday at 9 AM, 10 AM or 11 AM open. Is this your first visit with us?' }))]);
-  const l = await newLead(makeEnv({ llm }), { message: 'I need an exam Thursday at 9am' });
+  const l = await newLead(makeEnv({ llm }), { message: 'I need an exam Thursday at 9am. It is for my daughter.' });
   const all = agentTexts(l).join(' | ');
   assert.match(all, /9 AM, 10 AM or 11 AM/);
   assert.doesNotMatch(all, /^Quick question/);
@@ -48,13 +48,13 @@ test('a question-only reply to a scheduling request is non-final: nudge, then ca
   assert.equal(l2.lastReplyBy, 'model');
   // reply with times and a question is fine
   const llm3 = fakeLlm([txt('Thursday at 9 AM is taken, but I have 10 AM or 11 AM. Which works?')]);
-  const l3 = await newLead(makeEnv({ llm: llm3 }), { message: 'Can I get an exam Thursday at 9am?' });
+  const l3 = await newLead(makeEnv({ llm: llm3 }), { message: 'Can I get an exam Thursday at 9am? It is for my son.' });
   assert.equal(l3.lastReplyBy, 'model');
 });
 
 test('system prompt: scheduling requests get check_calendar and times first; unrelated or product questions are not escalations', async () => {
   const llm = fakeLlm([reply(call('send_reply', { text: 'Happy to help. I have Thursday at 9 AM or 10 AM. Which works?' }))]);
-  await newLead(makeEnv({ llm }), { message: 'I need an exam Thursday at 9am' });
+  await newLead(makeEnv({ llm }), { message: 'I need an exam Thursday at 9am. It is for my daughter.' });
   const sys = llm.fetchMock.state.bodies[0].messages[0].content;
   assert.match(sys, /FIRST calling check_calendar/);
   assert.match(sys, /call 911 or go to the ER/);

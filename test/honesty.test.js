@@ -10,7 +10,7 @@ const read = (...p) => fs.readFileSync(path.join(root, ...p), 'utf8');
 
 test('system prompt never tells the model to hide that messages are simulated, and requires AI disclosure', async () => {
   const llm = fakeLlm([reply(call('qualify_lead', { service: 'checkup', urgency: 'routine' })), reply()]);
-  await newLead(makeEnv({ llm }), { message: 'I would like a checkup next week' });
+  await newLead(makeEnv({ llm }), { message: 'I would like a checkup next week. It is for my daughter.' });
   const prompt = llm.fetchMock.state.bodies[0].messages[0].content;
   assert.doesNotMatch(prompt, /do not mention that|hide|conceal/i);
   assert.match(prompt, /never imply that a message was sent to a real phone or email/i);

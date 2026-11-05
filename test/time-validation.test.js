@@ -31,7 +31,7 @@ test('every recorded live reply: report false rejects against business-hours slo
 test('model path: a reply with an invented time is refused, nudged with the real list, then the rules answer', async () => {
   const bad = { status: 200, json: { choices: [{ finish_reason: 'stop', message: { content: 'Hi! I have Wed Nov 11 at 2:30 PM, or Thu Nov 12 at 10:15 AM open for you. Which works?' } }] } };
   const llm = fakeLlm([bad]);
-  const l = await newLead(makeEnv({ llm }), { message: 'Do you have an exam next week?' });
+  const l = await newLead(makeEnv({ llm }), { message: 'Do you have an exam next week? It is for my daughter.' });
   const all = agentTexts(l).join(' | ');
   assert.doesNotMatch(all, /2:30 PM|10:15 AM/);
   assert.equal(l.lastReplyBy, 'rules');

@@ -63,7 +63,7 @@ test('Jude: the model checks the calendar and ends with a promise; the retry als
     textOnly(JUDE),
   ]);
   const env = makeEnv({ llm, store: env0.store, config: cfgFor() });
-  const l = await newLead(env, { name: 'Jude Test', message: 'I would like Tuesday at 1pm for an exam please.' });
+  const l = await newLead(env, { name: 'Jude Test', message: 'I would like Tuesday at 1pm for an exam please. It is for my daughter.' });
   const t = agentTexts(l).join(' | ');
   assert.doesNotMatch(t, /let me check/i);
   assert.match(t, /Tuesday at 1:00 PM is already taken/);
