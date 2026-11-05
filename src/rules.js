@@ -19,6 +19,7 @@ export function medicalText(config, flags) {
   return `${lead988}Please call 911 right now if you or someone else is in danger or having a medical emergency. I am an automated assistant and cannot help with emergencies by text. I have flagged this for our team, and you can also reach us at ${config.business.phone}.`;
 }
 
+const EXPLICIT_BOOK = /\b(?:book me|please book|put me down|sign me up|schedule me|reserve|go ahead and book|like to (?:book|schedule)|want to (?:book|schedule))\b/i;
 const UNLISTED_WORK = /\b(?:root canals?|crowns?|bridges?|dentures?|implants?|extractions?|wisdom teeth|veneers?|bonding|sealants?|retainers?|night ?guards?|periodontal|gum disease|deep clean\w*|scaling|perm|keratin|relaxer|hair extensions?|balayage|highlights?|bridal|updo|tax returns?|audit|payroll|bookkeeping|llc|incorporat\w*)\b/i;
 
 export async function runRules(ctx, fx, trigger) {
@@ -108,9 +109,9 @@ export async function runRules(ctx, fx, trigger) {
   }
 
   if (flags.insuranceNote === 'only') {
-    lead.confirmNeeded = lead.confirmNeeded || 'Customer asked about insurance (not in the business facts); a teammate should confirm which plans are accepted.';
-    ctx.step({ kind: 'info', title: 'Flagged for a teammate to confirm insurance (low priority, no phone alert)', detail: lead.confirmNeeded });
-    await reply('Insurance questions go to our front desk, so a teammate there will confirm that with you. I cannot say which plans we accept. If you would like an appointment in the meantime, tell me a day and I will check the times.');
+    lead.confirmNeeded = lead.confirmNeeded || (flags.factLabel ? 'Customer asked about payment options or pricing terms (not in the business facts); a teammate should confirm.' : 'Customer asked about insurance (not in the business facts); a teammate should confirm which plans are accepted.');
+    ctx.step({ kind: 'info', title: 'Flagged for a teammate to confirm (low priority, no phone alert)', detail: lead.confirmNeeded });
+    await reply((flags.factLabel ? 'I do not have our payment options or terms in front of me, so a teammate will confirm that with you. ' : 'Insurance questions go to our front desk, so a teammate there will confirm that with you. I cannot say which plans we accept. ') + 'If you would like an appointment in the meantime, tell me a day and I will check the times.');
     return;
   }
 
@@ -216,6 +217,17 @@ export async function runRules(ctx, fx, trigger) {
   const declines = declinesSlots(latest);
   let reqDay = declines ? null : requestedDay(latest, todayLocal);
   const offered = lead.offeredSlots || [];
+  const ckTop0 = requestedClock(latest) || bareHourOf(latest);
+  // An outright booking request for an exact day and time ("Book me Friday at 8am"): books it when that exact time is open, like "Put me down for ...".
+  if (!declines && reqDay && ckTop0 && !ckTop0.minute && EXPLICIT_BOOK.test(latest) && !/\?/.test(latest) && !windowOf(latest)
+    && (isAvailabilityRequest(latest, todayLocal, (config.services || []).flatMap((x) => String(x.label || '').toLowerCase().split(/[^a-z]+/).filter(Boolean)))
+      || strictPick(latest.replace(/\band\b/gi, ' '), [`${reqDay.date}T${String(ckTop0.hour).padStart(2, '0')}:00`]))) {
+    const wanted0 = `${reqDay.date}T${String(ckTop0.hour).padStart(2, '0')}:00`;
+    if (listSlots(ctx.store, config, ctx.now(), reqDay.date, 1).find((x) => x.slot_id === wanted0)?.status === 'open') {
+      const b0 = await fx.call('book_appointment', { slot_id: wanted0, note: '' });
+      if (b0.ok) { await reply(`Booked, ${first}: ${b0.label}${lead.serviceDefaulted ? ` for your ${lc(q.service_label)}` : ''}. ${wording.bookedAfter}${lead.serviceDefaulted ? ' If you wanted a different visit type, just reply and a teammate will adjust.' : ''}`); return; }
+    }
+  }
   // "Can you do 2 pm instead?": a time that was not offered is never booked silently. If it is open, offer it and wait for a yes.
   let otherTime = false;
   const ckTop = requestedClock(latest) || bareHourOf(latest);
@@ -372,7 +384,7 @@ export async function runRules(ctx, fx, trigger) {
     const dayName = reqDay.rel || dateLabel(reqDay.date, true).split(',')[0];
     const on = reqDay.rel ? '' : 'on ';
     const onThatDay = cal.slots.some((sl) => sl.slot_id.slice(0, 10) === reqDay.date);
-    dayNote = timeNote ? (onThatDay ? `${timeNote}${noteDone ? '' : `Here is what is open ${on}${dayName} instead. `}` : `${timeNote}I do not have another opening ${on}${dayName}, so here are the nearest times. `) : onThatDay ? `Here is what is open ${on}${dayName}. ` : `I do not have an opening ${on}${reqDay.rel || (reqDay.weekday ? dayName : dateLabel(reqDay.date))}. We are open ${config.hours.text}, so here are the nearest times. `;
+    dayNote = timeNote ? (onThatDay ? `${timeNote}${noteDone ? '' : `Here is what is open ${on}${dayName} instead. `}` : `${timeNote}Nothing else is open ${on}${dayName}, so here are the nearest times on other days. `) : onThatDay ? `Here is what is open ${on}${dayName}. ` : `I do not have an opening ${on}${reqDay.rel || (reqDay.weekday ? dayName : dateLabel(reqDay.date))}. We are open ${config.hours.text}, so here are the nearest times. `;
     const hol = holidayName(reqDay.date);
     if (hol) {
       dayNote = `${reqDay.rel ? upper1(reqDay.rel) : dateLabel(reqDay.date)} is ${hol}, and I do not know our holiday hours, so a teammate will confirm holiday hours. These times follow our regular schedule and are not confirmed. `;
@@ -385,9 +397,9 @@ export async function runRules(ctx, fx, trigger) {
   const body = unpriced ? `I can find you a time. ${price}` : q.price_range ? `${price.replace(/ usually runs/, inLoc + ' usually runs')}` : `Happy to help with your ${lc(q.service_label)}${inLoc}. ${price}`;
   let insNote = '';
   if (flags.insuranceNote) {
-    insNote = 'On insurance, I cannot confirm what we accept, so a teammate at the front desk will confirm that with you. ';
-    lead.confirmNeeded = lead.confirmNeeded || 'Customer asked about insurance (not in the business facts); a teammate should confirm which plans are accepted.';
-    ctx.step({ kind: 'info', title: 'Flagged for a teammate to confirm insurance (low priority, no phone alert)', detail: lead.confirmNeeded });
+    insNote = flags.factLabel ? 'On payment options, I cannot confirm those here, so a teammate will confirm that with you. ' : 'On insurance, I cannot confirm what we accept, so a teammate at the front desk will confirm that with you. ';
+    lead.confirmNeeded = lead.confirmNeeded || (flags.factLabel ? 'Customer asked about payment options or pricing terms (not in the business facts); a teammate should confirm.' : 'Customer asked about insurance (not in the business facts); a teammate should confirm which plans are accepted.');
+    ctx.step({ kind: 'info', title: 'Flagged for a teammate to confirm (low priority, no phone alert)', detail: lead.confirmNeeded });
   }
   let text = `Hi ${first}! ${fa.any ? factText + ' ' : ''}${insNote}${bookNote}${dayNote}${intro}${body} Open times: ${times}. Which one works?`;
   // Never send the identical offer twice in a row.

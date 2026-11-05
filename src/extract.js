@@ -201,15 +201,20 @@ export function asksOtherTime(text, slots) {
  */
 export function strictPick(text, slots) {
   if (typeof text !== 'string' || !slots?.length) return null;
-  const t = text.trim().toLowerCase().replace(/\b(?:sounds|looks) good\b/g, 'sounds_ok');
+  // Allowlist over the WHOLE message: normalize, remove known filler, and what is left must be empty or one reference to a shown option.
+  // Any other word ("doesnt work", "skip", "unless", "if", "out", "maybe", a person, a question) means no booking.
+  const t = text.toLowerCase().replace(/[‘’ʼ'`]/g, '').replace(/[^a-z0-9:#]+/g, ' ').replace(/\s+/g, ' ').trim();
   if (!t || t.length > 90) return null;
-  if (/\?|n't|\b(?:no|nope|not|never|but|cancel\w*|except|instead|also|too|and|or|how|what|why|when|where|who|wife|husband|son|daughter|kids?|child\w*|mom|mother|dad|father|friend|people|persons?|appointments|everyone|both|anything|else|another|different|other|rather|thanks?|thank|thx|bad|worse|terrible|early|late|morning|thing|hate|prefer|good)\b/.test(t)) return null;
-  const rest = t
-    .replace(/\b(?:yes|yeah|yep|yup|ok|okay|sure|please|pls|thanks|thank you|great|perfect|sounds_ok|that works|works for me|works|book it|book that|book|let'?s do it|go ahead|i'?ll take|i will take|take|i'?ll|i will|i'?d like|would like|want|then)\b/g, ' ')
-    .replace(/[^a-z0-9:]+/g, ' ').trim();
-  if (!rest || rest === 'it' || rest === 'that' || rest === 'that one' || rest === 'it is') {
+  const AFFIRM = (/\b(?:thanks|thank|thx)\b/.test(t) ? t.replace(/\b(?:ok|okay)\b/g, ' ') : t).match(/\b(?:yes|yeah|yep|yup|ok|okay|sure|that works|works for me|that time works|sounds good|sounds great|looks good|thats fine|that is fine|perfect|awesome|great|book it|book that|book me in|book me|go ahead|lets do it|lets do|see you then|ill take|i will take|confirm)\b/) !== null;
+  const FILLER = ['that would be great', 'that time works', 'that works for me', 'that works', 'works for me', 'sounds good', 'sounds great', 'looks good', 'thats fine', 'that is fine', 'see you then', 'see you', 'book me in', 'book me', 'book it', 'book that', 'go ahead', 'lets do it', 'lets do', 'ill take', 'i will take', 'i would like', 'id like', 'thank you', 'thanks', 'thx', 'please', 'pls', 'yes', 'yeah', 'yep', 'yup', 'okay', 'ok', 'sure', 'great', 'perfect', 'awesome', 'confirm', 'for me', 'works', 'book', 'then', 'it', 'that'];
+  let rest = ` ${t} `;
+  for (const f of FILLER) rest = rest.replace(new RegExp(`(?<=\\s)${f}(?=\\s)`, 'g'), ' ');
+  rest = rest.replace(/\s+/g, ' ').trim();
+  const REF_WORDS = new Set(['the', 'one', 'option', 'number', 'at', 'on', 'first', 'second', 'third', 'fourth', 'fifth', 'last', 'time', 'you', 'offered', 'earlier', 'later', 'latest', 'earliest', 'soonest', 'am', 'pm', 'a', 'm', 'noon', 'oclock', ...WEEKDAYS.flatMap((w) => [w.toLowerCase(), w.toLowerCase().slice(0, 3), w.toLowerCase().slice(0, 4)])]);
+  if (rest && !rest.split(' ').every((w) => REF_WORDS.has(w) || /^#?\d{1,2}(?::\d\d)?(?:st|nd|rd|th|am|pm)?$/.test(w))) return null;
+  if (!rest) {
     // only an explicit affirmative books; "thanks" or a lone "please" never does
-    return slots.length === 1 && /\b(?:yes|yeah|yep|yup|ok|okay|sure|that works|works for me|sounds_ok|book it|book that|let'?s do it|go ahead|perfect|great|please book)\b/.test(t) ? slots[0] : null;
+    return slots.length === 1 && AFFIRM ? slots[0] : null;
   }
   const named = WEEKDAYS.some((_, i) => namesWeekday(rest, i));
   if (named && !/\d/.test(rest)) return null; // a day alone is a question about that day, not a pick

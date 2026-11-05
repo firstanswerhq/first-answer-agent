@@ -1,7 +1,7 @@
 // The six functions the agent can call. Every call goes through the same path whether it
 // comes from the model or from the offline rules engine: validate arguments, enforce
 // guardrails in code, write state, and record a timeline step.
-import { findZip, strictPick, asksOtherTime } from './extract.js';
+import { findZip, strictPick, asksOtherTime, requestedClock } from './extract.js';
 import { shownSlots } from './timecheck.js';
 import { cleanText, money, rid, round2, firstName } from './util.js';
 import { openSlots, listSlots, localNow, isRealSlot, isBookableNow, slotLabel, isOpenNow, isValidDate, dateOf, DATE_RE, feedFor, calendarSource, slotCheck, calendarLabel } from './calendar.js';
@@ -317,7 +317,11 @@ export class Functions {
     const offered = lead.offeredSlots || [];
     if (offered.length && strictPick(last, offered) === slotId) return true;
     const question = /\?|\b(?:can|could|would|do|does|is|are|how|what)\b.{0,30}\b(?:you|it|that|there)\b|\b(?:how|what) about\b|\binstead\b|\banything\b|\bavailab/i.test(last);
-    return !question && /\b(?:book|schedule|reserve|put me down|sign me up|i(?:'ll| will) take|take it|go ahead)\b/i.test(last) && !asksOtherTime(last, offered);
+    if (question || !/\b(?:book|schedule|reserve|put me down|sign me up|i(?:'ll| will) take|take it|go ahead)\b/i.test(last) || asksOtherTime(last, offered)) return false;
+    // An outright request must name the day or time itself ("Book it" with nothing offered picks nothing), and the slot must be at the stated time.
+    if (!/\b(?:mon|tue|wed|thu|fri|sat|sun)\w*\b|\btomorrow\b|\btoday\b|\d/i.test(last)) return false;
+    const ck = requestedClock(last);
+    return !ck || (ck.minute === 0 && ck.hour === Number(String(slotId).slice(11, 13)));
   }
 
   // The first reason a model reply was refused (a rule id only, never any text); used to explain a fallback to the rules.
