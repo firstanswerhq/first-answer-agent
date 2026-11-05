@@ -283,15 +283,13 @@ export class Agent {
     const step = this.stepper(lead, runInfo);
     const lastCustomer = [...lead.messages].reverse().find((m) => m.from === 'customer');
     const flags = classify(lastCustomer?.text || '', config.profile);
-    // "Do you take Delta Dental? Anything open Friday?": an insurance question is a fact to confirm, not a safety event. With a scheduling ask
-    // in the same message, answer the times now and flag the insurance part for a teammate (low priority, no phone alert).
+    // An insurance question is a fact to confirm, not a safety event: the reply says a teammate will confirm, the lead is flagged (low priority),
+    // and there is no owner phone alert. With a scheduling ask in the same message the times are answered too.
     if (flags.topic === 'insurance' && !flags.medical && !flags.emergency && !flags.complaint && !flags.injection && !flags.outOfScope) {
       const text = lastCustomer?.text || '';
       const without = classify(text, { ...config.profile, alwaysHuman: config.profile.alwaysHuman.filter((t) => t.id !== 'insurance') });
       const schedules = requestedDay(text, dateOf(localNow(this.now(), config.business.tz))) || windowOf(text) || /\b(?:anything|something)\s+open\b|\bopenings?\b|\bavailab\w*|\bsoonest\b|\bearliest\b|\bappointment\b/i.test(text);
-      if (!without.handoff && !without.topic && schedules) {
-        Object.assign(flags, without, { insuranceNote: true });
-      }
+      if (!without.handoff && !without.topic) Object.assign(flags, without, { insuranceNote: schedules ? true : 'only' });
     }
     // The name field is customer text too: instructions hidden in it are treated like instructions in a message.
     const nameFlags = classify(lead.name, null);

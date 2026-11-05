@@ -27,7 +27,8 @@ test('unknown questions are acknowledged: a teammate will confirm, low priority,
 
 test('a specific insurance plan goes to the front desk', async () => {
   const { l, text } = await ask('dental', 'Do you take Delta Dental?');
-  assert.equal(l.status, 'human');
+  assert.equal(l.status, 'replied');
+  assert.ok(l.confirmNeeded);
   assert.match(text, /front desk/);
 });
 

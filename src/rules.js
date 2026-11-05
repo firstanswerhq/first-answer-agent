@@ -107,6 +107,13 @@ export async function runRules(ctx, fx, trigger) {
     return;
   }
 
+  if (flags.insuranceNote === 'only') {
+    lead.confirmNeeded = lead.confirmNeeded || 'Customer asked about insurance (not in the business facts); a teammate should confirm which plans are accepted.';
+    ctx.step({ kind: 'info', title: 'Flagged for a teammate to confirm insurance (low priority, no phone alert)', detail: lead.confirmNeeded });
+    await reply('Insurance questions go to our front desk, so a teammate there will confirm that with you. I cannot say which plans we accept. If you would like an appointment in the meantime, tell me a day and I will check the times.');
+    return;
+  }
+
   // A second named service ("a haircut and a blowout") is recorded too, so both price ranges can be quoted.
   const also = mentioned.find((id) => id !== service && service !== 'other');
   const q = await fx.call('qualify_lead', { service, urgency: level, location: loc.text, notes: latest.slice(0, 280), ...(also ? { also_service: also } : {}) });

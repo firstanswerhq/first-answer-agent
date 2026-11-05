@@ -94,10 +94,14 @@ test('Live: insurance plus a scheduling ask answers the times, flags the insuran
   assert.equal(sent.length, 0);
 });
 
-test('Live: insurance alone is still a hand-off to a person', async () => {
-  const env = makeEnv();
+test('Live: insurance alone says a teammate will confirm, is flagged, and sends no owner alert', async () => {
+  const sent = [];
+  const env = makeEnv({ notifier: { alert: async (lead, a) => { sent.push(a); return { status: 'sent' }; } } });
   const l = await newLead(env, { message: 'Do you take Delta Dental insurance?' });
-  assert.equal(l.status, 'human');
+  await env.agent.settled();
+  assert.match(agentTexts(l).at(-1), /teammate there will confirm/);
+  assert.match(l.confirmNeeded || '', /insurance/i);
+  assert.equal(sent.length, 0);
 });
 
 test('L1/L2: "a week from Friday", "Thursday the 12", weekday/date mismatch', () => {

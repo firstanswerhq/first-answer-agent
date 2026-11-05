@@ -104,8 +104,9 @@ test('ordinary messages are still answered, not handed off (no false positives)'
 
 test('insurance handoff says why', async () => {
   const { l, text } = await ask('dental', 'Do you take Delta Dental insurance? Not sure what my copay would be.');
-  assert.equal(l.status, 'human');
-  assert.match(text, /Insurance and billing questions go to our front desk/);
+  assert.equal(l.status, 'replied'); // flagged for a teammate to confirm, no handoff and no alert
+  assert.ok(l.confirmNeeded);
+  assert.match(text, /Insurance questions go to our front desk/);
 });
 
 test('wording: a service with no quote reads as a sentence, not "Label: text"', async () => {

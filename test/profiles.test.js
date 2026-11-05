@@ -102,8 +102,10 @@ for (const name of PROFILE_NAMES) {
     const topic = cfg.profile.alwaysHuman[0];
     const phrase = topic.phrases[0].trim();
     const l = await run(env, { name: 'Topic Test', phone: '(615) 555-0190', source: 'Website form', message: `Question about ${phrase} before I book.` });
-    assert.equal(l.status, 'human', `${name}: ${phrase}`);
-    assert.match(l.humanReason, new RegExp(topic.label.slice(0, 15)));
+    if (topic.id === 'insurance') { assert.equal(l.status, 'replied', `${name}: ${phrase}`); assert.ok(l.confirmNeeded); } else {
+      assert.equal(l.status, 'human', `${name}: ${phrase}`);
+      assert.match(l.humanReason, new RegExp(topic.label.slice(0, 15)));
+    }
     const oos = await run(env, { name: 'Scope Test', phone: '(615) 555-0191', source: 'Website form', message: `Do you offer ${cfg.profile.outOfScope[0]}?` });
     assert.equal(oos.status, 'human');
   });

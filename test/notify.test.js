@@ -106,7 +106,7 @@ test('notify: model-chosen escalation alerts too, and sample data never does', a
   const transport = fakeTransport();
   const llm = fakeLlm([reply(call('qualify_lead', { service: 'checkup', urgency: 'routine' })), reply(call('escalate_to_human', { reason: 'Customer wants a custom plan', priority: 'normal' })), reply(call('send_reply', { text: 'A teammate will follow up.' })), reply()]);
   const env = build({ topic: 't', transport }, llm);
-  await run(env, { message: 'I would like a checkup and a custom payment plan', name: 'Lee Park' });
+  await run(env, { message: 'I would like a checkup and a custom plan just for me', name: 'Lee Park' });
   assert.equal(transport.calls.length, 1);
   const seed = build({ topic: 't', transport });
   const { lead, done } = seed.svc.createLead(leadInput(angry), { seed: true, simulated: true }); await done; await seed.agent.settled();
